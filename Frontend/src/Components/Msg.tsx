@@ -1,0 +1,142 @@
+import { useState, useRef, useEffect } from 'react'
+import { Send } from 'lucide-react'
+
+interface Message {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: Date
+}
+
+const Msg = () => {
+  const [messages, setMessages] = useState<Message[]>([])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Auto-scroll to bottom on new message
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.style.height = 'auto'
+    textarea.style.height = `${textarea.scrollHeight}px`
+  }, [input])
+
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return
+
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: input.trim(),
+      timestamp: new Date(),
+    }
+
+    setMessages((prev) => [...prev, userMsg])
+    setInput('')
+    setLoading(true)
+
+    // TODO: replace with your actual API call
+    setTimeout(() => {
+      const assistantMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: 'This is a placeholder response.',
+        timestamp: new Date(),
+      }
+      setMessages((prev) => [...prev, assistantMsg])
+      setLoading(false)
+    }, 1000)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      sendMessage()
+    }
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4 ">
+        {messages.length === 0 && (
+          <div className="flex items-center justify-center h-[95%]">
+            <p className="text-gray-400 dark:text-gray-500 text-sm">
+              Start a conversation...
+            </p>
+          </div>
+        )}
+
+        {messages.map((msg) => (
+          <div
+            key={msg.id}
+            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
+            <div
+              className={`max-w-[75%] px-4 py-2 rounded-2xl text-sm leading-relaxed
+                ${msg.role === 'user'
+                  ? 'bg-blue-600 text-white rounded-br-sm'
+                  : 'bg-gray-100 dark:bg-gray-700 text-black dark:text-white rounded-bl-sm'
+                }`}
+            >
+              <p className="whitespace-pre-wrap">{msg.content}</p>
+              <p className={`text-xs mt-1 ${msg.role === 'user' ? 'text-blue-200' : 'text-gray-400'}`}>
+                {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+          </div>
+        ))}
+
+        {/* Typing indicator */}
+        {loading && (
+          <div className="flex justify-start">
+            <div className="bg-gray-100 dark:bg-gray-700 px-4 py-3 rounded-2xl rounded-bl-sm">
+              <div className="flex gap-1 items-center">
+                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:0ms]" />
+                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:150ms]" />
+                <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:300ms]" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Input */}
+      <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex items-end gap-2 bg-gray-100 dark:bg-gray-800 rounded-2xl px-4 py-2">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Type a message... (Enter to send, Shift+Enter for newline)"
+            rows={1}
+            className="flex-1 bg-transparent resize-none outline-none text-sm 
+              text-black dark:text-white placeholder-gray-400 max-h-40 py-1"
+          />
+          <button
+            onClick={sendMessage}
+            disabled={!input.trim() || loading}
+            className="mb-1 p-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 
+              disabled:opacity-40 disabled:cursor-not-allowed transition text-white"
+          >
+            <Send size={16} />
+          </button>
+        </div>
+      </div>
+
+    </div>
+  )
+}
+
+export default Msg
