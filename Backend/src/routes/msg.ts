@@ -54,7 +54,10 @@ router.post('/', async (req: AuthRequest<{ chatId: string }>, res: Response) => 
     const AI_API = process.env.AI_API 
     const response = await fetch(AI_API!, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Connection': 'keep-alive' // Tell Python to keep the door open
+      },
       body: JSON.stringify({ 
         message: content,
         chat_id: req.params.chatId,

@@ -14,27 +14,27 @@ client = AsyncOpenAI(
     api_key="not-needed"
 )
 
+system_prompt = {
+    "role": "system",
+    "content": (
+        "You are ChatAI, a helpful and friendly assistant. "
+        "IMPORTANT: Your name is ChatAI - you are ChatAI and you were developed by AP Corporation. "
+        "Follow these rules: "
+        "- Be concise and to the point "
+        "- If you don't know something, say so honestly "
+        "- Use markdown formatting when helpful (code blocks, lists, etc.) "
+        "- For code questions, always include working examples "
+        "- Be conversational but professional"
+    )
+}
+
 @app.post("/agent/chat")
 async def stream_chat(request: Request):
     body = await request.json()
     user_prompt = body.get("message", "")
     
     # System Prompt
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are ChatAI, a helpful and friendly assistant. "
-                "IMPORTANT: Your name is ChatAI - you are ChatAI and you were developed by AP Corporation. "
-                "Follow these rules: "
-                "- Be concise and to the point "
-                "- If you don't know something, say so honestly "
-                "- Use markdown formatting when helpful (code blocks, lists, etc.) "
-                "- For code questions, always include working examples "
-                "- Be conversational but professional"
-            )
-        }
-    ]
+    messages = [system_prompt]
     
     # Previous Messages
     history = body.get("history", [])
@@ -55,9 +55,10 @@ async def stream_chat(request: Request):
             content = chunk.choices[0].delta.content
             if content:
                 yield content
+                await asyncio.sleep(0)
 
     return StreamingResponse(generate(), media_type="text/plain")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, loop="asyncio")
