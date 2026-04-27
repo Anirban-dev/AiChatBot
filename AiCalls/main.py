@@ -10,7 +10,7 @@ app = FastAPI()
 
 # Setup the client to talk to your local model
 client = AsyncOpenAI(
-    base_url=os.getenv("AI_BASE_URL"),
+    base_url=os.getenv("AI_API"),
     api_key="not-needed"
 )
 
