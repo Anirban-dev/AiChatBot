@@ -1,20 +1,16 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send } from 'lucide-react'
-import { getMsgs, sendMsg } from '../API/Msg'
-
-interface Message {
-  _id: string
-  role: 'user' | 'assistant'
-  content: string
-  createdAt: string
-}
+import { getMsgs } from '../API/Msg'
+import { useSendMessage } from './Hook/SendMessage'
+import type { Message } from './Hook/Types/Message'
 
 const Msg = ({ chatId }: { chatId: string }) => {
   const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  
+
+  const { input, setInput, sendMessage, loading } = useSendMessage(chatId, setMessages)
 
   // Auto-scroll to bottom on new message
   useEffect(() => {
@@ -42,41 +38,6 @@ const Msg = ({ chatId }: { chatId: string }) => {
     }
     fetchMsgs()
   }, [chatId])
-
-  // Send a Message
-  const sendMessage = async () => {
-    if (!input.trim() || loading) return
-
-    const content = input.trim()
-    setInput('')
-    setLoading(true)
-
-    // Optimistic user message
-    const optimisticMsg: Message = {
-      _id: crypto.randomUUID(),
-      role: 'user',
-      content,
-      createdAt: new Date().toISOString(),
-    }
-    setMessages((prev) => [...prev, optimisticMsg])
-
-    try {
-      const { userMessage, assistantMessage } = await sendMsg(chatId, content)
-
-      // Replace optimistic msg with real one + add assistant msg
-      setMessages((prev) => [
-        ...prev.filter(m => m._id !== optimisticMsg._id),
-        userMessage,
-        assistantMessage
-      ])
-    } catch (err) {
-      // Remove optimistic msg on error
-      setMessages((prev) => prev.filter(m => m._id !== optimisticMsg._id))
-      console.error(err)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
