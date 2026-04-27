@@ -15,11 +15,21 @@ interface ChatContextType {
   updateMessage: (chatId: string, msgId: string, update: Partial<Message>) => void
   removeMessage: (chatId: string, msgId: string) => void
   appendToken: (chatId: string, msgId: string, token: string) => void
+  setLoading: (chatId: string, val: boolean) => void
+  isLoading: (chatId: string) => boolean
 }
 
 const ChatContext = createContext<ChatContextType | null>(null)
 
 export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
+  const [loadingChats, setLoadingChats] = useState<Record<string, boolean>>({})
+  
+  const setLoading = (chatId: string, val: boolean) => {
+    setLoadingChats(prev => ({ ...prev, [chatId]: val }))
+  }
+  
+  const isLoading = (chatId: string) => loadingChats[chatId] || false
+
   const [store, setStore] = useState<Record<string, Message[]>>({})
 
   const getMessages = (chatId: string) => store[chatId] || []
@@ -79,7 +89,7 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
   return (
     <ChatContext.Provider value={{
       getMessages, setMessages, appendMessage,
-      updateMessage, removeMessage, appendToken
+      updateMessage, removeMessage, appendToken, setLoading, isLoading
     }}>
       {children}
     </ChatContext.Provider>

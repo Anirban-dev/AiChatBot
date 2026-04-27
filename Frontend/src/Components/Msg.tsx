@@ -29,6 +29,7 @@ const Msg = ({ chatId }: { chatId: string }) => {
   // Get all messages
   useEffect(() => {
     if (!chatId) return
+    if (getMessages(chatId).length > 0) return
     const fetchMsgs = async () => {
       try {
         const data = await getMsgs(chatId)

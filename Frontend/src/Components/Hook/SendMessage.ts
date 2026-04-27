@@ -6,16 +6,17 @@ export const useSendMessage = (
   chatId: string
 ) => {
   const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
 
-  const { appendMessage, appendToken, updateMessage, removeMessage } = useChatStore()
+  const { appendMessage, appendToken, updateMessage, removeMessage, isLoading, setLoading } = useChatStore()
+
+  const loading = isLoading(chatId)
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return
 
     const content = input.trim()
     setInput('')
-    setLoading(true)
+    setLoading(chatId, true)
 
     const streamingId = crypto.randomUUID()
     const targetChatId = chatId // capture at send time
@@ -34,18 +35,18 @@ export const useSendMessage = (
         // onDone
         (assistantMsg) => {
             updateMessage(targetChatId, streamingId, assistantMsg)
-            if (targetChatId === chatId) setLoading(false)
+            if (targetChatId === chatId) setLoading(chatId, false)
         },
 
         // onError
         () => {
             removeMessage(targetChatId, streamingId)
-            if (targetChatId === chatId) setLoading(false)
+            if (targetChatId === chatId) setLoading(chatId, false)
         }
       )
     } catch (err) {
         console.error(err)
-        setLoading(false)
+        setLoading(chatId, false)
     }
   }
 
