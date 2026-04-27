@@ -1,16 +1,17 @@
-import { useState, useRef, useEffect } from 'react'
+import { useRef, useEffect } from 'react'
 import { Send } from 'lucide-react'
 import { getMsgs } from '../API/Msg'
 import { useSendMessage } from './Hook/SendMessage'
-import type { Message } from './Hook/Types/Message'
+import { useChatStore } from '../Context/ChatContext'
 
 const Msg = ({ chatId }: { chatId: string }) => {
-  const [messages, setMessages] = useState<Message[]>([])
+  const { getMessages, setMessages } = useChatStore()
+
+  const messages = getMessages(chatId)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  
 
-  const { input, setInput, sendMessage, loading } = useSendMessage(chatId, setMessages)
+  const { input, setInput, sendMessage, loading } = useSendMessage(chatId)
 
   // Auto-scroll to bottom on new message
   useEffect(() => {
@@ -31,7 +32,7 @@ const Msg = ({ chatId }: { chatId: string }) => {
     const fetchMsgs = async () => {
       try {
         const data = await getMsgs(chatId)
-        setMessages(data)
+        setMessages(chatId, data)
       } catch (err) {
         console.error(err)
       }

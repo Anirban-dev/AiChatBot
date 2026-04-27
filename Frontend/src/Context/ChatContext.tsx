@@ -1,5 +1,5 @@
 // src/context/ChatContext.tsx
-import { createContext, useContext, useRef, useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 
 interface Message {
   _id: string

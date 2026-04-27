@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { sendMsg } from '../../API/Msg'
-import type { Message } from './Types/Message'
+import { useChatStore } from '../../Context/ChatContext'
 
 export const useSendMessage = (
-  chatId: string,
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>
+  chatId: string
 ) => {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+
+  const { appendMessage, appendToken, updateMessage, removeMessage } = useChatStore()
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return
@@ -16,61 +17,37 @@ export const useSendMessage = (
     setInput('')
     setLoading(true)
 
-    // Placeholder for streaming assistant message
     const streamingId = crypto.randomUUID()
+    const targetChatId = chatId // capture at send time
 
     try {
-        await sendMsg(
-        chatId,
+      await sendMsg(
+        targetChatId,
         content,
 
-        // onToken — append each word to the streaming bubble
-        (token) => {
-            setMessages((prev) => {
-            const existing = prev.find(m => m._id === streamingId)
-            if (existing) {
-                // append token to existing bubble
-                return prev.map(m =>
-                m._id === streamingId
-                    ? { ...m, content: m.content + token }
-                    : m
-                )
-            } else {
-                // create the bubble on first token
-                return [...prev, {
-                _id: streamingId,
-                role: 'assistant',
-                content: token,
-                createdAt: new Date().toISOString(),
-                }]
-            }
-            })
-        },
+        // onToken
+        (token) => appendToken(targetChatId, streamingId, token),
 
-        // onUserMessage — add real user message
-        (userMsg) => {
-            setMessages(prev => [...prev, userMsg])
-        },
+        // onUserMessage
+        (userMsg) => appendMessage(targetChatId, userMsg),
 
-        // onDone — replace streaming bubble with real DB message
+        // onDone
         (assistantMsg) => {
-            setMessages(prev =>
-            prev.map(m => m._id === streamingId ? assistantMsg : m)
-            )
-            setLoading(false)
+            updateMessage(targetChatId, streamingId, assistantMsg)
+            if (targetChatId === chatId) setLoading(false)
         },
 
         // onError
         () => {
-            setMessages(prev => prev.filter(m => m._id !== streamingId))
-            setLoading(false)
+            removeMessage(targetChatId, streamingId)
+            if (targetChatId === chatId) setLoading(false)
         }
-        )
+      )
     } catch (err) {
         console.error(err)
         setLoading(false)
     }
-}
+  }
 
   return { input, setInput, sendMessage, loading }  // expose input & setInput
 }
