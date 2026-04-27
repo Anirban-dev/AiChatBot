@@ -8,3 +8,7 @@ npm run dev
 
 # Run mongodb
 # Run docker ai
+
+# Run the aiapi
+cd aicalls
+uv run main.py

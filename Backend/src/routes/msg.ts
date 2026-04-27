@@ -3,11 +3,9 @@ import { Router, Request, Response } from 'express'
 import { Message } from '../models/msg'
 import { Chat } from '../models/chat'
 import authMiddleware, { AuthRequest } from '../middleware/auth'
-import OpenAI from 'openai'
 
-const router = Router({ mergeParams: true }) // to access :chatId from parent router
+const router = Router({ mergeParams: true }) 
 router.use(authMiddleware)
-
 
 // Get all messages for a chat
 router.get('/', async (req: Request<{ chatId: string }>, res: Response) => {
@@ -19,98 +17,93 @@ router.get('/', async (req: Request<{ chatId: string }>, res: Response) => {
   }
 })
 
-
 // Send a message
 router.post('/', async (req: AuthRequest<{ chatId: string }>, res: Response) => {
   const { content } = req.body
 
   if (!content) {
-    return res.status(400).json({ error: 'content and role are required' })
+    return res.status(400).json({ error: 'Content is required' })
   }
-
-  const client = new OpenAI({
-    baseURL: process.env.AI_API, // http://localhost:12434/engines/v1
-    apiKey: 'not-needed',
-  })
 
   try {
     const chat = await Chat.findOne({ _id: req.params.chatId, userId: req.userId })
     if (!chat) return res.status(404).json({ error: 'Chat not found' })
 
-    // Save user message
+    // 1. Save user message immediately
     const userMessage = await Message.create({
       chatId: req.params.chatId,
       role: 'user',
       content,
     })
 
-    // Set streaming headers
+    // 2. Set streaming headers
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
+    if (res.flushHeaders) res.flushHeaders(); 
 
-    // Send user message first so frontend can display it
+    // 3. Inform frontend the user message was saved
     res.write(`event: userMessage\ndata: ${JSON.stringify(userMessage)}\n\n`)
 
+    // Get last 10 messages
     const previousMessages = await Message.find({ chatId: req.params.chatId })
       .sort({ createdAt: 1 })
-      .limit(10)
+      .limit(10);
 
-    const stream = await client.chat.completions.create({
-      model: 'ai/gemma4:E2B',
-      messages: [
-        // 1. SYSTEM PROMPT — instructions for the AI, user never sees this
-        {
-          role: 'system',
-          content: `You are ChatAI, a helpful and friendly assistant.
-                    IMPORTANT: Your name is ChatAI - you are ChatAI and you were developed by AP Corporation
-                    Follow these rules:
-                    - Be concise and to the point
-                    - If you don't know something, say so honestly
-                    - Use markdown formatting when helpful (code blocks, lists, etc.)
-                    - For code questions, always include working examples
-                    - Be conversational but professional`
-        },
-
-        // 2. PREVIOUS MESSGES - chat history so AI remembers context
-        ...previousMessages.map(m => ({
-          role: m.role as 'user' | 'assistant',
+    // 4. Call Python RAG API
+    const AI_API = process.env.AI_API 
+    const response = await fetch(AI_API!, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        message: content,
+        chat_id: req.params.chatId,
+        history: previousMessages.map(m => ({
+          role: m.role,
           content: m.content
-        })),
+        }))
+      }),
+    });
 
-        // 3. USER PROMPT — what the user actually typed
-        {
-          role: 'user',
-          content
-        }
-      ],
-      stream: true,
-    })
-    let fullContent = ''
-    
-    // SDK handles all parsing — just iterate
-    for await (const chunk of stream) {
-      const token = chunk.choices[0]?.delta?.content || ''
-      if (token) {
-        fullContent += token
-        res.write(`event: token\ndata: ${JSON.stringify({ token })}\n\n`)
-      }
+    // Safety check: ensure the body exists
+    if (!response.body) {
+      throw new Error('AI API returned an empty body');
     }
 
-    // Save complete AI response to DB
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullContent = '';
+
+    // 5. The Streaming Loop
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      // Decode current chunk
+      const chunk = decoder.decode(value, { stream: true });
+      fullContent += chunk;
+
+      // Send the token to the frontend
+      res.write(`event: token\ndata: ${JSON.stringify({ token: chunk })}\n\n`);
+    }
+
+    // 6. Save complete AI response to DB
     const assistantMessage = await Message.create({
       chatId: req.params.chatId,
       role: 'assistant',
       content: fullContent,
     })
 
-    // Tell frontend stream is done
+    // 7. Tell frontend stream is done
     res.write(`event: done\ndata: ${JSON.stringify(assistantMessage)}\n\n`)
     res.end()
 
   } catch (err) {
-    console.error(err)
-    res.write(`event: error\ndata: ${JSON.stringify({ error: 'Failed' })}\n\n`)
+    console.error("Streaming Error:", err);
+    if (!res.headersSent) {
+        return res.status(500).json({ error: 'Internal Server Error' });
+    }
+    res.write(`event: error\ndata: ${JSON.stringify({ message: 'Stream interrupted' })}\n\n`)
     res.end()
   }
 })
