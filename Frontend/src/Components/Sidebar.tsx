@@ -1,6 +1,6 @@
-import { Link, NavLink, useLocation } from 'react-router-dom'
-import { Plus, MessageSquare } from 'lucide-react'
-import { allChat } from '../API/ChatCount'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { Plus, MessageSquare, Trash2  } from 'lucide-react'
+import { allChat, deleteChat  } from '../API/Chat'
 import { useEffect, useState } from 'react'
 
 const Sidebar = ({isMobile, collapsed, setCollapsed, title}: any) => {
@@ -11,6 +11,11 @@ const Sidebar = ({isMobile, collapsed, setCollapsed, title}: any) => {
 
   const [chats, setChats] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [contextMenu, setContextMenu] = useState<{
+    x: number
+    y: number
+    chatId: string
+  } | null>(null)
 
   useEffect(() => {
     const fetchChats = async () => {
@@ -28,6 +33,7 @@ const Sidebar = ({isMobile, collapsed, setCollapsed, title}: any) => {
   }, [])
 
   const location = useLocation()
+  const navigate = useNavigate()
 
   useEffect(() => {
     const fetchChats = async () => {
@@ -43,6 +49,35 @@ const Sidebar = ({isMobile, collapsed, setCollapsed, title}: any) => {
 
     fetchChats()
   }, [location.pathname])
+
+  // Close context menu on click anywhere
+  useEffect(() => {
+    const handleClick = () => setContextMenu(null)
+    window.addEventListener('click', handleClick)
+    return () => window.removeEventListener('click', handleClick)
+  }, [])
+
+  const handleRightClick = (e: React.MouseEvent, chatId: string) => {
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY, chatId })
+  }
+
+  const handleDelete = async () => {
+    if (!contextMenu) return
+    try {
+      await deleteChat(contextMenu.chatId)
+      setChats((prev) => prev.filter(c => c.id !== contextMenu.chatId))
+
+      // If currently viewing deleted chat, redirect to home
+      if (location.pathname.includes(contextMenu.chatId)) {
+        navigate('/')
+      }
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setContextMenu(null)
+    }
+  }
 
   return (
     <>
@@ -96,6 +131,7 @@ const Sidebar = ({isMobile, collapsed, setCollapsed, title}: any) => {
             <NavLink
               key={chat.id}
               to={`/${chat.id}`}
+              onContextMenu={(e) => handleRightClick(e, chat.id)}
               className={({ isActive }) =>
               `flex items-center gap-2 p-2 rounded-lg transition ${
                 isActive
@@ -120,6 +156,23 @@ const Sidebar = ({isMobile, collapsed, setCollapsed, title}: any) => {
           </div>
         )}
       </div>
+      {/* Context Menu */}
+      {contextMenu && (
+        <div
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          className="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 
+            dark:border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]"
+        >
+          <button
+            onClick={handleDelete}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm
+              text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
+          >
+            <Trash2 size={14} />
+            Delete Chat
+          </button>
+        </div>
+      )}
     </>
   )
 }

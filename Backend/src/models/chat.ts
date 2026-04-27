@@ -1,7 +1,12 @@
 // src/models/Chat.ts
-import mongoose from 'mongoose'
+import mongoose, { Document } from 'mongoose'
 
-const chatSchema = new mongoose.Schema({
+export interface IChat extends Document {
+  title: string
+  userId: mongoose.Types.ObjectId
+}
+
+const chatSchema = new mongoose.Schema<IChat>({
   title: {
     type: String,
     required: true,
@@ -13,4 +18,4 @@ const chatSchema = new mongoose.Schema({
   }
 }, { timestamps: true })
 
-export const Chat = mongoose.model('Chat', chatSchema)
+export const Chat = mongoose.model<IChat>('Chat', chatSchema)

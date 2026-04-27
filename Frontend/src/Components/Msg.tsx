@@ -1,14 +1,15 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send } from 'lucide-react'
+import { getMsgs, sendMsg } from '../API/Msg'
 
 interface Message {
-  id: string
+  _id: string
   role: 'user' | 'assistant'
   content: string
-  timestamp: Date
+  createdAt: string
 }
 
-const Msg = () => {
+const Msg = ({ chatId }: { chatId: string }) => {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -28,31 +29,53 @@ const Msg = () => {
     textarea.style.height = `${textarea.scrollHeight}px`
   }, [input])
 
+  // Get all messages
+  useEffect(() => {
+    if (!chatId) return
+    const fetchMsgs = async () => {
+      try {
+        const data = await getMsgs(chatId)
+        setMessages(data)
+      } catch (err) {
+        console.error(err)
+      }
+    }
+    fetchMsgs()
+  }, [chatId])
+
+  // Send a Message
   const sendMessage = async () => {
     if (!input.trim() || loading) return
 
-    const userMsg: Message = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: input.trim(),
-      timestamp: new Date(),
-    }
-
-    setMessages((prev) => [...prev, userMsg])
+    const content = input.trim()
     setInput('')
     setLoading(true)
 
-    // TODO: replace with your actual API call
-    setTimeout(() => {
-      const assistantMsg: Message = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: 'This is a placeholder response.',
-        timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, assistantMsg])
+    // Optimistic user message
+    const optimisticMsg: Message = {
+      _id: crypto.randomUUID(),
+      role: 'user',
+      content,
+      createdAt: new Date().toISOString(),
+    }
+    setMessages((prev) => [...prev, optimisticMsg])
+
+    try {
+      const { userMessage, assistantMessage } = await sendMsg(chatId, content)
+
+      // Replace optimistic msg with real one + add assistant msg
+      setMessages((prev) => [
+        ...prev.filter(m => m._id !== optimisticMsg._id),
+        userMessage,
+        assistantMessage
+      ])
+    } catch (err) {
+      // Remove optimistic msg on error
+      setMessages((prev) => prev.filter(m => m._id !== optimisticMsg._id))
+      console.error(err)
+    } finally {
       setLoading(false)
-    }, 1000)
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -77,7 +100,7 @@ const Msg = () => {
 
         {messages.map((msg) => (
           <div
-            key={msg.id}
+            key={msg._id}
             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
@@ -89,7 +112,7 @@ const Msg = () => {
             >
               <p className="whitespace-pre-wrap">{msg.content}</p>
               <p className={`text-xs mt-1 ${msg.role === 'user' ? 'text-blue-200' : 'text-gray-400'}`}>
-                {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </p>
             </div>
           </div>

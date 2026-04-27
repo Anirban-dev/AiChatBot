@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { getChat } from '../API/ChatCount'
+import { getChat } from '../API/Chat'
 import Sidebar from '../Components/Sidebar'
 import Navbar from '../Components/Navbar'
 import Msg from '../Components/Msg'
@@ -70,7 +70,7 @@ function Chat() {
         />
 
         <div className="flex-1 bg-white dark:bg-gray-800 text-black dark:text-white p-4 min-h-0">
-          {loading ? "Loading..." : <Msg />}
+          {loading ? "Loading..." : <Msg chatId={chatId!}/>}
         </div>
       </div>
     </div>

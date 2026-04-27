@@ -1,4 +1,5 @@
-import { Sun, Moon, Menu } from 'lucide-react'
+import { Sun, Moon, Menu, LogOut, UserCircle } from 'lucide-react'
+import { logout } from '../API/Login'
 
 const Navbar = ({ dark, setDark, toggleSidebar }: any) => {
 
@@ -23,19 +24,25 @@ const Navbar = ({ dark, setDark, toggleSidebar }: any) => {
         </div>
 
       {/* Right Section */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-6 pr-4">
 
         {/* Theme Toggle */}
         <button onClick={() => setDark(!dark)} className='cursor-pointer'>
           {dark ? <Sun size={20} /> : <Moon size={20} />}
         </button>
 
-        {/* Auth Section */}
-        <img
-          src="https://i.pravatar.cc/40"
-          alt="user"
-          className="w-10 h-10 rounded-full cursor-pointer"
-        />
+        {/* Logout */}
+        <button
+          onClick={logout}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm
+            bg-red-500 hover:bg-red-600 text-white transition cursor-pointer"
+        >
+          <LogOut size={16} />
+          <span className="hidden sm:inline">Logout</span>
+        </button>
+
+        {/* Avatar */}
+        <UserCircle size={28} className="cursor-pointer" />
       </div>
     </div>
   )

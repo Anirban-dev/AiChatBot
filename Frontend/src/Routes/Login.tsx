@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-
-const BASE_URL = import.meta.env.VITE_BASE_URL;
+import { login, signup } from '../API/Login'
 
 const Login = () => {
   const [isLogin, setIsLogin] = useState(true)
@@ -16,43 +15,24 @@ const Login = () => {
   const navigate = useNavigate()
 
   const handleSubmit = async (e: any) => {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
+  e.preventDefault()
+  setLoading(true)
+  setError('')
 
-    try {
-      const url = isLogin
-        ? `${BASE_URL}/auth/login`
-        : `${BASE_URL}/auth/signup`
+  try {
+    const data = isLogin
+      ? await login(email, password)
+      : await signup(name, email, password)
 
-      const body = isLogin
-        ? { email, password }
-        : { name, email, password }
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        throw new Error(data.message || 'Something went wrong')
-      }
-
-      // Save token
-      localStorage.setItem('token', data.token)
-
-      navigate('/')
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
+    localStorage.setItem('token', data.token)
+    localStorage.setItem('user', JSON.stringify(data.user))
+    navigate('/')
+  } catch (err: any) {
+    setError(err.message)
+  } finally {
+    setLoading(false)
   }
+}
 
   return (
     <div className="flex items-center justify-center h-screen

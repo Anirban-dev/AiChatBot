@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createChat } from '../API/ChatCount'
+import { createChat } from '../API/Chat'
 
 const HomePage = () => {
   const navigate = useNavigate()
@@ -9,6 +9,7 @@ const HomePage = () => {
     const init = async () => {
       try {
         const chat = await createChat()
+        console.log(chat)
         navigate(`/${chat.id}`, { replace: true })
       } catch (err) {
         console.error(err)
