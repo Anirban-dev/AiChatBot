@@ -100,6 +100,10 @@ const Msg = ({ chatId }: { chatId: string }) => {
       {/* Input */}
       <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700">
         <div className="flex items-end gap-2 bg-gray-100 dark:bg-gray-800 rounded-2xl px-4 py-2">
+          <div
+            className='cursor-pointer text-2xl'
+            // onCmaick={}
+          >+</div>
           <textarea
             ref={textareaRef}
             value={input}

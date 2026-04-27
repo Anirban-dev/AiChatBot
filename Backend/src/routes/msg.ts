@@ -52,9 +52,38 @@ router.post('/', async (req: AuthRequest<{ chatId: string }>, res: Response) => 
     // Send user message first so frontend can display it
     res.write(`event: userMessage\ndata: ${JSON.stringify(userMessage)}\n\n`)
 
+    const previousMessages = await Message.find({ chatId: req.params.chatId })
+      .sort({ createdAt: 1 })
+      .limit(10)
+
     const stream = await client.chat.completions.create({
-      model: 'ai/gemma3:1B-Q4_K_M',
-      messages: [{ role: 'user', content }],
+      model: 'ai/gemma4:E2B',
+      messages: [
+        // 1. SYSTEM PROMPT — instructions for the AI, user never sees this
+        {
+          role: 'system',
+          content: `You are ChatAI, a helpful and friendly assistant.
+                    IMPORTANT: Your name is ChatAI - you are ChatAI and you were developed by AP Corporation
+                    Follow these rules:
+                    - Be concise and to the point
+                    - If you don't know something, say so honestly
+                    - Use markdown formatting when helpful (code blocks, lists, etc.)
+                    - For code questions, always include working examples
+                    - Be conversational but professional`
+        },
+
+        // 2. PREVIOUS MESSGES - chat history so AI remembers context
+        ...previousMessages.map(m => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content
+        })),
+
+        // 3. USER PROMPT — what the user actually typed
+        {
+          role: 'user',
+          content
+        }
+      ],
       stream: true,
     })
     let fullContent = ''

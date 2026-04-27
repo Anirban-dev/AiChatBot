@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
 import './index.css'
@@ -7,11 +7,9 @@ import { ChatProvider } from './Context/ChatContext'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <BrowserRouter>
-    <StrictMode>
       <ChatProvider>
         <App />
       </ChatProvider>
-    </StrictMode>
   </BrowserRouter>
 )
 
