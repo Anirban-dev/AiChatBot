@@ -17,21 +17,24 @@ router.get('/', async (req: Request<{ chatId: string }>, res: Response) => {
   }
 })
 
+
+
 // Send a message
 router.post('/', async (req: AuthRequest<{ chatId: string }>, res: Response) => {
   const { content } = req.body
+  const { chatId } = req.params
 
   if (!content) {
     return res.status(400).json({ error: 'Content is required' })
   }
 
   try {
-    const chat = await Chat.findOne({ _id: req.params.chatId, userId: req.userId })
+    const chat = await Chat.findOne({ _id: chatId, userId: req.userId })
     if (!chat) return res.status(404).json({ error: 'Chat not found' })
 
     // 1. Save user message immediately
     const userMessage = await Message.create({
-      chatId: req.params.chatId,
+      chatId,
       role: 'user',
       content,
     })
@@ -46,13 +49,13 @@ router.post('/', async (req: AuthRequest<{ chatId: string }>, res: Response) => 
     res.write(`event: userMessage\ndata: ${JSON.stringify(userMessage)}\n\n`)
 
     // Get last 10 messages
-    const previousMessages = await Message.find({ chatId: req.params.chatId })
+    const previousMessages = await Message.find({ chatId: chatId })
       .sort({ createdAt: 1 })
       .limit(10);
 
     // 4. Call Python RAG API
     const AI_API = process.env.AI_API 
-    const response = await fetch(AI_API!, {
+    const response = await fetch(`${process.env.AI_API}/chat`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
@@ -60,7 +63,7 @@ router.post('/', async (req: AuthRequest<{ chatId: string }>, res: Response) => 
       },
       body: JSON.stringify({ 
         message: content,
-        chat_id: req.params.chatId,
+        chat_id: chatId,
         history: previousMessages.map(m => ({
           role: m.role,
           content: m.content
@@ -110,5 +113,32 @@ router.post('/', async (req: AuthRequest<{ chatId: string }>, res: Response) => 
     res.end()
   }
 })
+
+
+
+// Stop a running AI generation
+router.post('/stop', async (req: AuthRequest<{ chatId: string }>, res: Response) => {
+  const { chatId } = req.params;
+
+  try {
+    // 1. Tell Python to stop the specific task
+    const AI_STOP_API = `${process.env.AI_API}/stop`;
+    
+    const response = await fetch(AI_STOP_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId })
+    });
+
+    if (!response.ok) {
+      return res.status(500).json({ error: 'Failed to stop the AI' });
+    }
+
+    res.json({ success: true, message: 'Stream stop signal sent' });
+  } catch (err) {
+    console.error("Stop Error:", err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
 
 export default router

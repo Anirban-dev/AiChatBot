@@ -19,12 +19,14 @@ export const sendMsg = async (
   onToken: (token: string) => void,     // called for each word
   onUserMessage: (msg: any) => void,     // called when user msg is saved
   onDone: (assistantMsg: any) => void,   // called when stream ends
-  onError: () => void
+  onError: () => void,
+  signal: AbortSignal
 ) => {
   const res = await fetch(`${BASE_URL}/chats/${chatId}/msgs`, {
     method: 'POST',
     headers: authHeader(),
     body: JSON.stringify({ content }),
+    signal
   })
 
   if (!res.body) throw new Error('No response body')
@@ -56,4 +58,10 @@ export const sendMsg = async (
       }
     }
   }
+}
+
+export const stopMsg = async (chatId: string) => {
+  return await fetch(`/api/chats/${chatId}/messages/stop`, {
+    method: 'POST'
+  });
 }

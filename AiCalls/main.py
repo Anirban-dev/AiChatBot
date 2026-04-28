@@ -2,11 +2,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
 import os
+import asyncio
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = FastAPI()
+
+active_streams = {}
 
 # Setup the client to talk to your local model
 client = AsyncOpenAI(
@@ -31,6 +34,7 @@ system_prompt = {
 @app.post("/agent/chat")
 async def stream_chat(request: Request):
     body = await request.json()
+    chat_id = body.get("chat_id")
     user_prompt = body.get("message", "")
     
     # System Prompt
@@ -45,19 +49,36 @@ async def stream_chat(request: Request):
     messages.append({"role": "user", "content": user_prompt})
 
     async def generate():
-        # Call the local AI
-        stream = await client.chat.completions.create(
-            model=os.getenv("AI_MODEL"),
-            messages=messages,
-            stream=True,
-        )
-        async for chunk in stream:
-            content = chunk.choices[0].delta.content
-            if content:
-                yield content
-                await asyncio.sleep(0)
+        try:
+            # Call the local AI
+            stream = await client.chat.completions.create(
+                model=os.getenv("AI_MODEL"),
+                messages=messages,
+                stream=True,
+            )
+            async for chunk in stream:
+                content = chunk.choices[0].delta.content
+                if content:
+                    yield content
+                    await asyncio.sleep(0)
+        finally:
+            # CLEANUP: Remove from dict when done or cancelled
+            if chat_id in active_streams:
+                del active_streams[chat_id]
 
     return StreamingResponse(generate(), media_type="text/plain")
+
+
+@app.post("/agent/stop")
+async def stop_chat(request: Request):
+    body = await request.json()
+    chat_id = body.get("chat_id")
+    
+    task = active_streams.get(chat_id)
+    if task:
+        task.cancel() # 🔥 The Kill Switch
+        return {"message": "Stream stopped"}
+    return {"message": "No active stream found"}
 
 if __name__ == "__main__":
     import uvicorn

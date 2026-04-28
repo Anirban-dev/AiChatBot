@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react'
-import { Send } from 'lucide-react'
+import { Send, Square } from 'lucide-react'
 import { getMsgs } from '../API/Msg'
 import { useSendMessage } from './Hook/SendMessage'
 import { useChatStore } from '../Context/ChatContext'
@@ -11,7 +11,7 @@ const Msg = ({ chatId }: { chatId: string }) => {
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const { input, setInput, sendMessage, loading } = useSendMessage(chatId)
+  const { input, setInput, sendMessage, stopGeneration, loading } = useSendMessage(chatId)
 
   // Auto-scroll to bottom on new message
   useEffect(() => {
@@ -114,14 +114,24 @@ const Msg = ({ chatId }: { chatId: string }) => {
             className="flex-1 bg-transparent resize-none outline-none text-sm 
               text-black dark:text-white placeholder-gray-400 max-h-40 py-1"
           />
-          <button
-            onClick={sendMessage}
-            disabled={!input.trim() || loading}
-            className="mb-1 p-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 
-              disabled:opacity-40 disabled:cursor-not-allowed transition text-white"
-          >
-            <Send size={16} />
-          </button>
+          {/* Send or stop button */}
+          {loading ? (
+            <button
+              onClick={stopGeneration}
+              className="mb-1 p-1.5 rounded-lg bg-red-500 hover:bg-red-600 transition text-white cursor-pointer"
+            >
+              <Square size={16} fill="white" />
+            </button>
+          ) : (
+            <button
+              onClick={sendMessage}
+              disabled={!input.trim() || loading}
+              className="mb-1 p-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 
+                disabled:opacity-40 disabled:cursor-not-allowed transition text-white"
+            >
+              <Send size={16} />
+            </button>
+          )}
         </div>
       </div>
 
