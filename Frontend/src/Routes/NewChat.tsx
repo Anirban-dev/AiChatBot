@@ -9,7 +9,6 @@ const HomePage = () => {
     const init = async () => {
       try {
         const chat = await createChat()
-        console.log(chat)
         navigate(`/${chat.id}`, { replace: true })
       } catch (err) {
         console.error(err)

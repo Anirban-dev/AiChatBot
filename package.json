@@ -3,6 +3,8 @@
     "concurrently": "^9.2.1"
   },
   "scripts": {
-    "dev": "concurrently \"cd frontend && npm run dev\" \"cd backend && npm run dev\" \"cd aicalls && uv run main.py\""
+    "dev": "concurrently \"cd frontend && npm run dev\" \"cd backend && npm run dev\" \"cd aicalls && uv run main.py --active\"",
+    "server": "concurrently \"cd frontend && npm run dev\" \"cd backend && npm run dev\"",
+    "ai": "cd aicalls && uv run main.py --active"
   }
 }

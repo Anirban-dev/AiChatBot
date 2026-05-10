@@ -1,85 +1,28 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
-from openai import AsyncOpenAI
-import os
-import asyncio
-from dotenv import load_dotenv
+# main.py
+from contextlib import asynccontextmanager
+from fastapi import FastAPI # type: ignore
+from routes.index import router as index_router
+from routes.chat  import router as chat_router
+from routes.stop  import router as stop_router
+from services.embeddings import get_embeddings
+from config import EMBED_DIM
 
-load_dotenv()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # runs on startup
+    print("[Startup] Warming up embeddings model...")
+    emb  = get_embeddings()
+    test = emb.embed_query("hello world")
+    print(f"[Startup] Embeddings OK — vector dim: {len(test)}, expected: {EMBED_DIM}")
+    yield
+    # anything after yield runs on shutdown (nothing needed here)
 
-app = FastAPI()
+app = FastAPI(title="ChatAI Agent", lifespan=lifespan)
 
-active_streams = {}
-
-# Setup the client to talk to your local model
-client = AsyncOpenAI(
-    base_url=os.getenv("AI_API"),
-    api_key="not-needed"
-)
-
-system_prompt = {
-    "role": "system",
-    "content": (
-        "You are ChatAI, a helpful and friendly assistant. "
-        "IMPORTANT: Your name is ChatAI - you are ChatAI and you were developed by AP Corporation. "
-        "Follow these rules: "
-        "- Be concise and to the point "
-        "- If you don't know something, say so honestly "
-        "- Use markdown formatting when helpful (code blocks, lists, etc.) "
-        "- For code questions, always include working examples "
-        "- Be conversational but professional"
-    )
-}
-
-@app.post("/agent/chat")
-async def stream_chat(request: Request):
-    body = await request.json()
-    chat_id = body.get("chat_id")
-    user_prompt = body.get("message", "")
-    
-    # System Prompt
-    messages = [system_prompt]
-    
-    # Previous Messages
-    history = body.get("history", [])
-    for msg in history:
-        messages.append({"role": msg["role"], "content": msg["content"]})
-
-    # 3. User Prompt
-    messages.append({"role": "user", "content": user_prompt})
-
-    async def generate():
-        try:
-            # Call the local AI
-            stream = await client.chat.completions.create(
-                model=os.getenv("AI_MODEL"),
-                messages=messages,
-                stream=True,
-            )
-            async for chunk in stream:
-                content = chunk.choices[0].delta.content
-                if content:
-                    yield content
-                    await asyncio.sleep(0)
-        finally:
-            # CLEANUP: Remove from dict when done or cancelled
-            if chat_id in active_streams:
-                del active_streams[chat_id]
-
-    return StreamingResponse(generate(), media_type="text/plain")
-
-
-@app.post("/agent/stop")
-async def stop_chat(request: Request):
-    body = await request.json()
-    chat_id = body.get("chat_id")
-    
-    task = active_streams.get(chat_id)
-    if task:
-        task.cancel() # 🔥 The Kill Switch
-        return {"message": "Stream stopped"}
-    return {"message": "No active stream found"}
+app.include_router(index_router)
+app.include_router(chat_router)
+app.include_router(stop_router)
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, loop="asyncio")
+    import uvicorn # type: ignore
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

@@ -16,6 +16,12 @@ const messageSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  fileInfo: {
+    name: String,
+    size: Number,
+    mimeType: String,
+    extension: String,
+  },
 }, { timestamps: true })
 
 export const Message = mongoose.model('Message', messageSchema)

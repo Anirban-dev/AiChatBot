@@ -121,10 +121,8 @@ router.post('/stop', async (req: AuthRequest<{ chatId: string }>, res: Response)
   const { chatId } = req.params;
 
   try {
-    // 1. Tell Python to stop the specific task
-    const AI_STOP_API = `${process.env.AI_API}/stop`;
-    
-    const response = await fetch(AI_STOP_API, {
+    // 1. Tell Python to stop the specific task    
+    const response = await fetch(`${process.env.AI_API}/stop`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId })

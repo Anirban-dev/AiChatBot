@@ -34,7 +34,7 @@ router.get('/allchats', async (req: AuthRequest, res: Response) => {
 // Get chat
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const chat = await Chat.findById(req.params.id)
+    const chat = await Chat.findById((req.params as { id: string }).id,)
     if (!chat) return res.status(404).json({ error: 'Chat not found' })
     res.json({ id: chat.id, title: chat.title })
   } catch (err) {
@@ -44,11 +44,11 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const chat = await Chat.findOneAndDelete({ _id: req.params.id, userId: req.userId })
+    const chat = await Chat.findOneAndDelete({ _id: (req.params as { id: string }).id, userId: req.userId })
     if (!chat) return res.status(404).json({ error: 'Chat not found' })
 
     // Delete all messages of this chat too
-    await Message.deleteMany({ chatId: req.params.id })
+    await Message.deleteMany({ chatId: (req.params as { id: string }).id, })
 
     res.json({ message: 'Chat deleted' })
   } catch (err) {

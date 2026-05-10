@@ -61,7 +61,8 @@ export const sendMsg = async (
 }
 
 export const stopMsg = async (chatId: string) => {
-  return await fetch(`/api/chats/${chatId}/messages/stop`, {
-    method: 'POST'
+  return await fetch(`${BASE_URL}/chats/${chatId}/msgs/stop`, {
+    method: 'POST',
+    headers: authHeader()
   });
 }

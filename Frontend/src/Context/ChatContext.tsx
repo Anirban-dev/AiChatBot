@@ -1,10 +1,18 @@
 // src/context/ChatContext.tsx
 import { createContext, useContext, useState } from 'react'
 
+interface FileMetadata {
+    name: string,
+    size: number,
+    mimeType: string,
+    extension: string,
+}
+
 interface Message {
   _id: string
   role: 'user' | 'assistant'
   content: string
+  fileInfo?: FileMetadata
   createdAt: string
 }
 
