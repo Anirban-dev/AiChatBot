@@ -13,8 +13,11 @@ const userSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: true,
   },
+  googleAuth: {
+    type: Boolean,
+    default: false,
+  }
 }, {
   timestamps: true,
   toJSON: {

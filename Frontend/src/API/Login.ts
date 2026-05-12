@@ -25,11 +25,11 @@ export const signup = async (name: string, email: string, password: string) => {
   return data
 }
 
-export const googleLogin = async (credential: string) => {
+export const googleLogin = async (code: string) => {
   const res = await fetch(`${BASE_URL}/login/google-login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ credential }),
+    body: JSON.stringify({ code }),
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error || 'Google login failed')
