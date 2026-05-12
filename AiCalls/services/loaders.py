@@ -29,7 +29,7 @@ async def load_image(path: str, filename: str) -> list[Document]:
 
     return [Document(
         page_content=f"[Image file: {filename}]:\n{description}",
-        metadata={"source": filename, "type": "image"},
+        metadata={"source": filename, "type": "embedded_image"},
     )]
 
 # ── TABLES & TEXT (EXCEL, CSV, TXT) ──────────────────────────────────────────

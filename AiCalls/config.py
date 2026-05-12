@@ -14,6 +14,7 @@ load_dotenv(dotenv_path=env_path)
 LLM_API   = os.getenv("LLM_API")
 LLM_SECRET = os.getenv("LLM_SECRET")
 LLM_MODEL = os.getenv("LLM_MODEL")
+LLM_VISION_MODEL = os.getenv("LLM_VISION_MODEL")
 
 client = AsyncOpenAI(base_url=LLM_API, api_key=LLM_SECRET)
 
