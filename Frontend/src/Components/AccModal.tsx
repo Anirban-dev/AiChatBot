@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { X, User, Mail, Lock, Eye, EyeOff, LogOut, RefreshCw, Check, AlertCircle, Trash2 } from 'lucide-react'
 import { getSavedAccounts, switchAccount, removeAccount } from '../Auth/authHelper'
+import { GoogleLogin } from '@react-oauth/google'
+import { googleLogin } from '../API/Login'
 
 interface AccountModalProps {
   isOpen: boolean
@@ -317,15 +319,36 @@ export default function AccountModal({ isOpen, onClose, user, onLogout, onSave }
         <div className="px-6 pb-5 space-y-2 border-t border-gray-100 dark:border-gray-800 pt-4">
 
           {/* Switch / Add account with Google */}
-          <button
-            onClick={handleGoogleSwitch}
-            className="w-full flex items-center justify-center gap-2.5 py-2.5 text-sm font-medium rounded-lg
-              border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800
-              text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
-          >
-            <GoogleIcon />
-            Continue with Google
-          </button>
+          <div className="flex justify-center w-full">
+            <GoogleLogin
+              onSuccess={async (credentialResponse) => {
+                if (credentialResponse.credential) {
+                  setStatus('loading')
+                  try {
+                    const data = await googleLogin(credentialResponse.credential)
+                    const { saveAccount } = await import('../Auth/authHelper')
+                    saveAccount(data.user, data.token)
+                    setStatus('success')
+                    setTimeout(() => {
+                      onClose()
+                      window.location.reload() // Reload to reflect account switch
+                    }, 1000)
+                  } catch (err: any) {
+                    setErrorMsg(err.message)
+                    setStatus('error')
+                  }
+                }
+              }}
+              onError={() => {
+                setErrorMsg('Google Login Failed')
+                setStatus('error')
+              }}
+              theme="outline"
+              shape="pill"
+              text="continue_with"
+              width="100%"
+            />
+          </div>
 
           <button
             onClick={() => setTab('accounts')}

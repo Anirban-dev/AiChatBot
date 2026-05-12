@@ -36,7 +36,7 @@ async def index_document(
                 detail="No content could be extracted from this file"
             )
 
-        vs.add_documents(chunks)
+        vs.add_documents(chunks, chat_id)
         return {"message": f"'{file.filename}' indexed successfully", "chunks": len(chunks)}
 
     except HTTPException:
@@ -53,8 +53,9 @@ async def index_document(
 async def delete_document(request: Request):
     body     = await request.json()
     filename = body.get("filename", "")
+    chat_id  = body.get("chat_id", "")
     if not filename:
         raise HTTPException(status_code=400, detail="Filename is required")
     
-    vs.delete_by_source(filename)
+    vs.delete_by_source(filename, chat_id)
     return {"message": f"'{filename}' removed from vector store"}

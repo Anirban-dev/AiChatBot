@@ -25,6 +25,17 @@ export const signup = async (name: string, email: string, password: string) => {
   return data
 }
 
+export const googleLogin = async (credential: string) => {
+  const res = await fetch(`${BASE_URL}/login/google-login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credential }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Google login failed')
+  return data
+}
+
 export const logout = () => {
   deleteCookie('token')
   deleteCookie('user')

@@ -5,28 +5,50 @@ from langchain_core.documents import Document  # type: ignore
 from services.embeddings import get_embeddings
 from config import VECTOR_STORE_PATH, TOP_K_RESULTS
 
-_store: FAISS | None = None
+# Cache stores in memory: { chat_id: FAISS }
+_stores: dict[str, FAISS] = {}
 
-def get_store() -> FAISS | None:
-    global _store
-    if _store is None and os.path.exists(VECTOR_STORE_PATH):
-        print("[VectorStore] Loading from disk...")
-        _store = FAISS.load_local(
-            VECTOR_STORE_PATH,
-            get_embeddings(),
-            allow_dangerous_deserialization=True
-        )
-    return _store
+def get_store_path(chat_id: str) -> str:
+    if not chat_id:
+        return VECTOR_STORE_PATH
+    return os.path.join(VECTOR_STORE_PATH, chat_id)
 
-def add_documents(docs: list[Document]):
-    global _store
+def get_store(chat_id: str) -> FAISS | None:
+    global _stores
+    if chat_id in _stores:
+        return _stores[chat_id]
+    
+    path = get_store_path(chat_id)
+    if os.path.exists(path):
+        print(f"[VectorStore] Loading store for chat {chat_id} from {path}...")
+        try:
+            store = FAISS.load_local(
+                path,
+                get_embeddings(),
+                allow_dangerous_deserialization=True
+            )
+            _stores[chat_id] = store
+            return store
+        except Exception as e:
+            print(f"[VectorStore] Error loading store for chat {chat_id}: {e}")
+            return None
+    return None
+
+def add_documents(docs: list[Document], chat_id: str):
+    global _stores
     emb = get_embeddings()
-    if _store is None:
-        _store = FAISS.from_documents(docs, emb)
+    store = get_store(chat_id)
+    
+    if store is None:
+        store = FAISS.from_documents(docs, emb)
     else:
-        _store.add_documents(docs)
-    _store.save_local(VECTOR_STORE_PATH)
-    print(f"[VectorStore] Saved {len(docs)} chunks to disk")
+        store.add_documents(docs)
+    
+    _stores[chat_id] = store
+    path = get_store_path(chat_id)
+    os.makedirs(path, exist_ok=True)
+    store.save_local(path)
+    print(f"[VectorStore] Saved {len(docs)} chunks for chat {chat_id} to disk")
 
 # Visual intent keywords
 _VISUAL_KEYWORDS = {
@@ -40,8 +62,8 @@ def _is_visual_query(query: str) -> bool:
     q = query.lower()
     return any(kw in q for kw in _VISUAL_KEYWORDS)
 
-def search(query: str, k: int = TOP_K_RESULTS) -> list[Document]:
-    store = get_store()
+def search(query: str, chat_id: str, k: int = TOP_K_RESULTS) -> list[Document]:
+    store = get_store(chat_id)
     if store is None:
         return []
 
@@ -61,9 +83,9 @@ def search(query: str, k: int = TOP_K_RESULTS) -> list[Document]:
 
     return merged
 
-def delete_by_source(filename: str):
-    global _store
-    store = get_store()
+def delete_by_source(filename: str, chat_id: str):
+    global _stores
+    store = get_store(chat_id)
     if store is None:
         return
     
@@ -72,15 +94,17 @@ def delete_by_source(filename: str):
     remaining_docs = [d for d in docs if d.metadata.get("source") != filename]
     
     if len(remaining_docs) == len(docs):
-        print(f"[VectorStore] No chunks found for '{filename}'")
+        print(f"[VectorStore] No chunks found for '{filename}' in chat {chat_id}")
         return
 
+    path = get_store_path(chat_id)
     if not remaining_docs:
-        print(f"[VectorStore] Clearing store after deleting '{filename}'")
-        _store = None
-        if os.path.exists(VECTOR_STORE_PATH):
-            shutil.rmtree(VECTOR_STORE_PATH)
+        print(f"[VectorStore] Clearing store for chat {chat_id} after deleting '{filename}'")
+        _stores.pop(chat_id, None)
+        if os.path.exists(path):
+            shutil.rmtree(path)
     else:
-        _store = FAISS.from_documents(remaining_docs, get_embeddings())
-        _store.save_local(VECTOR_STORE_PATH)
-        print(f"[VectorStore] Deleted chunks for '{filename}'. Remaining: {len(remaining_docs)}")
+        new_store = FAISS.from_documents(remaining_docs, get_embeddings())
+        _stores[chat_id] = new_store
+        new_store.save_local(path)
+        print(f"[VectorStore] Deleted chunks for '{filename}' in chat {chat_id}. Remaining: {len(remaining_docs)}")

@@ -14,7 +14,7 @@ async def stream_chat(request: Request):
     user_prompt = body.get("message", "")
 
     # RAG retrieval
-    context_docs = vs.search(user_prompt, k=4)
+    context_docs = vs.search(user_prompt, chat_id, k=4)
     context      = "\n\n---\n\n".join(d.page_content for d in context_docs)
 
     system = SYSTEM_PROMPT

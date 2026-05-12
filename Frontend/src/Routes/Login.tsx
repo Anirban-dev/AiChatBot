@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { login, signup } from '../API/Login'
+import { login, signup, googleLogin } from '../API/Login'
 import { saveAccount } from '../Auth/authHelper'
+import { GoogleLogin } from '@react-oauth/google'
 
 const Login = () => {
   const [isLogin, setIsLogin] = useState(true)
@@ -101,7 +102,7 @@ const Login = () => {
           disabled={loading}
           className="w-full py-2 rounded-lg
           bg-blue-500 hover:bg-blue-600 text-white
-          disabled:opacity-50 cursor-pointer"
+          disabled:opacity-50 cursor-pointer mb-4"
         >
           {loading
             ? isLogin
@@ -111,6 +112,37 @@ const Login = () => {
               ? 'Login'
               : 'Sign Up'}
         </button>
+
+        <div className="flex items-center justify-center mb-4">
+          <div className="border-t border-gray-300 dark:border-gray-600 flex-grow"></div>
+          <span className="px-2 text-gray-500 text-xs uppercase">Or</span>
+          <div className="border-t border-gray-300 dark:border-gray-600 flex-grow"></div>
+        </div>
+
+        <div className="flex justify-center w-full">
+          <GoogleLogin
+            onSuccess={async (credentialResponse) => {
+              if (credentialResponse.credential) {
+                setLoading(true)
+                try {
+                  const data = await googleLogin(credentialResponse.credential)
+                  saveAccount(data.user, data.token)
+                  navigate('/')
+                } catch (err: any) {
+                  setError(err.message)
+                } finally {
+                  setLoading(false)
+                }
+              }
+            }}
+            onError={() => {
+              setError('Google Login Failed')
+            }}
+            useOneTap
+            theme="filled_black"
+            shape="pill"
+          />
+        </div>
 
         {/* Toggle */}
         <p className="text-sm mt-4 text-center text-gray-600 dark:text-gray-400">

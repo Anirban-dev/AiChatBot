@@ -19,10 +19,10 @@ router.post('/upload', upload.single('file'), async (req: AuthRequest, res: Resp
 
   try {
     const AI_API = process.env.AI_API || 'http://localhost:8000/agent'
-    
+
     // Use FormData to send file to Python
     const formData = new FormData()
-    const blob = new Blob([req.file.buffer], { type: req.file.mimetype })
+    const blob = new Blob([new Uint8Array(req.file.buffer)], { type: req.file.mimetype });
     formData.append('file', blob, req.file.originalname)
     formData.append('chat_id', req.body.chatId || '')
 
@@ -56,8 +56,8 @@ router.post('/upload', upload.single('file'), async (req: AuthRequest, res: Resp
       }
     })
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: 'File uploaded and indexed successfully',
       data: fileMsg
     })
@@ -68,7 +68,7 @@ router.post('/upload', upload.single('file'), async (req: AuthRequest, res: Resp
 })
 
 router.post('/delete', async (req: AuthRequest, res: Response) => {
-  const { filename } = req.body
+  const { filename, chatId } = req.body
   if (!filename) {
     return res.status(400).json({ error: 'Filename is required' })
   }
@@ -78,7 +78,7 @@ router.post('/delete', async (req: AuthRequest, res: Response) => {
     const response = await fetch(`${AI_API}/delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename })
+      body: JSON.stringify({ filename, chat_id: chatId })
     })
 
     if (!response.ok) {
