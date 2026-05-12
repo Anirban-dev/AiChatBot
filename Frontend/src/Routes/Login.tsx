@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { login, signup, googleLogin } from '../API/Login'
+import { login, signup, googleLogin, sendOtp } from '../API/Login'
 import { saveAccount } from '../Auth/authHelper'
 import { useGoogleLogin } from '@react-oauth/google'
 
@@ -20,6 +20,8 @@ const Login = () => {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [otp, setOtp] = useState('')
+  const [otpSent, setOtpSent] = useState(false)
 
   const navigate = useNavigate()
 
@@ -47,9 +49,20 @@ const Login = () => {
     setLoading(true)
     setError('')
     try {
-      const data = isLogin ? await login(email, password) : await signup(name, email, password)
-      saveAccount(data.user, data.token)
-      navigate('/')
+      if (isLogin) {
+        const data = await login(email, password)
+        saveAccount(data.user, data.token)
+        navigate('/')
+      } else {
+        if (!otpSent) {
+          await sendOtp(email)
+          setOtpSent(true)
+        } else {
+          const data = await signup(name, email, password, otp)
+          saveAccount(data.user, data.token)
+          navigate('/')
+        }
+      }
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -72,10 +85,21 @@ const Login = () => {
 
         <input type="password" placeholder="Password" className="w-full p-2 mb-4 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-black dark:text-white" value={password} onChange={(e) => setPassword(e.target.value)} required />
 
+        {!isLogin && otpSent && (
+          <input
+            type="text"
+            placeholder="Enter OTP"
+            className="w-full p-2 mb-4 rounded-lg border border-blue-500 dark:border-blue-400 bg-white dark:bg-gray-700 text-black dark:text-white"
+            value={otp}
+            onChange={(e) => setOtp(e.target.value)}
+            required
+          />
+        )}
+
         {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
 
         <button type="submit" disabled={loading} className="w-full py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50 cursor-pointer mb-4">
-          {loading ? 'Processing...' : isLogin ? 'Login' : 'Sign Up'}
+          {loading ? 'Processing...' : isLogin ? 'Login' : otpSent ? 'Confirm Signup' : 'Sign Up'}
         </button>
 
         <div className="flex items-center justify-center mb-4">
@@ -97,7 +121,7 @@ const Login = () => {
 
         <p className="text-sm mt-4 text-center text-gray-600 dark:text-gray-400">
           {isLogin ? "Don't have an account?" : 'Already have an account?'}
-          <span onClick={() => { setIsLogin(!isLogin); setError('') }} className="ml-1 text-blue-500 cursor-pointer hover:underline">
+          <span onClick={() => { setIsLogin(!isLogin); setError(''); setOtpSent(false) }} className="ml-1 text-blue-500 cursor-pointer hover:underline">
             {isLogin ? 'Sign up' : 'Login'}
           </span>
         </p>

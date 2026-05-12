@@ -14,11 +14,22 @@ export const login = async (email: string, password: string) => {
   return data
 }
 
-export const signup = async (name: string, email: string, password: string) => {
+export const sendOtp = async (email: string) => {
+  const res = await fetch(`${BASE_URL}/login/send-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Failed to send OTP')
+  return data
+}
+
+export const signup = async (name: string, email: string, password: string, otp: string) => {
   const res = await fetch(`${BASE_URL}/login/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, email, password }),
+    body: JSON.stringify({ name, email, password, otp }),
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error || 'Signup failed')
