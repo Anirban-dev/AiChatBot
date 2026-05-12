@@ -51,7 +51,7 @@ const Navbar = ({ dark, setDark, toggleSidebar }: NavbarProps) => {
           <button className="sm:hidden cursor-pointer" onClick={toggleSidebar}>
             <Menu size={22} />
           </button>
-          <h1 className="text-lg font-semibold">ChatAI</h1>
+          <h1 className="text-lg font-semibold cursor-default">ChatAI</h1>
         </div>
 
         {/* Right */}

@@ -101,7 +101,7 @@ const Sidebar = ({ isMobile, collapsed, setCollapsed, title }: any) => {
         {/* Top */}
         <div className="flex items-center justify-between mb-6 h-8">
           <div className={`overflow-hidden transition-all duration-300 ${collapsed ? 'w-0 opacity-0' : 'w-full opacity-100'}`}>
-            <h1 className="text-lg font-semibold truncate">{title}</h1>
+            <h1 className="text-lg font-semibold cursor-default truncate">{title}</h1>
           </div>
 
           <button

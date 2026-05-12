@@ -3,6 +3,7 @@ import { Send, Square, FileText, FileSpreadsheet, Image as ImageIcon, File, Load
 import { getMsgs } from '../API/Msg'
 import { useSendMessage } from './Hook/SendMessage'
 import { useChatStore } from '../Context/ChatContext'
+import MarkdownRenderer from './BashComponent'
 
 const Msg = ({ chatId }: { chatId: string }) => {
   const { getMessages, setMessages } = useChatStore()
@@ -123,7 +124,10 @@ const Msg = ({ chatId }: { chatId: string }) => {
                   </div>
                 </div>
               ) : (
-                <p className="whitespace-pre-wrap">{msg.content}</p>
+                <MarkdownRenderer 
+                  content={msg.content} 
+                  isUser={msg.role === 'user'} 
+                />
               )}
               <p className={`text-[10px] mt-1.5 opacity-60 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
                 {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
