@@ -1,7 +1,8 @@
 import { Navigate } from 'react-router-dom'
+import { getCookie } from "./authHelper"
 
 const ProtectedRoute = ({ children }: any) => {
-  const token = localStorage.getItem('token')
+  const token = getCookie('token')
 
   if (!token) {
     return <Navigate to="/login" replace />

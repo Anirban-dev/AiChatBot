@@ -1,9 +1,8 @@
-import { useRef, useEffect, useState } from 'react'
-import { Send, Square, FileText, FileSpreadsheet, Image as ImageIcon, File, Loader2, Download } from 'lucide-react'
+import { useRef, useEffect } from 'react'
+import { Send, Square, FileText, FileSpreadsheet, Image as ImageIcon, File, Loader2 } from 'lucide-react'
 import { getMsgs } from '../API/Msg'
 import { useSendMessage } from './Hook/SendMessage'
 import { useChatStore } from '../Context/ChatContext'
-import { uploadFile } from '../API/File'
 
 const Msg = ({ chatId }: { chatId: string }) => {
   const { getMessages, setMessages } = useChatStore()
@@ -122,7 +121,6 @@ const Msg = ({ chatId }: { chatId: string }) => {
                       {formatFileSize(msg.fileInfo.size)} • {msg.fileInfo.extension.toUpperCase().replace('.', '')}
                     </p>
                   </div>
-                  <Download size={16} className="opacity-50 hover:opacity-100 cursor-pointer transition" />
                 </div>
               ) : (
                 <p className="whitespace-pre-wrap">{msg.content}</p>
@@ -188,10 +186,10 @@ const Msg = ({ chatId }: { chatId: string }) => {
           {loading || uploading ? (
             <button
               onClick={stopGeneration}
-              className="mb-1 p-1.5 rounded-lg bg-red-500 hover:bg-red-600 transition text-white cursor-pointer"
+              className="mb-1 p-1.5 rounded-full bg-red-500 hover:bg-red-600 transition text-white cursor-pointer"
               title={uploading ? "Cancel Upload" : "Stop Generation"}
             >
-              <Square size={16} fill="white" />
+              <Square size={14} fill="white" />
             </button>
           ) : (
             <button

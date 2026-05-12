@@ -54,7 +54,6 @@ router.post('/', async (req: AuthRequest<{ chatId: string }>, res: Response) => 
       .limit(10);
 
     // 4. Call Python RAG API
-    const AI_API = process.env.AI_API 
     const response = await fetch(`${process.env.AI_API}/chat`, {
       method: 'POST',
       headers: { 

@@ -1,3 +1,5 @@
+import { deleteCookie } from "../Auth/authHelper"
+
 // src/API/auth.ts
 const BASE_URL = import.meta.env.VITE_BASE_URL
 
@@ -24,7 +26,7 @@ export const signup = async (name: string, email: string, password: string) => {
 }
 
 export const logout = () => {
-  localStorage.removeItem('token')
-  localStorage.removeItem('user')
+  deleteCookie('token')
+  deleteCookie('user')
   window.location.href = '/login'
 }

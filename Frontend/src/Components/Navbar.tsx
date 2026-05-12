@@ -1,19 +1,20 @@
 import { useState, useRef, useEffect } from 'react'
-import { Sun, Moon, Menu, UserCircle, ChevronDown } from 'lucide-react'
+import { Sun, Moon, Menu, ChevronDown } from 'lucide-react'
 import { logout } from '../API/Login'
 import AccountModal from './AccModal'
+import { getCurrentUser } from '../Auth/authHelper'
 
 interface NavbarProps {
   dark: boolean
   setDark: (v: boolean) => void
   toggleSidebar: () => void
-  user?: { name: string; email: string }  // pass from your auth context
 }
 
-const Navbar = ({ dark, setDark, toggleSidebar, user }: NavbarProps) => {
+const Navbar = ({ dark, setDark, toggleSidebar }: NavbarProps) => {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const [currentUser, setCurrentUser] = useState(getCurrentUser() || { name: 'Guest', email: '' })
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -26,8 +27,6 @@ const Navbar = ({ dark, setDark, toggleSidebar, user }: NavbarProps) => {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const currentUser = user ?? { name: 'User', email: '' }
-
   const handleSave = async (data: { name?: string; currentPassword?: string; newPassword?: string }) => {
     // Wire this to your API
     // e.g. await updateAccount(data)
@@ -35,8 +34,8 @@ const Navbar = ({ dark, setDark, toggleSidebar, user }: NavbarProps) => {
   }
 
   const handleSwitchAccount = () => {
-    setModalOpen(false)
-    window.location.href = '/login'
+    setDropdownOpen(false)
+    setModalOpen(true)
   }
 
   return (
@@ -67,7 +66,11 @@ const Navbar = ({ dark, setDark, toggleSidebar, user }: NavbarProps) => {
               onClick={() => setDropdownOpen(v => !v)}
               className="flex items-center gap-1.5 cursor-pointer hover:opacity-80 transition"
             >
-              <UserCircle size={28} />
+              <div className="flex items-center gap-1">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-lg font-bold select-none">
+                  {currentUser.name.charAt(0).toUpperCase()}
+                </div>
+              </div>
               <ChevronDown
                 size={14}
                 className={`text-gray-400 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
@@ -81,7 +84,7 @@ const Navbar = ({ dark, setDark, toggleSidebar, user }: NavbarProps) => {
                 overflow-hidden z-50"
               >
                 {/* User info preview */}
-                <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800">
+                <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 cursor-default">
                   <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                     {currentUser.name}
                   </p>
@@ -95,7 +98,7 @@ const Navbar = ({ dark, setDark, toggleSidebar, user }: NavbarProps) => {
                   <button
                     onClick={() => { setDropdownOpen(false); setModalOpen(true) }}
                     className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300
-                      hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                      hover:bg-gray-200 dark:hover:bg-gray-700 transition cursor-pointer"
                   >
                     Account Details
                   </button>
@@ -103,7 +106,7 @@ const Navbar = ({ dark, setDark, toggleSidebar, user }: NavbarProps) => {
                   <button
                     onClick={() => { setDropdownOpen(false); handleSwitchAccount() }}
                     className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300
-                      hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                      hover:bg-gray-200 dark:hover:bg-gray-700 transition cursor-pointer"
                   >
                     Switch Account
                   </button>
@@ -113,7 +116,7 @@ const Navbar = ({ dark, setDark, toggleSidebar, user }: NavbarProps) => {
                   <button
                     onClick={() => { setDropdownOpen(false); logout() }}
                     className="w-full text-left px-4 py-2.5 text-sm text-red-500
-                      hover:bg-red-50 dark:hover:bg-red-950/30 transition"
+                      hover:bg-red-100 dark:hover:bg-red-900/30 transition cursor-pointer"
                   >
                     Logout
                   </button>
@@ -124,13 +127,11 @@ const Navbar = ({ dark, setDark, toggleSidebar, user }: NavbarProps) => {
         </div>
       </div>
 
-      {/* Account Modal */}
       <AccountModal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
         user={currentUser}
         onLogout={logout}
-        onSwitchAccount={handleSwitchAccount}
         onSave={handleSave}
       />
     </>

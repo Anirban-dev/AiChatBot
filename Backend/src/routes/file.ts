@@ -18,7 +18,7 @@ router.post('/upload', upload.single('file'), async (req: AuthRequest, res: Resp
   }
 
   try {
-    const AI_API = process.env.AI_API || 'http://localhost:8000'
+    const AI_API = process.env.AI_API || 'http://localhost:8000/agent'
     
     // Use FormData to send file to Python
     const formData = new FormData()

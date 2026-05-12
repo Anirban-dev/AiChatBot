@@ -1,8 +1,10 @@
+import { getCookie } from "../Auth/authHelper"
+
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 const authHeader = () => ({
   'Content-Type': 'application/json',
-  Authorization: `Bearer ${localStorage.getItem('token')}`
+  Authorization: `Bearer ${getCookie('token')}`,
 })
 
 export const getChat = async (chatId: string) => {

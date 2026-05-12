@@ -11,10 +11,11 @@ env_path = Path(__file__).resolve().parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
 # ── LLM ──────────────────────────────────────────────────────────────────────
-LLM_API   = os.getenv("LLM_API", "http://localhost:12434/v1")
+LLM_API   = os.getenv("LLM_API")
+LLM_SECRET = os.getenv("LLM_SECRET")
 LLM_MODEL = os.getenv("LLM_MODEL")
 
-client = AsyncOpenAI(base_url=LLM_API, api_key="not-needed")
+client = AsyncOpenAI(base_url=LLM_API, api_key=LLM_SECRET)
 
 # ── Embedding model ───────────────────────────────────────────────────────────
 EMBED_MODEL = "all-MiniLM-L6-v2"   # ~90MB, CPU-friendly

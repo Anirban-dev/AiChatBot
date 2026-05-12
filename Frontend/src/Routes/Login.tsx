@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login, signup } from '../API/Login'
+import { saveAccount } from '../Auth/authHelper'
 
 const Login = () => {
   const [isLogin, setIsLogin] = useState(true)
@@ -15,24 +16,23 @@ const Login = () => {
   const navigate = useNavigate()
 
   const handleSubmit = async (e: any) => {
-  e.preventDefault()
-  setLoading(true)
-  setError('')
+    e.preventDefault()
+    setLoading(true)
+    setError('')
 
-  try {
-    const data = isLogin
-      ? await login(email, password)
-      : await signup(name, email, password)
+    try {
+      const data = isLogin
+        ? await login(email, password)
+        : await signup(name, email, password)
 
-    localStorage.setItem('token', data.token)
-    localStorage.setItem('user', JSON.stringify(data.user))
-    navigate('/')
-  } catch (err: any) {
-    setError(err.message)
-  } finally {
-    setLoading(false)
+      saveAccount(data.user, data.token)
+      navigate('/')
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
   }
-}
 
   return (
     <div className="flex items-center justify-center h-screen
@@ -101,15 +101,15 @@ const Login = () => {
           disabled={loading}
           className="w-full py-2 rounded-lg
           bg-blue-500 hover:bg-blue-600 text-white
-          disabled:opacity-50"
+          disabled:opacity-50 cursor-pointer"
         >
           {loading
             ? isLogin
               ? 'Logging in...'
               : 'Signing up...'
             : isLogin
-            ? 'Login'
-            : 'Sign Up'}
+              ? 'Login'
+              : 'Sign Up'}
         </button>
 
         {/* Toggle */}

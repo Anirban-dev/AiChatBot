@@ -1,9 +1,10 @@
 import axios from 'axios'
+import { getCookie } from "../Auth/authHelper"
 
 const API_URL = import.meta.env.VITE_BASE_URL
 
 export const uploadFile = async (file: File, chatId: string, signal?: AbortSignal) => {
-  const token = localStorage.getItem('token')
+  const token = getCookie('token')
   const formData = new FormData()
   formData.append('chatId', chatId)
   formData.append('file', file)
@@ -19,7 +20,7 @@ export const uploadFile = async (file: File, chatId: string, signal?: AbortSigna
 }
 
 export const deleteFileFromRAG = async (filename: string) => {
-  const token = localStorage.getItem('token')
+  const token = getCookie('token')
   const response = await axios.post(`${API_URL}/files/delete`, { filename }, {
     headers: {
       'Content-Type': 'application/json',
