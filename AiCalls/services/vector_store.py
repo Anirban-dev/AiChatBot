@@ -107,4 +107,33 @@ def delete_by_source(filename: str, chat_id: str):
         new_store = FAISS.from_documents(remaining_docs, get_embeddings())
         _stores[chat_id] = new_store
         new_store.save_local(path)
-        print(f"[VectorStore] Deleted chunks for '{filename}' in chat {chat_id}. Remaining: {len(remaining_docs)}")
+        print(f"[VectorStore] Deleted chunks for '{filename}' in chat {chat_id}. Remaining: {len(remaining_docs)}")
+
+
+def archive_message(chat_id: str, role: str, content: str):
+    """
+    Archives a single chat message into the FAISS store for long-term memory.
+    """
+    if not content or len(content.strip()) < 5:
+        return
+
+    # 1. Create a LangChain Document object
+    # We tag it as 'content' so your search() function picks it up correctly
+    doc = Document(
+        page_content=f"Past Chat ({role}): {content}",
+        metadata={
+            "source": "chat_history", 
+            "role": role, 
+            "type": "content", # Matches your search() filter
+            "chat_id": chat_id
+        }
+    )
+
+    print(f"[VectorStore] Archiving message from {role} for chat {chat_id}...")
+    
+    # 2. Reuse your existing add_documents function
+    # This handles loading the store, adding the doc, and saving to disk
+    try:
+        add_documents([doc], chat_id)
+    except Exception as e:
+        print(f"[VectorStore] Failed to archive message: {e}")

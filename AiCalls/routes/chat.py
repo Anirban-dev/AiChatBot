@@ -1,6 +1,6 @@
 import asyncio
 import json
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from config import client, LLM_MODEL, SYSTEM_PROMPT
 from services import vector_store as vs
@@ -14,30 +14,45 @@ MAX_TOOL_RESULT = 4000  # truncate large tool outputs
 
 
 @router.post("/agent/chat")
-async def stream_chat(request: Request):
+async def stream_chat(request: Request, background_tasks: BackgroundTasks):
     body        = await request.json()
     chat_id     = body.get("chat_id", "")
     user_prompt = body.get("message", "")
+    history     = body.get("history", [])
 
-    # ── RAG retrieval ──────────────────────────────────────────
-    context_docs = vs.search(user_prompt, chat_id, k=4)
-    context      = "\n\n---\n\n".join(d.page_content for d in context_docs)
+    # ── 1. LAYERED RAG RETRIEVAL ────────────────────────────────
+    # Fetch from both Uploaded Docs AND Past Chat History
+    context_docs = vs.search(user_prompt, chat_id, k=4) 
+    
+    # NEW: Your vector store search should now naturally include 
+    # archived messages if they are stored in the same index/namespace.
+    context = "\n\n---\n\n".join(d.page_content for d in context_docs)
 
     system = SYSTEM_PROMPT
     if context:
-        system += (
-            f"\n\n=== Context from user's uploaded documents ===\n"
-            f"{context}\n"
-            f"=== End of context — answer using the above ===\n"
-        )
+        system += f"\n\n=== Relevant Context (Docs & Past Conversations) ===\n{context}\n"
     else:
-        system += "\n\n=== No documents uploaded yet ==="
+        system += "\n\n=== No previous context found ==="
 
-    # ── Build initial message history ─────────────────────────
+    # ── 2. BUILD MESSAGE HISTORY ──────────────────────────────
     messages = [{"role": "system", "content": system}]
-    for msg in body.get("history", []):
+    for msg in history:
         messages.append({"role": msg["role"], "content": msg["content"]})
     messages.append({"role": "user", "content": user_prompt})
+
+    # ── 3. ARCHIVING LOGIC (The "Archive-after-10") ───────────
+    # If JS sent 10 messages, the oldest one (history[0]) is sliding out.
+    # We send it to the background so the user doesn't wait for the embedding.
+    if len(history) >= 10:
+        oldest_msg = history[0]
+        # We only archive if it's a substantive message
+        if len(oldest_msg.get("content", "")) > 10:
+            background_tasks.add_task(
+                vs.archive_message, 
+                chat_id, 
+                oldest_msg["role"], 
+                oldest_msg["content"]
+            )
 
     # ── Streaming generator ────────────────────────────────────
     async def generate():
