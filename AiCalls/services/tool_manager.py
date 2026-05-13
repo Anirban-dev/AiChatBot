@@ -36,3 +36,7 @@ async def run_agent(user_query: str, thread_id: str = "default"):
 
     last_content = event[next(iter(event))]["messages"][-1].content
     return last_content if isinstance(last_content, str) else str(last_content)
+
+def get_schemas():
+    """Return JSON schemas for all registered tools for OpenAI function calling."""
+    return [tool.schema for tool in tools]

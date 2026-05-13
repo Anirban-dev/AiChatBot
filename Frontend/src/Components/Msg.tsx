@@ -1,7 +1,7 @@
 import { useRef, useEffect } from 'react'
 import { Send, Square, FileText, FileSpreadsheet, Image as ImageIcon, File, Loader2 } from 'lucide-react'
 import { getMsgs } from '../API/Msg'
-import { useSendMessage } from './Hook/SendMessage'
+import { useSendMessage } from './Hook/useSendMessage'
 import { useChatStore } from '../Context/ChatContext'
 import MarkdownRenderer from './BashComponent'
 
@@ -13,7 +13,7 @@ const Msg = ({ chatId }: { chatId: string }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const { input, setInput, sendMessage, stopGeneration, handleFileUpload, loading, uploading } = useSendMessage(chatId)
+  const { input, setInput, sendMessage, stopGeneration, handleFileUpload, loading, uploading, runCode } = useSendMessage(chatId)
 
   // Auto-scroll to bottom on new message
   useEffect(() => {
@@ -124,9 +124,10 @@ const Msg = ({ chatId }: { chatId: string }) => {
                   </div>
                 </div>
               ) : (
-                <MarkdownRenderer 
-                  content={msg.content} 
-                  isUser={msg.role === 'user'} 
+                <MarkdownRenderer
+                  content={msg.content}
+                  isUser={msg.role === 'user'}
+                  runCode={runCode}
                 />
               )}
               <p className={`text-[10px] mt-1.5 opacity-60 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
