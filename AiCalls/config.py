@@ -10,6 +10,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter # type: igno
 env_path = Path(__file__).resolve().parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
+# ── Redis ────────────────────────────────────────────────────────────────────
+REDIS_UTL = os.getenv("REDIS_URL")
+
 # ── LLM ──────────────────────────────────────────────────────────────────────
 LLM_API   = os.getenv("LLM_API")
 LLM_SECRET = os.getenv("LLM_SECRET")

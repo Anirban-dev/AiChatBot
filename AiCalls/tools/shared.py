@@ -1,8 +1,14 @@
 import re
-import httpx
-import redis.asyncio as aioredis
+from AiCalls.config import REDIS_UTL
+from AiCalls.services.vision import describe_image
+import httpx # type: ignore
+import redis.asyncio as aioredis # type: ignore
 
-cache = aioredis.Redis(host='localhost', port=6379, decode_responses=True)
+cache = aioredis.from_url(
+    REDIS_UTL, 
+    decode_responses=True,
+    encoding="utf-8"
+)
 
 MAX_CONTENT_CHARS = 3000
 MAX_IMAGES_PER_PAGE = 2

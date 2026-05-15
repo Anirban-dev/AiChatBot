@@ -1,7 +1,7 @@
 import re
-import httpx
+import httpx # type: ignore
 from urllib.parse import urlparse
-from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api import YouTubeTranscriptApi # type: ignore
 from tools.shared import (
     cache, firecrawl_scrape, extract_image_urls,
     analyze_page_images, is_pdf, MAX_CONTENT_CHARS
