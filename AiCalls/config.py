@@ -10,6 +10,10 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter # type: igno
 env_path = Path(__file__).resolve().parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
+# ── Security ─────────────────────────────────────────────────────────────────
+CONCURRENT_STREAMS = 50
+CONCURRENT_UPLOADS = 10
+
 # ── Redis ────────────────────────────────────────────────────────────────────
 REDIS_UTL = os.getenv("REDIS_URL")
 

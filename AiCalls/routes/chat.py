@@ -1,13 +1,17 @@
 import asyncio
 import json
-from fastapi import APIRouter, Request, BackgroundTasks # type: ignore
+from fastapi import APIRouter, Request, BackgroundTasks, HTTPException # type: ignore
 from fastapi.responses import StreamingResponse # type: ignore
 from config import client, LLM_MODEL, SYSTEM_PROMPT
 from services import vector_store as vs
 from state import active_streams
 from services.tool_manager import tool_manager
+from config import CONCURRENT_STREAMS
 
 router = APIRouter()
+
+# This prevents your VRAM or CPU from choking.
+concurrency_limit = asyncio.Semaphore(CONCURRENT_STREAMS)
 
 MAX_ITERATIONS = 5      # guard against infinite agentic loops
 MAX_TOOL_RESULT = 4000  # truncate large tool outputs
@@ -15,6 +19,16 @@ MAX_TOOL_RESULT = 4000  # truncate large tool outputs
 
 @router.post("/agent/chat")
 async def stream_chat(request: Request, background_tasks: BackgroundTasks):
+    
+    # ── 1. CONCURRENCY CHECK ────────────────────────────────
+    # Check if we have an available "slot" for a new stream
+    if concurrency_limit.locked():
+        raise HTTPException(
+            status_code=503, 
+            detail="AI Engine is at capacity. Please wait a few seconds."
+        )
+        
+        
     body        = await request.json()
     chat_id     = body.get("chat_id", "")
     user_prompt = body.get("message", "")
@@ -56,84 +70,85 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
 
     # ── Streaming generator ────────────────────────────────────
     async def generate():
-        try:
-            active_streams[chat_id] = True
-            iteration = 0
+        async with concurrency_limit:
+            try:
+                active_streams[chat_id] = True
+                iteration = 0
 
-            while iteration < MAX_ITERATIONS:
-                iteration += 1
+                while iteration < MAX_ITERATIONS:
+                    iteration += 1
 
-                # ── Non-streaming call to check for tool use ──
-                response = await client.chat.completions.create(
-                    model=LLM_MODEL,
-                    messages=messages,
-                    tools=tool_manager.get_schemas(),
-                    tool_choice="auto",
-                )
-
-                message    = response.choices[0].message
-                tool_calls = message.tool_calls
-
-                # ── No tool calls → stream the final answer ───
-                if not tool_calls:
-                    messages.append(message.model_dump(exclude_unset=True))
-
-                    stream = await client.chat.completions.create(
+                    # ── Non-streaming call to check for tool use ──
+                    response = await client.chat.completions.create(
                         model=LLM_MODEL,
                         messages=messages,
-                        stream=True,
+                        tools=tool_manager.get_schemas(),
+                        tool_choice="auto",
                     )
 
-                    async for chunk in stream:
-                        # Honour cancellation request
-                        if not active_streams.get(chat_id):
-                            break
+                    message    = response.choices[0].message
+                    tool_calls = message.tool_calls
 
-                        content = chunk.choices[0].delta.content
-                        if content:
-                            yield content
-                            await asyncio.sleep(0)  # keep event loop responsive
+                    # ── No tool calls → stream the final answer ───
+                    if not tool_calls:
+                        messages.append(message.model_dump(exclude_unset=True))
 
-                    break  # done — exit the while loop
+                        stream = await client.chat.completions.create(
+                            model=LLM_MODEL,
+                            messages=messages,
+                            stream=True,
+                        )
 
-                # ── Tool calls detected ───────────────────────
-                # FIX: convert Pydantic object → plain dict before appending
-                messages.append(message.model_dump(exclude_unset=True))
+                        async for chunk in stream:
+                            # Honour cancellation request
+                            if not active_streams.get(chat_id):
+                                break
 
-                # Notify the client which tools are being called
-                tool_names = [tc.function.name for tc in tool_calls]
-                yield f"\n\n[Action: Calling tool(s): {', '.join(tool_names)}...]\n\n"
+                            content = chunk.choices[0].delta.content
+                            if content:
+                                yield content
+                                await asyncio.sleep(0)  # keep event loop responsive
 
-                # FIX: run all tool calls in parallel with asyncio.gather
-                async def _run(tc):
-                    # FIX: arguments is a JSON string — must parse it
-                    args = json.loads(tc.function.arguments)
-                    try:
-                        result = await tool_manager.execute(tc.function.name, args)
-                        return str(result)[:MAX_TOOL_RESULT]
-                    except Exception as exc:
-                        return f"Tool error: {exc}"
+                        break  # done — exit the while loop
 
-                results = await asyncio.gather(*[_run(tc) for tc in tool_calls])
+                    # ── Tool calls detected ───────────────────────
+                    # FIX: convert Pydantic object → plain dict before appending
+                    messages.append(message.model_dump(exclude_unset=True))
 
-                # Append each tool result as a "tool" role message
-                for tc, result in zip(tool_calls, results):
-                    messages.append({
-                        "role":         "tool",
-                        "tool_call_id": tc.id,
-                        "name":         tc.function.name,
-                        "content":      result,
-                    })
+                    # Notify the client which tools are being called
+                    tool_names = [tc.function.name for tc in tool_calls]
+                    yield f"\n\n[Action: Calling tool(s): {', '.join(tool_names)}...]\n\n"
 
-            else:
-                # while loop exhausted without a break → hit iteration limit
-                yield "\n\n[Agent hit the maximum iteration limit without a final answer.]"
+                    # FIX: run all tool calls in parallel with asyncio.gather
+                    async def _run(tc):
+                        # FIX: arguments is a JSON string — must parse it
+                        args = json.loads(tc.function.arguments)
+                        try:
+                            result = await tool_manager.execute(tc.function.name, args)
+                            return str(result)[:MAX_TOOL_RESULT]
+                        except Exception as exc:
+                            return f"Tool error: {exc}"
 
-        except Exception as e:
-            yield f"\n\n[Error: {e}]"
+                    results = await asyncio.gather(*[_run(tc) for tc in tool_calls])
 
-        finally:
-            active_streams.pop(chat_id, None)
+                    # Append each tool result as a "tool" role message
+                    for tc, result in zip(tool_calls, results):
+                        messages.append({
+                            "role":         "tool",
+                            "tool_call_id": tc.id,
+                            "name":         tc.function.name,
+                            "content":      result,
+                        })
+
+                else:
+                    # while loop exhausted without a break → hit iteration limit
+                    yield "\n\n[Agent hit the maximum iteration limit without a final answer.]"
+
+            except Exception as e:
+                yield f"\n\n[Error: {e}]"
+
+            finally:
+                active_streams.pop(chat_id, None)
 
     return StreamingResponse(generate(), media_type="text/plain")
 
