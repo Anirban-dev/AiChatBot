@@ -1,11 +1,11 @@
 import re
-from AiCalls.config import REDIS_UTL
-from AiCalls.services.vision import describe_image
+from config import REDIS_URL
+from services.vision import describe_image
 import httpx # type: ignore
 import redis.asyncio as aioredis # type: ignore
 
 cache = aioredis.from_url(
-    REDIS_UTL, 
+    REDIS_URL, 
     decode_responses=True,
     encoding="utf-8"
 )

@@ -1,7 +1,7 @@
 # main.py
 from contextlib import asynccontextmanager
 from fastapi import FastAPI # type: ignore
-from AiCalls.routes.upload import router as index_router
+from routes.upload import router as index_router
 from routes.chat  import router as chat_router
 from services.embeddings import get_embeddings
 from config import EMBED_DIM

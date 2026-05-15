@@ -3,28 +3,28 @@ import { createRateLimiter } from '../middleware/rateLimiter'
 
 // Helper functions
 export const vgenLimiter = createRateLimiter({
-  keyPrefix: 'msg',
+  keyPrefix: 'chat_switch',
   windowSec: 60,
   max: 60,
   keyFn: (req) => (req as any).user?.id ?? req.ip
 })
 
 export const genLimiter = createRateLimiter({
-  keyPrefix: 'msg',
+  keyPrefix: 'gen_db_calls',
   windowSec: 60,
   max: 40,
   keyFn: (req) => (req as any).user?.id ?? req.ip
 })
 
 export const midLimiter = createRateLimiter({
-  keyPrefix: 'msg',
+  keyPrefix: 'db_calls',
   windowSec: 60,
   max: 20,
   keyFn: (req) => (req as any).user?.id ?? req.ip
 })
 
 export const strictLimiter = createRateLimiter({
-  keyPrefix: 'ai_msg',
+  keyPrefix: 'ai_calls',
   windowSec: 60,
   max: 10,
   keyFn: (req) => (req as any).user?.id ?? req.ip

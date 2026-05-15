@@ -1,7 +1,7 @@
 import asyncio
 import os
 import tempfile
-from AiCalls.config import CONCURRENT_UPLOADS
+from config import CONCURRENT_UPLOADS
 from fastapi import Request # type: ignore
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException # type: ignore
 from services.loaders import load_and_chunk, SUPPORTED

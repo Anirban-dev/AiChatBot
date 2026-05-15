@@ -15,7 +15,7 @@ CONCURRENT_STREAMS = 50
 CONCURRENT_UPLOADS = 10
 
 # ── Redis ────────────────────────────────────────────────────────────────────
-REDIS_UTL = os.getenv("REDIS_URL")
+REDIS_URL = os.getenv("REDIS_URL")
 
 # ── LLM ──────────────────────────────────────────────────────────────────────
 LLM_API   = os.getenv("LLM_API")

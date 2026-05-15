@@ -1,7 +1,6 @@
-from langchain_openai import ChatOpenAI
-from langchain_core.tools import tool
-from langgraph.prebuilt import create_react_agent
-from langgraph.checkpoint.memory import MemorySaver
+from langchain_openai import ChatOpenAI # type: ignore
+from langgraph.prebuilt import create_react_agent # type: ignore
+from langgraph.checkpoint.memory import MemorySaver # type: ignore
 from tools.deep_research import deep_research
 import config
 
@@ -14,10 +13,10 @@ llm = ChatOpenAI(
     temperature=0
 )
 
-agent = create_react_agent(
+tool_manager = create_react_agent(
     model=llm,
     tools=tools,
-    state_modifier=config.SYSTEM_PROMPT,
+    prompt=config.SYSTEM_PROMPT,
     checkpointer=MemorySaver()
 )
 
@@ -26,7 +25,7 @@ async def run_agent(user_query: str, thread_id: str = "default"):
     config_dict = {"configurable": {"thread_id": thread_id}}
     
     event = None
-    async for event in agent.astream(inputs, config=config_dict, stream_mode="updates"):
+    async for event in tool_manager.astream(inputs, config=config_dict, stream_mode="updates"):
         for node, state in event.items():
             print(f"\n[{node}]")
             state["messages"][-1].pretty_print()
