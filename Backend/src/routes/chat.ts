@@ -2,13 +2,16 @@ import { Router, Response } from 'express'
 import { Chat } from '../models/chat'
 import { Message } from '../models/msg'
 import authMiddleware, { AuthRequest } from '../middleware/auth'
+import { genLimiter, midLimiter, strictLimiter, vgenLimiter } from '../utils/ratelimitHelper'
 
 const router = Router()
 
 router.use(authMiddleware)
 
+// Rate limit helper
+
 // Create chat
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', strictLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const count = await Chat.countDocuments({ userId: req.userId })
     const chat = await Chat.create({
@@ -22,7 +25,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 })
 
 // Get all chats
-router.get('/allchats', async (req: AuthRequest, res: Response) => {
+router.get('/allchats', genLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const chats = await Chat.find({ userId: req.userId }).sort({ createdAt: -1 })
     res.json(chats.map(c => ({ id: c.id, title: c.title })))
@@ -32,7 +35,7 @@ router.get('/allchats', async (req: AuthRequest, res: Response) => {
 })
 
 // Get chat
-router.get('/:id', async (req: AuthRequest, res: Response) => {
+router.get('/:id', vgenLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const chat = await Chat.findById((req.params as { id: string }).id,)
     if (!chat) return res.status(404).json({ error: 'Chat not found' })
@@ -42,7 +45,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
-router.delete('/:id', async (req: AuthRequest, res: Response) => {
+router.delete('/:id', midLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const chat = await Chat.findOneAndDelete({ _id: (req.params as { id: string }).id, userId: req.userId })
     if (!chat) return res.status(404).json({ error: 'Chat not found' })

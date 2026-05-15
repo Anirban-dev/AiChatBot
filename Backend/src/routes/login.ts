@@ -4,10 +4,9 @@ import jwt from 'jsonwebtoken'
 import crypto from 'crypto'
 import { User } from '../models/user'
 import { OAuth2Client } from 'google-auth-library'
-import Redis from 'ioredis'
+import { redis } from '../utils/redis'
 import { sendOTP } from '../utils/email'
-
-export const redis = new Redis(process.env.REDIS_URL!)
+import { createRateLimiter } from '../middleware/rateLimiter'
 
 const router = Router()
 const client = new OAuth2Client(
@@ -80,8 +79,25 @@ const clearAttempts = async (key: string) => {
   await redis.del(`attempts:${key}`, `blocked:${key}`)
 }
 
+
+// ── Google Login and Refresh Token Rate Limiter ────────────────────────
+const googleLoginLimiter = createRateLimiter({
+  keyPrefix: 'google_login',
+  windowSec: 15 * 60,
+  max: 10,                           // 10 attempts per IP per 15 min
+  message: 'Too many login attempts. Try again later.'
+})
+
+const refreshLimiter = createRateLimiter({
+  keyPrefix: 'refresh',
+  windowSec: 15 * 60,
+  max: 30,                           // tokens refresh often, keep it generous
+  keyFn: (req) => req.body?.refreshToken?.slice(-16) ?? req.ip  // per-token, not per-IP
+})
+
+
 // ── Google Login ─────────────────────────────────────────────────────────────
-router.post('/google-login', async (req: Request, res: Response) => {
+router.post('/google-login', googleLoginLimiter,  async (req: Request, res: Response) => {
   const { code } = req.body
 
   if (!code) {
@@ -285,7 +301,7 @@ router.post('/login', async (req: Request, res: Response) => {
 // ── Refresh Token ─────────────────────────────────────────────────────────────
 // Call this when the access token expires (you get a 401).
 // Returns a fresh access token + a new refresh token (rotation).
-router.post('/refresh', async (req: Request, res: Response) => {
+router.post('/refresh', refreshLimiter, async (req: Request, res: Response) => {
   const { refreshToken } = req.body
 
   if (!refreshToken) {

@@ -3,13 +3,15 @@ import multer from 'multer'
 import authMiddleware, { AuthRequest } from '../middleware/auth'
 import { Message } from '../models/msg'
 import path from 'path'
+import { createRateLimiter } from '../middleware/rateLimiter'
+import { uploadLimiter } from '../utils/ratelimitHelper'
 
 const router = Router()
 const upload = multer({ storage: multer.memoryStorage() })
 
 router.use(authMiddleware)
 
-router.post('/upload', upload.single('file'), async (req: AuthRequest, res: Response) => {
+router.post('/upload', uploadLimiter, upload.single('file'), async (req: AuthRequest, res: Response) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' })
   }
@@ -67,7 +69,7 @@ router.post('/upload', upload.single('file'), async (req: AuthRequest, res: Resp
   }
 })
 
-router.post('/delete', async (req: AuthRequest, res: Response) => {
+router.post('/delete', uploadLimiter, async (req: AuthRequest, res: Response) => {
   const { filename, chatId } = req.body
   if (!filename) {
     return res.status(400).json({ error: 'Filename is required' })

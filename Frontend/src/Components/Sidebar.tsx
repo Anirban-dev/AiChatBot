@@ -17,21 +17,6 @@ const Sidebar = ({ isMobile, collapsed, setCollapsed, title }: any) => {
     chatId: string
   } | null>(null)
 
-  useEffect(() => {
-    const fetchChats = async () => {
-      try {
-        const data = await allChat()
-        setChats(data)
-      } catch (err) {
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchChats()
-  }, [])
-
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -164,7 +149,7 @@ const Sidebar = ({ isMobile, collapsed, setCollapsed, title }: any) => {
           <div
             style={{ top: contextMenu.y, left: contextMenu.x }}
             className="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 
-            dark:border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]"
+            dark:border-gray-700 rounded-lg shadow-lg py-1 min-w-30"
           >
             <button
               onClick={handleDelete}

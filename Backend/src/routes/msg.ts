@@ -3,12 +3,14 @@ import { Router, Request, Response } from 'express'
 import { Message } from '../models/msg'
 import { Chat } from '../models/chat'
 import authMiddleware, { AuthRequest } from '../middleware/auth'
+import { midLimiter, strictLimiter } from '../utils/ratelimitHelper'
 
 const router = Router({ mergeParams: true }) 
 router.use(authMiddleware)
 
+
 // Get all messages for a chat
-router.get('/', async (req: Request<{ chatId: string }>, res: Response) => {
+router.get('/', midLimiter, async (req: Request<{ chatId: string }>, res: Response) => {
   try {
     const messages = await Message.find({ chatId: req.params.chatId }).sort({ createdAt: 1 })
     res.json(messages)
@@ -18,9 +20,8 @@ router.get('/', async (req: Request<{ chatId: string }>, res: Response) => {
 })
 
 
-
 // Send a message
-router.post('/', async (req: AuthRequest<{ chatId: string }>, res: Response) => {
+router.post('/', strictLimiter, async (req: AuthRequest<{ chatId: string }>, res: Response) => {
   const { content } = req.body
   const { chatId } = req.params
 
@@ -116,7 +117,7 @@ router.post('/', async (req: AuthRequest<{ chatId: string }>, res: Response) => 
 
 
 // Stop a running AI generation
-router.post('/stop', async (req: AuthRequest<{ chatId: string }>, res: Response) => {
+router.post('/stop', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: Response) => {
   const { chatId } = req.params;
 
   try {

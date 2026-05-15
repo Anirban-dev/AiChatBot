@@ -5,7 +5,7 @@ const envPath = path.resolve(__dirname, '../../.env');
 dotenv.config({ path: envPath });
 
 import app from './app';
-import connectDB from './db/connect';
+import connectDB from './utils/connectDb';
 
 
 const PORT = 3000;
