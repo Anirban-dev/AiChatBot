@@ -1,50 +1,32 @@
 import { deleteCookie } from "../Auth/authHelper"
+import api from "./AxiosInstance"
 
-// src/API/auth.ts
-const BASE_URL = import.meta.env.VITE_BASE_URL
+interface User {
+  id: string
+  name: string
+  email: string
+  avatar?: string
+  role?: string
+}
 
 export const login = async (email: string, password: string) => {
-  const res = await fetch(`${BASE_URL}/login/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || 'Login failed')
-  return data
+  const res = await api.post(`/login/login`, { email, password })
+  return res.data
 }
 
 export const sendOtp = async (email: string) => {
-  const res = await fetch(`${BASE_URL}/login/send-otp`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || 'Failed to send OTP')
-  return data
+  const res = await api.post(`/login/send-otp`, { email })
+  return res.data
 }
 
 export const signup = async (name: string, email: string, password: string, otp: string) => {
-  const res = await fetch(`${BASE_URL}/login/signup`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, email, password, otp }),
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || 'Signup failed')
-  return data
+  const res = await api.post(`/login/signup`, { name, email, password, otp })
+  return res.data
 }
 
-export const googleLogin = async (code: string) => {
-  const res = await fetch(`${BASE_URL}/login/google-login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || 'Google login failed')
-  return data
+export const googleLogin = async (code: string): Promise<{ user: User; token: string }> => {
+  const res = await api.post(`/login/google-login`, { code })
+  return res.data
 }
 
 export const logout = () => {

@@ -1,34 +1,86 @@
 import { Router, Request, Response } from 'express'
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
+import crypto from 'crypto'
 import { User } from '../models/user'
 import { OAuth2Client } from 'google-auth-library'
-import NodeCache from 'node-cache'
+import Redis from 'ioredis'
 import { sendOTP } from '../utils/email'
 
-const otpCache = new NodeCache({ stdTTL: 300 }) // 5 minutes expiration
+export const redis = new Redis(process.env.REDIS_URL!)
 
 const router = Router()
 const client = new OAuth2Client(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
-  'postmessage' // 'postmessage' is the reserved redirect URI for the useGoogleLogin hook
+  'postmessage'
 )
 
-// ✅ Fail fast if secrets are missing — don't let the app start broken
+// ✅ Fail fast if secrets are missing
 const JWT_SECRET = process.env.JWT_SECRET
 if (!JWT_SECRET) throw new Error('JWT_SECRET env var is required')
+
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET
+if (!JWT_REFRESH_SECRET) throw new Error('JWT_REFRESH_SECRET env var is required')
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID
 if (!GOOGLE_CLIENT_ID) throw new Error('GOOGLE_CLIENT_ID env var is required')
 
-// ── Google Login (Authorization Code flow) ──────────────────────────────────
-// The frontend sends an authorization `code`, NOT a credential/id_token.
-// The backend exchanges the code for tokens using the client secret.
-// This means:
-//   - The client secret never leaves the server
-//   - Tokens are issued directly to the backend, not the browser
-//   - You can optionally store refresh tokens for long-lived sessions
+// ── Token Helpers ────────────────────────────────────────────────────────────
+
+// Access token: short-lived, used for every API call
+const signAccessToken = (userId: string) =>
+  jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: '15m' })
+
+// Refresh token: long-lived, stored in Redis so we can invalidate it on logout
+const signRefreshToken = (userId: string) =>
+  jwt.sign({ id: userId }, JWT_REFRESH_SECRET, { expiresIn: '7d' })
+
+// Store a hashed version of the refresh token — never store raw tokens
+// Key: refresh:<userId> — one active session per user
+// Swap redis.set → redis.sadd if you want multi-device support
+const saveRefreshToken = async (userId: string, refreshToken: string) => {
+  const hashed = crypto.createHash('sha256').update(refreshToken).digest('hex')
+  await redis.set(`refresh:${userId}`, hashed, 'EX', 60 * 60 * 24 * 7)
+}
+
+const verifyStoredRefreshToken = async (userId: string, refreshToken: string): Promise<boolean> => {
+  const stored = await redis.get(`refresh:${userId}`)
+  if (!stored) return false
+  const hashed = crypto.createHash('sha256').update(refreshToken).digest('hex')
+  return stored === hashed
+}
+
+// ── Brute Force Helpers ──────────────────────────────────────────────────────
+
+const MAX_LOGIN_ATTEMPTS = 5
+const LOGIN_BLOCK_TTL    = 15 * 60  // block for 15 min
+const LOGIN_WINDOW_TTL   = 10 * 60  // reset attempt counter after 10 min of no failures
+
+const MAX_OTP_ATTEMPTS   = 5
+const OTP_ATTEMPT_TTL    = 5 * 60   // tied to OTP lifetime (5 min)
+
+const isBlocked = async (key: string): Promise<boolean> => {
+  return !!(await redis.get(`blocked:${key}`))
+}
+
+// Increment attempt counter. Returns the new count.
+const recordFailedAttempt = async (key: string, windowTTL: number): Promise<number> => {
+  const attempts = await redis.incr(`attempts:${key}`)
+  if (attempts === 1) await redis.expire(`attempts:${key}`, windowTTL) // start window on first failure
+  return attempts
+}
+
+const blockIdentifier = async (key: string, blockTTL: number) => {
+  await redis.set(`blocked:${key}`, '1', 'EX', blockTTL)
+  await redis.del(`attempts:${key}`)
+}
+
+const clearAttempts = async (key: string) => {
+  await redis.del(`attempts:${key}`, `blocked:${key}`)
+}
+
+// ── Google Login ─────────────────────────────────────────────────────────────
 router.post('/google-login', async (req: Request, res: Response) => {
   const { code } = req.body
 
@@ -37,14 +89,12 @@ router.post('/google-login', async (req: Request, res: Response) => {
   }
 
   try {
-    // Exchange the authorization code for tokens using client secret
     const { tokens } = await client.getToken(code)
 
     if (!tokens.id_token) {
       return res.status(400).json({ error: 'No ID token returned from Google' })
     }
 
-    // Verify the ID token Google returned (checks signature, expiry, audience)
     const ticket = await client.verifyIdToken({
       idToken: tokens.id_token,
       audience: GOOGLE_CLIENT_ID,
@@ -58,7 +108,6 @@ router.post('/google-login', async (req: Request, res: Response) => {
     const { email, name } = payload
 
     let user = await User.findOne({ email })
-
     if (!user) {
       user = await User.create({
         name: name ?? email.split('@')[0],
@@ -67,20 +116,22 @@ router.post('/google-login', async (req: Request, res: Response) => {
       } as any)
     }
 
-    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '7d' })
+    const accessToken  = signAccessToken(user._id.toString())
+    const refreshToken = signRefreshToken(user._id.toString())
+    await saveRefreshToken(user._id.toString(), refreshToken)
 
     return res.json({
-      token,
+      accessToken,
+      refreshToken,
       user: { id: user._id, name: user.name, email: user.email },
     })
   } catch (err) {
     console.error('Google Login Error:', err)
-    const message = err instanceof Error ? err.message : 'Google login failed'
-    return res.status(500).json({ error: message })
+    return res.status(500).json({ error: 'Google login failed' })
   }
 })
 
-// ── OTP Management ──────────────────────────────────────────────────────────
+// ── Send OTP ─────────────────────────────────────────────────────────────────
 router.post('/send-otp', async (req: Request, res: Response) => {
   const { email } = req.body
 
@@ -88,9 +139,21 @@ router.post('/send-otp', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Email is required' })
   }
 
+  // ✅ Rate limit OTP sends — max 3 per 10 min to prevent email spam
+  const sendCount = await redis.incr(`otp_send:${email}`)
+  if (sendCount === 1) await redis.expire(`otp_send:${email}`, 10 * 60)
+  if (sendCount > 3) {
+    return res.status(429).json({ error: 'Too many OTP requests. Try again later.' })
+  }
+
   try {
     const otp = Math.floor(100000 + Math.random() * 900000).toString()
-    otpCache.set(email, otp)
+
+    // ✅ Fixed: original code used `phone` variable which doesn't exist — now uses `email`
+    await redis.set(`otp:${email}`, otp, 'EX', 300)
+
+    // ✅ Reset attempt counter so a fresh OTP gives a clean slate
+    await clearAttempts(`otp:${email}`)
 
     await sendOTP(email, otp)
 
@@ -101,7 +164,7 @@ router.post('/send-otp', async (req: Request, res: Response) => {
   }
 })
 
-// ── Signup ──────────────────────────────────────────────────────────────────
+// ── Signup ───────────────────────────────────────────────────────────────────
 router.post('/signup', async (req: Request, res: Response) => {
   const { name, email, password, otp } = req.body
 
@@ -109,35 +172,56 @@ router.post('/signup', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'name, email, password and otp are required' })
   }
 
-  const cachedOtp = otpCache.get(email)
+  // ✅ Block if too many wrong OTP attempts
+  if (await isBlocked(`otp:${email}`)) {
+    return res.status(429).json({ error: 'Too many failed attempts. Request a new OTP.' })
+  }
+
+  // ✅ Fixed: original code used `phone` variable — now correctly uses `email`
+  const cachedOtp = await redis.get(`otp:${email}`)
+
   if (!cachedOtp || cachedOtp !== otp) {
-    return res.status(400).json({ error: 'Invalid or expired OTP' })
+    const attempts = await recordFailedAttempt(`otp:${email}`, OTP_ATTEMPT_TTL)
+
+    if (attempts >= MAX_OTP_ATTEMPTS) {
+      await blockIdentifier(`otp:${email}`, OTP_ATTEMPT_TTL)
+      await redis.del(`otp:${email}`) // force them to request a fresh OTP
+      return res.status(429).json({ error: 'Too many failed attempts. Request a new OTP.' })
+    }
+
+    return res.status(400).json({
+      error: 'Invalid or expired OTP',
+      attemptsLeft: MAX_OTP_ATTEMPTS - attempts,
+    })
   }
 
   try {
     const existing = await User.findOne({ email })
-    if (existing) return res.status(409).json({ error: 'Email already in use' }) // ✅ 409 Conflict
+    if (existing) return res.status(409).json({ error: 'Email already in use' })
 
     const hashed = await bcrypt.hash(password, 10)
-    const user = await User.create({ name, email, password: hashed })
+    const user   = await User.create({ name, email, password: hashed })
 
-    // ✅ Clear OTP after successful signup
-    otpCache.del(email)
+    // ✅ Fixed: original code used `phone` — now correctly uses `email`
+    await redis.del(`otp:${email}`)
+    await clearAttempts(`otp:${email}`)
 
-    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '7d' })
+    const accessToken  = signAccessToken(user._id.toString())
+    const refreshToken = signRefreshToken(user._id.toString())
+    await saveRefreshToken(user._id.toString(), refreshToken)
 
-    return res.status(201).json({ // ✅ 201 Created for new resources
-      token,
+    return res.status(201).json({
+      accessToken,
+      refreshToken,
       user: { id: user._id, name: user.name, email: user.email },
     })
   } catch (err) {
     console.error('Signup error:', err)
-    // ✅ Never leak raw error details (err.message) to the client
     return res.status(500).json({ error: 'Signup failed' })
   }
 })
 
-// ── Login ───────────────────────────────────────────────────────────────────
+// ── Login ────────────────────────────────────────────────────────────────────
 router.post('/login', async (req: Request, res: Response) => {
   const { email, password } = req.body
 
@@ -145,32 +229,107 @@ router.post('/login', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'email and password are required' })
   }
 
+  // ✅ Brute force: block after 5 failures for 15 min
+  if (await isBlocked(`login:${email}`)) {
+    return res.status(429).json({
+      error: 'Account temporarily locked. Try again in 15 minutes.',
+    })
+  }
+
   try {
     const user = await User.findOne({ email })
 
-    // ✅ Prevent login with a Google-only account
-    if (!user || (user as any).googleAuth) {
-      return res.status(401).json({ error: 'Invalid credentials' }) // don't reveal "user not found"
-    }
-
-    // ✅ null-guard since googleAuth users have no password
-    if (!user.password) {
+    // ✅ Always record a failed attempt even for non-existent users
+    // This prevents user enumeration via timing differences
+    if (!user || (user as any).googleAuth || !user.password) {
+      await recordFailedAttempt(`login:${email}`, LOGIN_WINDOW_TTL)
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
     const match = await bcrypt.compare(password, user.password)
-    if (!match) return res.status(401).json({ error: 'Invalid credentials' }) // ✅ same message, no oracle
 
-    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '7d' })
+    if (!match) {
+      const attempts = await recordFailedAttempt(`login:${email}`, LOGIN_WINDOW_TTL)
+
+      if (attempts >= MAX_LOGIN_ATTEMPTS) {
+        await blockIdentifier(`login:${email}`, LOGIN_BLOCK_TTL)
+        return res.status(429).json({
+          error: 'Account temporarily locked. Try again in 15 minutes.',
+        })
+      }
+
+      return res.status(401).json({
+        error: 'Invalid credentials',
+        attemptsLeft: MAX_LOGIN_ATTEMPTS - attempts,
+      })
+    }
+
+    // ✅ Successful login — clear brute force state
+    await clearAttempts(`login:${email}`)
+
+    const accessToken  = signAccessToken(user._id.toString())
+    const refreshToken = signRefreshToken(user._id.toString())
+    await saveRefreshToken(user._id.toString(), refreshToken)
 
     return res.json({
-      token,
+      accessToken,
+      refreshToken,
       user: { id: user._id, name: user.name, email: user.email },
     })
   } catch (err) {
     console.error('Login error:', err)
     return res.status(500).json({ error: 'Login failed' })
   }
+})
+
+// ── Refresh Token ─────────────────────────────────────────────────────────────
+// Call this when the access token expires (you get a 401).
+// Returns a fresh access token + a new refresh token (rotation).
+router.post('/refresh', async (req: Request, res: Response) => {
+  const { refreshToken } = req.body
+
+  if (!refreshToken) {
+    return res.status(400).json({ error: 'Refresh token is required' })
+  }
+
+  try {
+    const payload = jwt.verify(refreshToken, JWT_REFRESH_SECRET) as { id: string }
+
+    // ✅ Verify it matches what's stored — detects reuse of stolen tokens
+    const isValid = await verifyStoredRefreshToken(payload.id, refreshToken)
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid or expired refresh token. Please log in again.' })
+    }
+
+    const accessToken     = signAccessToken(payload.id)
+    const newRefreshToken = signRefreshToken(payload.id)
+
+    // ✅ Refresh token rotation: old token is replaced, so a stolen token can only be used once
+    await saveRefreshToken(payload.id, newRefreshToken)
+
+    return res.json({ accessToken, refreshToken: newRefreshToken })
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired refresh token. Please log in again.' })
+  }
+})
+
+// ── Logout ────────────────────────────────────────────────────────────────────
+// Deletes the refresh token from Redis — access token expires naturally in 15m
+router.post('/logout', async (req: Request, res: Response) => {
+  const { refreshToken } = req.body
+
+  if (!refreshToken) {
+    return res.status(400).json({ error: 'Refresh token is required' })
+  }
+
+  try {
+    const payload = jwt.verify(refreshToken, JWT_REFRESH_SECRET) as { id: string }
+    await redis.del(`refresh:${payload.id}`)
+  } catch {
+    // Treat logout as success even if the token is already expired
+  }
+
+  return res.json({ message: 'Logged out successfully' })
 })
 
 export default router

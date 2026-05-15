@@ -1,34 +1,29 @@
-import { getCookie } from "../Auth/authHelper"
+import api from "./AxiosInstance"
+import { fetchWithRefresh, authHeader } from "./FetchHelper"
 
 const BASE_URL = import.meta.env.VITE_BASE_URL
 
-const authHeader = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${getCookie('token')}`
-})
-
+// ── API calls ─────────────────────────────────────────────────────────────────
 export const getMsgs = async (chatId: string) => {
-  const res = await fetch(`${BASE_URL}/chats/${chatId}/msgs`, {
-    headers: authHeader()
-  })
-  if (!res.ok) throw new Error('Failed to fetch msgs')
-  return res.json()
+  const res = await api.get(`/chats/${chatId}/msgs`)
+  return res.data
 }
 
 export const sendMsg = async (
   chatId: string,
   content: string,
-  onToken: (token: string) => void,     // called for each word
-  onUserMessage: (msg: any) => void,     // called when user msg is saved
-  onDone: (assistantMsg: any) => void,   // called when stream ends
+  onToken: (token: string) => void,
+  onUserMessage: (msg: any) => void,
+  onDone: (assistantMsg: any) => void,
   onError: () => void,
   signal: AbortSignal
 ) => {
-  const res = await fetch(`${BASE_URL}/chats/${chatId}/msgs`, {
+  // ✅ Use fetchWithRefresh so a 401 mid-session is handled automatically
+  const res = await fetchWithRefresh(`${BASE_URL}/chats/${chatId}/msgs`, {
     method: 'POST',
     headers: authHeader(),
     body: JSON.stringify({ content }),
-    signal
+    signal,
   })
 
   if (!res.body) throw new Error('No response body')
@@ -63,8 +58,6 @@ export const sendMsg = async (
 }
 
 export const stopMsg = async (chatId: string) => {
-  return await fetch(`${BASE_URL}/chats/${chatId}/msgs/stop`, {
-    method: 'POST',
-    headers: authHeader()
-  });
+  const res = await api.post(`/chats/${chatId}/msgs/stop`)
+  return res.data
 }

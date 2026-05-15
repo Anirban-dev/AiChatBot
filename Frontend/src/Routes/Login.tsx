@@ -103,9 +103,9 @@ const Login = () => {
         </button>
 
         <div className="flex items-center justify-center mb-4">
-          <div className="border-t border-gray-300 dark:border-gray-600 flex-grow" />
+          <div className="border-t border-gray-300 dark:border-gray-600 " />
           <span className="px-2 text-gray-500 text-xs uppercase">Or</span>
-          <div className="border-t border-gray-300 dark:border-gray-600 flex-grow" />
+          <div className="border-t border-gray-300 dark:border-gray-600" />
         </div>
 
         {/* Custom Google Button to trigger the hook */}

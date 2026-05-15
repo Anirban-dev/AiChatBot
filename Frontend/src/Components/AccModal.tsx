@@ -137,7 +137,7 @@ export default function AccountModal({
 
         {/* Avatar + info */}
         <div className="flex items-center gap-4 px-6 py-4 border-b border-gray-100 dark:border-gray-800">
-          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-lg font-bold select-none">
+          <div className="w-12 h-12 rounded-full from-blue-500 to-indigo-600 flex items-center justify-center text-white text-lg font-bold select-none">
             {user.name.charAt(0).toUpperCase()}
           </div>
           <div>
