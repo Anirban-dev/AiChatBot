@@ -1,7 +1,7 @@
 import asyncio
 import json
-from fastapi import APIRouter, Request, BackgroundTasks
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Request, BackgroundTasks # type: ignore
+from fastapi.responses import StreamingResponse # type: ignore
 from config import client, LLM_MODEL, SYSTEM_PROMPT
 from services import vector_store as vs
 from state import active_streams
@@ -136,3 +136,14 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
             active_streams.pop(chat_id, None)
 
     return StreamingResponse(generate(), media_type="text/plain")
+
+
+@router.post("/agent/stop")
+async def stop_chat(request: Request):
+    body    = await request.json()
+    chat_id = body.get("chat_id")
+    task    = active_streams.pop(chat_id, None)
+    if task:
+        task.cancel()
+        return {"message": "Stream stopped"}
+    return {"message": "No active stream for this chat"}

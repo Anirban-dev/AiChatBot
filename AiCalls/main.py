@@ -1,9 +1,8 @@
 # main.py
 from contextlib import asynccontextmanager
 from fastapi import FastAPI # type: ignore
-from routes.index import router as index_router
+from AiCalls.routes.upload import router as index_router
 from routes.chat  import router as chat_router
-from routes.stop  import router as stop_router
 from services.embeddings import get_embeddings
 from config import EMBED_DIM
 
@@ -21,7 +20,6 @@ app = FastAPI(title="ChatAI Agent", lifespan=lifespan)
 
 app.include_router(index_router)
 app.include_router(chat_router)
-app.include_router(stop_router)
 
 if __name__ == "__main__":
     import uvicorn # type: ignore
