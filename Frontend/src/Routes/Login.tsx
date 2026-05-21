@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login, signup, googleLogin, sendOtp } from '../API/Login'
-import { saveAccount } from '../Auth/authHelper'
+import { saveSession } from '../Auth/authHelper'
 import { useGoogleLogin } from '@react-oauth/google'
 
 const GoogleIcon = () => (
@@ -33,7 +33,7 @@ const Login = () => {
       setError('')
       try {
         const data = await googleLogin(code) // Sends code to backend
-        saveAccount(data.user, data.token)
+        saveSession(data.user, data.accessToken, data.refreshToken)
         navigate('/')
       } catch (err: any) {
         setError(err.message ?? 'Google login failed')
@@ -51,7 +51,7 @@ const Login = () => {
     try {
       if (isLogin) {
         const data = await login(email, password)
-        saveAccount(data.user, data.token)
+        saveSession(data.user, data.accessToken, data.refreshToken)
         navigate('/')
       } else {
         if (!otpSent) {
@@ -59,7 +59,7 @@ const Login = () => {
           setOtpSent(true)
         } else {
           const data = await signup(name, email, password, otp)
-          saveAccount(data.user, data.token)
+          saveSession(data.user, data.accessToken, data.refreshToken)
           navigate('/')
         }
       }

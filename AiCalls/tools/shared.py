@@ -59,7 +59,7 @@ async def analyze_page_images(client: httpx.AsyncClient, image_urls: list[str]) 
             media_type = r.headers.get("content-type", "image/jpeg").split(";")[0]
             if not media_type.startswith("image/"):
                 continue
-            desc = describe_image(r.content, media_type)  # your function
+            desc = describe_image(r.content, media_type)
             descriptions.append(f"[Image at {url}]: {desc}")
         except Exception:
             pass

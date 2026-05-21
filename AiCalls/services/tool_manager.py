@@ -38,4 +38,12 @@ async def run_agent(user_query: str, thread_id: str = "default"):
 
 def get_schemas():
     """Return JSON schemas for all registered tools for OpenAI function calling."""
-    return [tool.schema for tool in tools]
+    from langchain_core.utils.function_calling import convert_to_openai_tool
+    return [convert_to_openai_tool(tool) for tool in tools]
+
+async def execute(tool_name: str, args: dict):
+    """Execute a registered tool by its name."""
+    for t in tools:
+        if t.name == tool_name:
+            return await t.ainvoke(args)
+    raise ValueError(f"Tool {tool_name} not found.")

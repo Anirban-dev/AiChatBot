@@ -1,17 +1,25 @@
 import axios from 'axios'
+import { getCookie, setCookie, deleteCookie } from "../Auth/authHelper"
 
 const BASE_URL = import.meta.env.VITE_BASE_URL
 
+const ACCESS_TOKEN_COOKIE = 'accessToken'
+const ACCESS_TOKEN_EXPIRES_DAYS = 1 / 96 // 15 minutes
+
 const api = axios.create({ baseURL: BASE_URL })
 
-// ── Access token Handler ──────────────────────────────────────────────────────
-let accessToken: string | null = null
-export const getAccessToken = () => accessToken
-export const setAccessToken = (t: string) => { accessToken = t }
-export const clearAccessToken = () => { accessToken = null }
+// ── Access token: now backed by a cookie instead of a bare variable ───────────
+export const getAccessToken  = ()        => getCookie(ACCESS_TOKEN_COOKIE)
+export const setAccessToken = (t: string) => {
+  if (!t) {
+    console.warn('setAccessToken called with empty token — skipping')
+    return
+  }
+  setCookie(ACCESS_TOKEN_COOKIE, t, ACCESS_TOKEN_EXPIRES_DAYS)
+}
+export const clearAccessToken = ()       => deleteCookie(ACCESS_TOKEN_COOKIE)
 
-
-// ── Request: attach access token from memory ──────────────────────────────────
+// ── Request: attach access token from cookie ──────────────────────────────────
 api.interceptors.request.use(config => {
   const token = getAccessToken()
   if (token) config.headers.Authorization = `Bearer ${token}`

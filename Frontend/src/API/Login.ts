@@ -1,4 +1,5 @@
-import { deleteCookie } from "../Auth/authHelper"
+// API/Login.ts
+import { clearSession } from "../Auth/authHelper"   // ← replaces deleteCookie
 import api from "./AxiosInstance"
 
 interface User {
@@ -9,7 +10,14 @@ interface User {
   role?: string
 }
 
-export const login = async (email: string, password: string) => {
+// Single source of truth for what the backend returns on auth
+interface AuthResponse {
+  user: User
+  accessToken: string          // your backend's field name — keep as-is
+  refreshToken: string   // confirm this exists in your backend response
+}
+
+export const login = async (email: string, password: string): Promise<AuthResponse> => {
   const res = await api.post(`/login/login`, { email, password })
   return res.data
 }
@@ -19,18 +27,22 @@ export const sendOtp = async (email: string) => {
   return res.data
 }
 
-export const signup = async (name: string, email: string, password: string, otp: string) => {
+export const signup = async (
+  name: string,
+  email: string,
+  password: string,
+  otp: string
+): Promise<AuthResponse> => {
   const res = await api.post(`/login/signup`, { name, email, password, otp })
   return res.data
 }
 
-export const googleLogin = async (code: string): Promise<{ user: User; token: string }> => {
+export const googleLogin = async (code: string): Promise<AuthResponse> => {
   const res = await api.post(`/login/google-login`, { code })
   return res.data
 }
 
 export const logout = () => {
-  deleteCookie('token')
-  deleteCookie('user')
+  clearSession()                    // clears access token cookie + refreshToken + user
   window.location.href = '/login'
 }

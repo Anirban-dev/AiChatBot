@@ -33,7 +33,7 @@ services:
       - backend
 
   redis:
-    image: redis:alpine
+    image: redis:alpine-6
     networks:
       - backend
 
