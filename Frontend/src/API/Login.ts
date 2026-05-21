@@ -1,6 +1,6 @@
 // API/Login.ts
 import { clearSession } from "../Auth/authHelper"   // ← replaces deleteCookie
-import api from "./AxiosInstance"
+import api from "../Auth/AxiosHelper"
 
 interface User {
   id: string

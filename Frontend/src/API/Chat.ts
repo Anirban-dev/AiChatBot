@@ -1,4 +1,4 @@
-import api from "./AxiosInstance"
+import api from "../Auth/AxiosHelper"
 
 export const getChat = async (chatId: string) => {
   const res = await api.get(`/chats/${chatId}`)

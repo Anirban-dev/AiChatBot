@@ -165,7 +165,6 @@ router.post('/send-otp', async (req: Request, res: Response) => {
   try {
     const otp = Math.floor(100000 + Math.random() * 900000).toString()
 
-    // ✅ Fixed: original code used `phone` variable which doesn't exist — now uses `email`
     await redis.set(`otp:${email}`, otp, 'EX', 300)
 
     // ✅ Reset attempt counter so a fresh OTP gives a clean slate
@@ -193,7 +192,6 @@ router.post('/signup', async (req: Request, res: Response) => {
     return res.status(429).json({ error: 'Too many failed attempts. Request a new OTP.' })
   }
 
-  // ✅ Fixed: original code used `phone` variable — now correctly uses `email`
   const cachedOtp = await redis.get(`otp:${email}`)
 
   if (!cachedOtp || cachedOtp !== otp) {
@@ -218,7 +216,6 @@ router.post('/signup', async (req: Request, res: Response) => {
     const hashed = await bcrypt.hash(password, 10)
     const user   = await User.create({ name, email, password: hashed })
 
-    // ✅ Fixed: original code used `phone` — now correctly uses `email`
     await redis.del(`otp:${email}`)
     await clearAttempts(`otp:${email}`)
 

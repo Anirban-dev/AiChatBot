@@ -1,5 +1,5 @@
 // If you inlined the token variable into axiosInstance.ts, use this:
-import { getAccessToken, setAccessToken, clearAccessToken } from "./AxiosInstance"
+import { getAccessToken, setAccessToken, clearAccessToken } from "./AxiosHelper"
 
 // If you kept the separate tokens.ts file, use this instead:
 // import { tokenStore } from "./tokens"
@@ -29,7 +29,7 @@ export const fetchWithRefresh = async (input: RequestInfo, init: RequestInit): P
     throw new Error('Session expired')
   }
 
-  const refreshRes = await fetch(`${BASE_URL}/auth/refresh`, {
+  const refreshRes = await fetch(`${BASE_URL}/login/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refreshToken }),

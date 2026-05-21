@@ -1,4 +1,4 @@
-import { clearAccessToken, setAccessToken } from '../API/AxiosInstance'
+import { clearAccessToken, setAccessToken } from './AxiosHelper'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -104,7 +104,7 @@ export const switchAccount = async (email: string) => {
   // Use the saved refresh token to get a fresh access token for that account
   try {
     const BASE_URL = import.meta.env.VITE_BASE_URL
-    const res = await fetch(`${BASE_URL}/auth/refresh`, {
+    const res = await fetch(`${BASE_URL}/login/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken: target.refreshToken }),

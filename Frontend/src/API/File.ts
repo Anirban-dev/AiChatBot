@@ -1,4 +1,4 @@
-import api from './AxiosInstance'
+import api from '../Auth/AxiosHelper'
 
 export const uploadFile = async (file: File, chatId: string, signal?: AbortSignal) => {
   const formData = new FormData()

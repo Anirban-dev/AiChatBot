@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { getCookie, setCookie, deleteCookie } from "../Auth/authHelper"
+import { getCookie, setCookie, deleteCookie } from "./authHelper"
 
 const BASE_URL = import.meta.env.VITE_BASE_URL
 
@@ -66,7 +66,7 @@ api.interceptors.response.use(
       const refreshToken = localStorage.getItem('refreshToken')
       if (!refreshToken) throw new Error('No refresh token')
 
-      const { data } = await axios.post(`${BASE_URL}/auth/refresh`, { refreshToken })
+      const { data } = await axios.post(`${BASE_URL}/login/refresh`, { refreshToken })
 
       // Store the new tokens
       setAccessToken(data.accessToken)

@@ -1,5 +1,5 @@
-import api from "./AxiosInstance"
-import { fetchWithRefresh, authHeader } from "./FetchHelper"
+import api from "../Auth/AxiosHelper"
+import { fetchWithRefresh, authHeader } from "../Auth/FetchHelper"
 
 const BASE_URL = import.meta.env.VITE_BASE_URL
 
