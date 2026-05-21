@@ -17,6 +17,11 @@ CONCURRENT_UPLOADS = 10
 # ── Redis ────────────────────────────────────────────────────────────────────
 REDIS_URL = os.getenv("REDIS_URL")
 
+# ── Qdrent VectorDB───────────────────────────────────────────────────────────
+QDRANT_URL               = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY           = os.getenv("QDRANT_API_KEY")
+QDRANT_COLLECTION_PREFIX = os.getenv("QDRANT_COLLECTION_PREFIX", "chat")
+
 # ── LLM ──────────────────────────────────────────────────────────────────────
 LLM_API   = os.getenv("LLM_API")
 LLM_SECRET = os.getenv("LLM_SECRET")
@@ -38,9 +43,6 @@ splitter = RecursiveCharacterTextSplitter(
     chunk_size=CHUNK_SIZE,
     chunk_overlap=CHUNK_OVERLAP
 )
-
-# ── Vector store ──────────────────────────────────────────────────────────────
-VECTOR_STORE_PATH = "faiss_index"
 
 # ── RAG retrieval ─────────────────────────────────────────────────────────────
 TOP_K_RESULTS = 4   # how many chunks to pull per query

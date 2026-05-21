@@ -265,6 +265,10 @@ async def _stackoverflow(client: httpx.AsyncClient, url: str) -> str | None:
 
 # ── main tool ─────────────────────────────────────────────────────────────
 
+
+from langchain_core.tools import tool # type: ignore
+
+@tool
 async def scrape_url(url: str) -> str:
     """Scrape any URL — webpage, PDF, GitHub, Reddit, Wikipedia, YouTube, arXiv, HN, StackOverflow."""
 

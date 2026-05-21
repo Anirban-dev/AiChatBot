@@ -1,14 +1,14 @@
-import { rateLimit, Options } from 'express-rate-limit'
-import { RedisStore }          from 'rate-limit-redis'
-import { Request }             from 'express'
-import { redis }               from '../utils/redis'
+import { rateLimit, Options, ipKeyGenerator } from 'express-rate-limit'
+import { RedisStore } from 'rate-limit-redis'
+import { Request, Response } from 'express'
+import { redis } from '../utils/redis'
 
 interface RateLimiterOptions {
-  keyPrefix : string
-  windowSec : number
-  max       : number
-  message?  : string
-  keyFn?    : (req: Request) => string
+  keyPrefix: string
+  windowSec: number
+  max: number
+  message?: string
+  keyFn?: (req: Request) => string
 }
 
 export const createRateLimiter = ({
@@ -19,31 +19,32 @@ export const createRateLimiter = ({
   keyFn,
 }: RateLimiterOptions) =>
   rateLimit({
-    windowMs : windowSec * 1000,
+    windowMs: windowSec * 1000,
     max,
 
-    // Atomic increment via the library's Lua script — no split-command race
+    // Fix 1: Properly type the sendCommand function to match SendCommandFn
     store: new RedisStore({
-      // rate-limit-redis expects the raw send-command interface
-      sendCommand: (...args: string[]) => (redis as any).sendCommand(args),
+      // @ts-expect-error - ioredis types can be overly strict with RedisReply
+      sendCommand: (...args: [string, ...string[]]) => redis.call(...args),
       prefix: `rl:${keyPrefix}:`,
     }),
 
-    // Custom key (user id, token slice, email…) or fall back to IP
-    keyGenerator: keyFn ?? ((req) => req.ip ?? 'unknown'),
+    // Fix 2: Properly handle the keyGenerator signature
+    keyGenerator: (req: Request, res: Response): string => {
+      if (keyFn) {
+        return keyFn(req)
+      }
+      return (ipKeyGenerator as any)(req, res)
+    },
 
-    // Standard headers: RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset
     standardHeaders: 'draft-7',
-    legacyHeaders  : false,
+    legacyHeaders: false,
 
     message: { error: message ?? 'Too many requests. Please slow down.' },
 
-    // ✅ Fail open: if Redis is down, let the request through
-    // rather than crashing your whole API
-    skip: (_req, _res) => false,
     handler: (req, res, _next, options) => {
       res.status(options.statusCode).json({
-        error     : typeof options.message === 'object'
+        error: typeof options.message === 'object'
           ? (options.message as any).error
           : options.message,
         retryAfter: Math.ceil(options.windowMs / 1000),

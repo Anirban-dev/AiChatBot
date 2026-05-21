@@ -40,7 +40,7 @@ api.interceptors.response.use(
     const original = err.config
 
     // Only intercept 401s that haven't already been retried
-    if (err.response?.status !== 401 || original._retry) {
+    if (err.response?.status !== 401 || original._retry || original.url.includes('/login')) {
       const message = err.response?.data?.error || err.message || 'Something went wrong'
       throw new Error(message)
     }

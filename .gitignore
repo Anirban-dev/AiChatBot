@@ -1,3 +1,6 @@
 node_modules
 .env
 pyodide
+mongo_data
+qdrant_data
+searxng

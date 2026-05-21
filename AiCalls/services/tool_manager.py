@@ -1,10 +1,12 @@
 from langchain_openai import ChatOpenAI # type: ignore
 from langgraph.prebuilt import create_react_agent # type: ignore
 from langgraph.checkpoint.memory import MemorySaver # type: ignore
+from langchain_core.utils.function_calling import convert_to_openai_tool
+from tools.scrap_url import scrape_url
 from tools.deep_research import deep_research
 import config
 
-tools = [deep_research]
+tools = [deep_research, scrape_url]
 
 llm = ChatOpenAI(
     base_url=config.LLM_API,
@@ -37,9 +39,15 @@ async def run_agent(user_query: str, thread_id: str = "default"):
     return last_content if isinstance(last_content, str) else str(last_content)
 
 def get_schemas():
-    """Return JSON schemas for all registered tools for OpenAI function calling."""
-    from langchain_core.utils.function_calling import convert_to_openai_tool
-    return [convert_to_openai_tool(tool) for tool in tools]
+    schemas = []
+    for tool_obj in tools:
+        try:
+            # This is the standard way to get the schema
+            schema = convert_to_openai_tool(tool_obj)
+            schemas.append(schema)
+        except Exception as e:
+            print(f"Error converting tool {tool_obj}: {e}")
+    return schemas
 
 async def execute(tool_name: str, args: dict):
     """Execute a registered tool by its name."""
