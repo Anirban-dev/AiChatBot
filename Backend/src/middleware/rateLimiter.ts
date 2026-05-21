@@ -1,36 +1,52 @@
-// utils/rateLimiter.ts
-import { Request, Response, NextFunction } from 'express'
-import { redis } from '../utils/redis'
+import { rateLimit, Options } from 'express-rate-limit'
+import { RedisStore }          from 'rate-limit-redis'
+import { Request }             from 'express'
+import { redis }               from '../utils/redis'
 
-interface RateLimitOptions {
-  windowSec: number
-  max: number
-  keyPrefix: string
-  message?: string
-  keyFn?: (req: Request) => string   // custom key — defaults to IP
+interface RateLimiterOptions {
+  keyPrefix : string
+  windowSec : number
+  max       : number
+  message?  : string
+  keyFn?    : (req: Request) => string
 }
 
-export const createRateLimiter = ({ windowSec, max, keyPrefix, message, keyFn }: RateLimitOptions) => {
-  return async (req: Request, res: Response, next: NextFunction) => {
-    const identifier = keyFn ? keyFn(req) : (req.ip ?? 'unknown')
-    const key = `rl:${keyPrefix}:${identifier}`
+export const createRateLimiter = ({
+  keyPrefix,
+  windowSec,
+  max,
+  message,
+  keyFn,
+}: RateLimiterOptions) =>
+  rateLimit({
+    windowMs : windowSec * 1000,
+    max,
 
-    const count = await redis.incr(key)
-    if (count === 1) await redis.expire(key, windowSec)
+    // Atomic increment via the library's Lua script — no split-command race
+    store: new RedisStore({
+      // rate-limit-redis expects the raw send-command interface
+      sendCommand: (...args: string[]) => (redis as any).sendCommand(args),
+      prefix: `rl:${keyPrefix}:`,
+    }),
 
-    // Set headers so frontend knows the limits
-    res.setHeader('X-RateLimit-Limit', max)
-    res.setHeader('X-RateLimit-Remaining', Math.max(0, max - count))
+    // Custom key (user id, token slice, email…) or fall back to IP
+    keyGenerator: keyFn ?? ((req) => req.ip ?? 'unknown'),
 
-    if (count > max) {
-      const ttl = await redis.ttl(key)
-      res.setHeader('Retry-After', ttl)
-      return res.status(429).json({
-        error: message ?? 'Too many requests. Please slow down.',
-        retryAfter: ttl
+    // Standard headers: RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset
+    standardHeaders: 'draft-7',
+    legacyHeaders  : false,
+
+    message: { error: message ?? 'Too many requests. Please slow down.' },
+
+    // ✅ Fail open: if Redis is down, let the request through
+    // rather than crashing your whole API
+    skip: (_req, _res) => false,
+    handler: (req, res, _next, options) => {
+      res.status(options.statusCode).json({
+        error     : typeof options.message === 'object'
+          ? (options.message as any).error
+          : options.message,
+        retryAfter: Math.ceil(options.windowMs / 1000),
       })
-    }
-
-    next()
-  }
-}
+    },
+  } satisfies Partial<Options>)

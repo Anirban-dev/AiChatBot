@@ -6,7 +6,7 @@ import { User } from '../models/user'
 import { OAuth2Client } from 'google-auth-library'
 import { redis } from '../utils/redis'
 import { sendOTP } from '../utils/email'
-import { createRateLimiter } from '../middleware/rateLimiter'
+import { googleLoginLimiter, refreshLimiter } from '../utils/ratelimitHelper'
 
 const router = Router()
 const client = new OAuth2Client(
@@ -78,23 +78,6 @@ const blockIdentifier = async (key: string, blockTTL: number) => {
 const clearAttempts = async (key: string) => {
   await redis.del(`attempts:${key}`, `blocked:${key}`)
 }
-
-
-// ── Google Login and Refresh Token Rate Limiter ────────────────────────
-const googleLoginLimiter = createRateLimiter({
-  keyPrefix: 'google_login',
-  windowSec: 15 * 60,
-  max: 10,                           // 10 attempts per IP per 15 min
-  message: 'Too many login attempts. Try again later.'
-})
-
-const refreshLimiter = createRateLimiter({
-  keyPrefix: 'refresh',
-  windowSec: 15 * 60,
-  max: 30,                           // tokens refresh often, keep it generous
-  keyFn: (req) => req.body?.refreshToken?.slice(-16) ?? req.ip  // per-token, not per-IP
-})
-
 
 // ── Google Login ─────────────────────────────────────────────────────────────
 router.post('/google-login', googleLoginLimiter,  async (req: Request, res: Response) => {

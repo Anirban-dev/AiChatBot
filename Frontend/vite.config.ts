@@ -8,4 +8,9 @@ export default defineConfig({
     tailwindcss(),
   ],
   envDir: '../',
+  server: {
+    allowedHosts: [
+      '.trycloudflare.com' // Allows any subdomain from Cloudflare Tunnels
+    ]
+  },
 })

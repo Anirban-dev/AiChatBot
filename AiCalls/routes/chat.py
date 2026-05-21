@@ -22,11 +22,12 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
     
     # ── 1. CONCURRENCY CHECK ────────────────────────────────
     # Check if we have an available "slot" for a new stream
-    if concurrency_limit.locked():
+    if concurrency_limit._value <= 0:
         raise HTTPException(
-            status_code=503, 
+            status_code=503,
             detail="AI Engine is at capacity. Please wait a few seconds."
         )
+    await concurrency_limit.acquire()
         
         
     body        = await request.json()
@@ -39,7 +40,7 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
     context_docs = vs.search(user_prompt, chat_id, k=4) 
     
     # NEW: Your vector store search should now naturally include 
-    # archived messages if they are stored in the same index/namespace.
+    # archived messages if they are stored in the same upload/namespace.
     context = "\n\n---\n\n".join(d.page_content for d in context_docs)
 
     system = SYSTEM_PROMPT
@@ -62,7 +63,7 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
         # We only archive if it's a substantive message
         if len(oldest_msg.get("content", "")) > 10:
             background_tasks.add_task(
-                vs.archive_message, 
+                await vs.archive_message, 
                 chat_id, 
                 oldest_msg["role"], 
                 oldest_msg["content"]
@@ -70,85 +71,85 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
 
     # ── Streaming generator ────────────────────────────────────
     async def generate():
-        async with concurrency_limit:
-            try:
-                active_streams[chat_id] = True
-                iteration = 0
+        try:
+            active_streams[chat_id] = True
+            iteration = 0
 
-                while iteration < MAX_ITERATIONS:
-                    iteration += 1
+            while iteration < MAX_ITERATIONS:
+                iteration += 1
 
-                    # ── Non-streaming call to check for tool use ──
-                    response = await client.chat.completions.create(
-                        model=LLM_MODEL,
-                        messages=messages,
-                        tools=tool_manager.get_schemas(),
-                        tool_choice="auto",
-                    )
+                # ── Non-streaming call to check for tool use ──
+                response = await client.chat.completions.create(
+                    model=LLM_MODEL,
+                    messages=messages,
+                    tools=tool_manager.get_schemas(),
+                    tool_choice="auto",
+                )
 
-                    message    = response.choices[0].message
-                    tool_calls = message.tool_calls
+                message    = response.choices[0].message
+                tool_calls = message.tool_calls
 
-                    # ── No tool calls → stream the final answer ───
-                    if not tool_calls:
-                        messages.append(message.model_dump(exclude_unset=True))
-
-                        stream = await client.chat.completions.create(
-                            model=LLM_MODEL,
-                            messages=messages,
-                            stream=True,
-                        )
-
-                        async for chunk in stream:
-                            # Honour cancellation request
-                            if not active_streams.get(chat_id):
-                                break
-
-                            content = chunk.choices[0].delta.content
-                            if content:
-                                yield content
-                                await asyncio.sleep(0)  # keep event loop responsive
-
-                        break  # done — exit the while loop
-
-                    # ── Tool calls detected ───────────────────────
-                    # FIX: convert Pydantic object → plain dict before appending
+                # ── No tool calls → stream the final answer ───
+                if not tool_calls:
                     messages.append(message.model_dump(exclude_unset=True))
 
-                    # Notify the client which tools are being called
-                    tool_names = [tc.function.name for tc in tool_calls]
-                    yield f"\n\n[Action: Calling tool(s): {', '.join(tool_names)}...]\n\n"
+                    stream = await client.chat.completions.create(
+                        model=LLM_MODEL,
+                        messages=messages,
+                        stream=True,
+                    )
 
-                    # FIX: run all tool calls in parallel with asyncio.gather
-                    async def _run(tc):
-                        # FIX: arguments is a JSON string — must parse it
-                        args = json.loads(tc.function.arguments)
-                        try:
-                            result = await tool_manager.execute(tc.function.name, args)
-                            return str(result)[:MAX_TOOL_RESULT]
-                        except Exception as exc:
-                            return f"Tool error: {exc}"
+                    async for chunk in stream:
+                        # Honour cancellation request
+                        if not active_streams.get(chat_id):
+                            break
 
-                    results = await asyncio.gather(*[_run(tc) for tc in tool_calls])
+                        content = chunk.choices[0].delta.content
+                        if content:
+                            yield content
+                            await asyncio.sleep(0)  # keep event loop responsive
 
-                    # Append each tool result as a "tool" role message
-                    for tc, result in zip(tool_calls, results):
-                        messages.append({
-                            "role":         "tool",
-                            "tool_call_id": tc.id,
-                            "name":         tc.function.name,
-                            "content":      result,
-                        })
+                    break  # done — exit the while loop
 
-                else:
-                    # while loop exhausted without a break → hit iteration limit
-                    yield "\n\n[Agent hit the maximum iteration limit without a final answer.]"
+                # ── Tool calls detected ───────────────────────
+                # FIX: convert Pydantic object → plain dict before appending
+                messages.append(message.model_dump(exclude_unset=True))
 
-            except Exception as e:
-                yield f"\n\n[Error: {e}]"
+                # Notify the client which tools are being called
+                tool_names = [tc.function.name for tc in tool_calls]
+                yield f"\n\n[Action: Calling tool(s): {', '.join(tool_names)}...]\n\n"
 
-            finally:
-                active_streams.pop(chat_id, None)
+                # FIX: run all tool calls in parallel with asyncio.gather
+                async def _run(tc):
+                    # FIX: arguments is a JSON string — must parse it
+                    args = json.loads(tc.function.arguments)
+                    try:
+                        result = await tool_manager.execute(tc.function.name, args)
+                        return str(result)[:MAX_TOOL_RESULT]
+                    except Exception as exc:
+                        return f"Tool error: {exc}"
+
+                results = await asyncio.gather(*[_run(tc) for tc in tool_calls])
+
+                # Append each tool result as a "tool" role message
+                for tc, result in zip(tool_calls, results):
+                    messages.append({
+                        "role":         "tool",
+                        "tool_call_id": tc.id,
+                        "name":         tc.function.name,
+                        "content":      result,
+                    })
+
+            else:
+                # while loop exhausted without a break → hit iteration limit
+                yield "\n\n[Agent hit the maximum iteration limit without a final answer.]"
+
+        except Exception as e:
+            yield f"\n\n[Error: {e}]"
+
+        finally:
+            active_streams.pop(chat_id, None)
+            concurrency_limit.release()
 
     return StreamingResponse(generate(), media_type="text/plain")
 
@@ -157,8 +158,7 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
 async def stop_chat(request: Request):
     body    = await request.json()
     chat_id = body.get("chat_id")
-    task    = active_streams.pop(chat_id, None)
-    if task:
-        task.cancel()
+    existed = active_streams.pop(chat_id, None)
+    if existed:
         return {"message": "Stream stopped"}
     return {"message": "No active stream for this chat"}

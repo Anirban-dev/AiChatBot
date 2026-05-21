@@ -28,7 +28,7 @@ router.post('/upload', uploadLimiter, upload.single('file'), async (req: AuthReq
     formData.append('file', blob, req.file.originalname)
     formData.append('chat_id', req.body.chatId || '')
 
-    const response = await fetch(`${AI_API}/index`, {
+    const response = await fetch(`${AI_API}/upload`, {
       method: 'POST',
       body: formData
     })

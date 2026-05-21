@@ -4,9 +4,44 @@ from langchain_community.vectorstores import FAISS  # type: ignore
 from langchain_core.documents import Document  # type: ignore
 from services.embeddings import get_embeddings
 from config import VECTOR_STORE_PATH, TOP_K_RESULTS
+from collections import OrderedDict
+
+import asyncio
+_store_locks: dict[str, asyncio.Lock] = {}
+
+def _get_lock(chat_id: str) -> asyncio.Lock:
+    if chat_id not in _store_locks:
+        _store_locks[chat_id] = asyncio.Lock()
+    return _store_locks[chat_id]
 
 # Cache stores in memory: { chat_id: FAISS }
-_stores: dict[str, FAISS] = {}
+_MAX_CACHED_STORES = 20  # tune to your RAM budget
+
+class _LRUStoreCache:
+    def __init__(self, maxsize: int):
+        self._cache: OrderedDict[str, FAISS] = OrderedDict()
+        self._maxsize = maxsize
+
+    def get(self, key: str) -> FAISS | None:
+        if key not in self._cache:
+            return None
+        self._cache.move_to_end(key)   # mark as recently used
+        return self._cache[key]
+
+    def set(self, key: str, value: FAISS):
+        self._cache[key] = value
+        self._cache.move_to_end(key)
+        if len(self._cache) > self._maxsize:
+            evicted, _ = self._cache.popitem(last=False)
+            print(f"[VectorStore] Evicted store for chat {evicted} from memory cache")
+
+    def pop(self, key: str):
+        self._cache.pop(key, None)
+
+    def __contains__(self, key: str):
+        return key in self._cache
+
+_stores = _LRUStoreCache(_MAX_CACHED_STORES)
 
 def get_store_path(chat_id: str) -> str:
     if not chat_id:
@@ -15,8 +50,9 @@ def get_store_path(chat_id: str) -> str:
 
 def get_store(chat_id: str) -> FAISS | None:
     global _stores
-    if chat_id in _stores:
-        return _stores[chat_id]
+    cached = _stores.get(chat_id)
+    if cached is not None:
+        return cached
     
     path = get_store_path(chat_id)
     if os.path.exists(path):
@@ -27,28 +63,28 @@ def get_store(chat_id: str) -> FAISS | None:
                 get_embeddings(),
                 allow_dangerous_deserialization=True
             )
-            _stores[chat_id] = store
+            _stores.set(chat_id, store)
             return store
         except Exception as e:
             print(f"[VectorStore] Error loading store for chat {chat_id}: {e}")
             return None
     return None
 
-def add_documents(docs: list[Document], chat_id: str):
-    global _stores
-    emb = get_embeddings()
-    store = get_store(chat_id)
-    
-    if store is None:
-        store = FAISS.from_documents(docs, emb)
-    else:
-        store.add_documents(docs)
-    
-    _stores[chat_id] = store
-    path = get_store_path(chat_id)
-    os.makedirs(path, exist_ok=True)
-    store.save_local(path)
-    print(f"[VectorStore] Saved {len(docs)} chunks for chat {chat_id} to disk")
+async def add_documents(docs: list[Document], chat_id: str):
+    async with _get_lock(chat_id):
+        emb   = get_embeddings()
+        store = get_store(chat_id)
+
+        if store is None:
+            store = FAISS.from_documents(docs, emb)
+        else:
+            store.add_documents(docs)
+
+        _stores.set(chat_id, store)
+        path = get_store_path(chat_id)
+        os.makedirs(path, exist_ok=True)
+        store.save_local(path)
+        print(f"[VectorStore] Saved {len(docs)} chunks for chat {chat_id} to disk")
 
 # Visual intent keywords
 _VISUAL_KEYWORDS = {
@@ -100,17 +136,17 @@ def delete_by_source(filename: str, chat_id: str):
     path = get_store_path(chat_id)
     if not remaining_docs:
         print(f"[VectorStore] Clearing store for chat {chat_id} after deleting '{filename}'")
-        _stores.pop(chat_id, None)
+        _stores.pop(chat_id)
         if os.path.exists(path):
             shutil.rmtree(path)
     else:
         new_store = FAISS.from_documents(remaining_docs, get_embeddings())
-        _stores[chat_id] = new_store
+        _stores.set(chat_id, new_store)
         new_store.save_local(path)
         print(f"[VectorStore] Deleted chunks for '{filename}' in chat {chat_id}. Remaining: {len(remaining_docs)}")
 
 
-def archive_message(chat_id: str, role: str, content: str):
+async def archive_message(chat_id: str, role: str, content: str):
     """
     Archives a single chat message into the FAISS store for long-term memory.
     """
@@ -134,6 +170,6 @@ def archive_message(chat_id: str, role: str, content: str):
     # 2. Reuse your existing add_documents function
     # This handles loading the store, adding the doc, and saving to disk
     try:
-        add_documents([doc], chat_id)
+        await add_documents([doc], chat_id)
     except Exception as e:
         print(f"[VectorStore] Failed to archive message: {e}")

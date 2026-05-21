@@ -11,55 +11,55 @@ index_semaphore = asyncio.Semaphore(CONCURRENT_UPLOADS)
 
 router = APIRouter()
 
-@router.post("/agent/index")
+@router.post("/agent/upload")
 async def index_document(
     file: UploadFile = File(...),
     chat_id: str     = Form("")
 ):
     # 1. Hardware Guard: Wait for a free indexing slot
-    if index_semaphore.locked():
-        raise HTTPException(
-            status_code=503, 
-            detail="Server is currently busy processing other documents. Try again in a moment."
-        )
-        
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in SUPPORTED:
         raise HTTPException(
             status_code=400,
             detail=f"'{ext}' is not supported. Allowed: {', '.join(sorted(SUPPORTED))}"
         )
-    # 2. Execution with Semaphore
-    async with index_semaphore:
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-        temp_path = tmp.name
 
-        try:
-            contents = await file.read()
-            tmp.write(contents)
-            tmp.close()
-            print(f"[Upload] Received '{file.filename}' ({len(contents):,} bytes)")
+    if index_semaphore._value <= 0:
+        raise HTTPException(
+            status_code=503,
+            detail="Server is currently busy processing other documents. Try again in a moment."
+        )
+    await index_semaphore.acquire()
 
-            chunks = await load_and_chunk(temp_path, file.filename)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+    temp_path = tmp.name
+    try:
+        contents = await file.read()
+        tmp.write(contents)
+        tmp.close()
+        print(f"[Upload] Received '{file.filename}' ({len(contents):,} bytes)")
 
-            if not chunks:
-                raise HTTPException(
-                    status_code=422,
-                    detail="No content could be extracted from this file"
-                )
+        chunks = await load_and_chunk(temp_path, file.filename)
 
-            vs.add_documents(chunks, chat_id)
-            return {"message": f"'{file.filename}' indexed successfully", "chunks": len(chunks)}
+        if not chunks:
+            raise HTTPException(
+                status_code=422,
+                detail="No content could be extracted from this file"
+            )
 
-        except HTTPException:
-            raise
-        except Exception as e:
-            print(f"[Upload] Unexpected error: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-        finally:
-            if os.path.exists(temp_path):
-                print(f"{temp_path} is being removed")
-                os.remove(temp_path)
+        await vs.add_documents(chunks, chat_id)
+        return {"message": f"'{file.filename}' indexed successfully", "chunks": len(chunks)}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Upload] Unexpected error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        index_semaphore.release()
+        if os.path.exists(temp_path):
+            print(f"{temp_path} is being removed")
+            os.remove(temp_path)
 
 @router.post("/agent/delete")
 async def delete_document(request: Request):
