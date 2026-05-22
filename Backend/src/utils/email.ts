@@ -29,10 +29,11 @@ export const sendOTP = async (email: string, otp: string) => {
         </div>
         <p>This code will expire in 5 minutes. If you did not request this, please ignore this email.</p>
         <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-        <p style="font-size: 12px; color: #888; text-align: center;">Sent by AiChatBot - Your AI Companion</p>
+        <p style="font-size: 12px; color: #888; text-align: center;">Sent by ChatAi - Your AI Companion</p>
       </div>
     `,
   }
 
   await transporter.sendMail(mailOptions)
+  console.log(`Mail sent ${email}`)
 }

@@ -247,25 +247,3 @@ def delete_by_source(filename: str, chat_id: str) -> None:
             f"[VectorStore] Deleted chunks for '{filename}' in chat '{chat_id}'. "
             f"Remaining points: {remaining}"
         )
-
-
-async def archive_message(chat_id: str, role: str, content: str) -> None:
-    """Embed and persist a single chat turn for long-term memory retrieval."""
-    if not content or len(content.strip()) < 5:
-        return
-
-    doc = Document(
-        page_content=f"Past Chat ({role}): {content}",
-        metadata={
-            "source": "chat_history",
-            "role": role,
-            "type": "content",
-            "chat_id": chat_id,
-        },
-    )
-
-    print(f"[VectorStore] Archiving message from '{role}' for chat '{chat_id}'…")
-    try:
-        await add_documents([doc], chat_id)
-    except Exception as e:
-        print(f"[VectorStore] Failed to archive message: {e}")
