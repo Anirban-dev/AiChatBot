@@ -1,29 +1,16 @@
-"""
-session_state.py
-----------------
-Maintains a structured JSON "state object" per chat session.
-
-Every 10 messages the chat router calls `schedule_update()`.  A background
-worker asks the LLM to merge the sliding-out messages into the stored JSON
-profile.  On every request the router calls `get_state_block()` to inject the
-compact profile into the system prompt — no RAG needed for chat memory.
-
-Storage: one JSON file per chat under STATE_DIR (defaults to ./state/).
-Swap this for Redis / a DB column whenever you outgrow the file system.
-"""
+# session_state.py
 
 import asyncio
 import json
-import os
 from pathlib import Path
 
-from config import client, LLM_SUMM_MODEL  # reuse your existing async OpenAI client
+from config import client, LLM_SUMM_MODEL
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
-STATE_DIR = Path(os.getenv("SESSION_STATE_DIR", "state"))
+STATE_DIR = Path(__file__).resolve().parents[2] / "dump" / "state"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 _STATE_MODEL = LLM_SUMM_MODEL
