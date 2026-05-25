@@ -5,6 +5,10 @@ from openai import AsyncOpenAI # type: ignore
 from dotenv import load_dotenv # type: ignore
 import torch # type: ignore
 from langchain_text_splitters import RecursiveCharacterTextSplitter # type: ignore
+import logging
+logging.getLogger("litellm").addFilter(
+    lambda record: "botocore" not in record.getMessage()
+)
 
 # Find the path to the .env file one level up
 env_path = Path(__file__).resolve().parent.parent / '.env'
@@ -15,13 +19,14 @@ load_dotenv(dotenv_path=env_path)
 # ── LITELLM ROUTER INTEGRATION ───────────────────────────────────────────────
 # =============================================================================
 import os
+import litellm
 from litellm import Router
 from litellm_config import LITELLM_ROUTER_CONFIG
 
 # Instantiate the optimal maximum-quota embedded router engine in-memory
+litellm.set_verbose = True
 router = Router(**LITELLM_ROUTER_CONFIG)
 
-# These wrap operations asynchronously to perfectly match your previous AsyncOpenAI structure
 async def async_chat_completion(tier_name: str, messages: list, **kwargs) -> str:
     """Asynchronously streams or returns text across summaryllm, lowllm, or highllm."""
     try:
@@ -46,29 +51,31 @@ async def async_embedding_call(text_list: list) -> list:
         print(f"Async embedding route mapping dropped: {e}")
         return []
     
-    # ── BACKWARD COMPATIBILITY CLIENT ADAPTER ──────────────────────────────────
-# This acts exactly like your old OpenAI client so your old files don't crash on import!
+# ────────── BACKWARD COMPATIBILITY CLIENT ADAPTER ──────────────────────────────────
 class CompatibilityClient:
-    class Completions:
-        async def create(self, model, messages, **kwargs):
-            # Intercepts old models and maps them onto our new system tiers automatically!
-            if model == "summaryllm":
-                target_tier = "summaryllm"
-            elif model == "visionllm":
-                target_tier = "visionllm"
-            else:
-                target_tier = "lowllm"
-                
-            # Drop-in execution to the router
-            response = await router.acompletion(model=target_tier, messages=messages, **kwargs)
-            return response
+    class Chat:
+        class Completions:
+            async def create(self, model, messages, **kwargs):
+                # Intercepts old models and maps them onto our new system tiers automatically!
+                if model == "summaryllm":
+                    target_tier = "summaryllm"
+                elif model == "visionllm":
+                    target_tier = "visionllm"
+                else:
+                    target_tier = "lowllm"
+
+                # Drop-in execution to the router
+                response = await router.acompletion(model=target_tier, messages=messages, **kwargs)
+                return response
+
+        def __init__(self):
+            self.completions = self.Completions()
 
     def __init__(self):
-        self.chat = self.Completions()
+        self.chat = self.Chat()
 
-# Re-expose the identical properties required by your other files' imports
 client = CompatibilityClient()
-LLM_LOW_MODEL = "lowllm"          # String tags pointing back onto your LiteLLM routes
+LLM_LOW_MODEL = "lowllm"
 LLM_SUMM_MODEL = "summaryllm"
 LLM_VISION_MODEL = "visionllm"
     

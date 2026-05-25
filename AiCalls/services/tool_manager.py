@@ -4,21 +4,25 @@ from langgraph.checkpoint.memory import MemorySaver # type: ignore
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from tools.scrap_url import scrape_url
 from tools.deep_research import deep_research
-import config
+from config import router, SYSTEM_PROMPT
 
 tools = [deep_research, scrape_url]
 
+class LiteLLMClientAdapter:
+    def __init__(self, router_instance):
+        self.completions = router_instance
+
 llm = ChatOpenAI(
-    base_url=config.LLM_API,
-    api_key=config.LLM_SECRET,
-    model=config.LLM_LOW_MODEL,
+    model="lowllm",
+    client=LiteLLMClientAdapter(router),
+    async_client=LiteLLMClientAdapter(router),
     temperature=0
 )
 
 tool_manager = create_react_agent(
     model=llm,
     tools=tools,
-    prompt=config.SYSTEM_PROMPT,
+    prompt=SYSTEM_PROMPT,
     checkpointer=MemorySaver()
 )
 
