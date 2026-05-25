@@ -53,7 +53,6 @@ async def test_all_routes():
         model_string = item["litellm_params"]["model"]
         
         await test_single_model(tier, model_string)
-        # Delay to prevent triggering OpenRouter rate limit blocks during the test loop
         await asyncio.sleep(0.5)
 
 if __name__ == "__main__":

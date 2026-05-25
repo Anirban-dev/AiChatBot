@@ -4,54 +4,63 @@ export const usePython = () => {
     const workerRef = useRef<Worker | null>(null);
     const [isReady, setIsReady] = useState(false);
 
-    useEffect(() => {
-        // 1. Initialize the Worker
-        // Note: The path must match your worker file location
-        workerRef.current = new Worker(
+    const createWorker = () => {
+        const worker = new Worker(
             new URL('../../Workers/pyodide.ts', import.meta.url),
             { type: 'module' }
         );
-
-        // 2. Listen for the "READY" signal or Prints
-        workerRef.current.onmessage = (event) => {
-            const { type } = event.data;
-            if (type === 'READY') {
+        worker.onmessage = (event) => {
+            if (event.data.type === 'READY') {
                 setIsReady(true);
                 console.log("Python Sandbox is live!");
             }
         };
+        return worker;
+    };
 
-        return () => {
-            workerRef.current?.terminate();
-        };
+    useEffect(() => {
+        workerRef.current = createWorker();
+        return () => workerRef.current?.terminate();
     }, []);
 
-    const runCode = (code: string, timeoutMs = 10000): Promise<any> => {
+    const runCode = (code: string, timeoutMs = 10000): Promise<string> => {
         return new Promise((resolve, reject) => {
             if (!workerRef.current) return reject("Worker not initialized");
+            if (!isReady) return reject("Python sandbox is still loading, please wait...");
 
             const executionId = Math.random().toString(36).substring(7);
+            const stdoutLines: string[] = [];
 
-            // KILL SWITCH
             const timer = setTimeout(() => {
-                // If it takes too long, we have to kill the worker and restart it
                 workerRef.current?.terminate();
-
-                // Restart the worker so the next chat message still works
-                workerRef.current = new Worker(
-                    new URL('../Workers/piodide.ts', import.meta.url),
-                    { type: 'module' }
-                );
-
-                reject("Execution timed out (Possible infinite loop)");
+                workerRef.current = createWorker(); // ← reuse fixed createWorker
+                reject("Execution timed out (possible infinite loop)");
             }, timeoutMs);
 
             const handler = (event: MessageEvent) => {
-                const { type, result, error, id } = event.data;
-                if (id === executionId) {
-                    clearTimeout(timer); // Stop the kill switch if code finished
-                    workerRef.current?.removeEventListener('message', handler);
-                    type === 'RESULT' ? resolve(result) : reject(error);
+                const { type, result, error, str, id } = event.data;
+
+                if (id !== executionId) return; // ignore unrelated messages
+
+                // ← KEY FIX: collect stdout, don't resolve/reject yet
+                if (type === 'STDOUT') {
+                    stdoutLines.push(str);
+                    return;
+                }
+
+                // Only resolve/reject on RESULT or ERROR
+                clearTimeout(timer);
+                workerRef.current?.removeEventListener('message', handler);
+
+                if (type === 'RESULT') {
+                    const printed = stdoutLines.join('\n');
+                    const returned = result !== undefined && result !== null ? String(result) : '';
+
+                    // Show print output + return value combined
+                    const finalOutput = [printed, returned].filter(Boolean).join('\n') || '(no output)';
+                    resolve(finalOutput);
+                } else {
+                    reject(error);
                 }
             };
 
