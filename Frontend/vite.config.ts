@@ -11,6 +11,13 @@ export default defineConfig({
   server: {
     allowedHosts: [
       '.trycloudflare.com' // Allows any subdomain from Cloudflare Tunnels
-    ]
+    ],
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000', // Put your exact local backend URL/port here
+        changeOrigin: true,
+        secure: false,
+      }
+    }
   },
 })

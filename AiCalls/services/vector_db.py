@@ -1,4 +1,3 @@
-import asyncio
 from qdrant_client import QdrantClient #type: ignore
 from qdrant_client.models import ( #type: ignore
     Distance,

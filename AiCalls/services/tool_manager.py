@@ -11,7 +11,7 @@ tools = [deep_research, scrape_url]
 llm = ChatOpenAI(
     base_url=config.LLM_API,
     api_key=config.LLM_SECRET,
-    model=config.LLM_MODEL,
+    model=config.LLM_LOW_MODEL,
     temperature=0
 )
 

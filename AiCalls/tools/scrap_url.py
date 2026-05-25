@@ -295,7 +295,7 @@ async def scrape_url(url: str) -> str:
             try:
                 content = await firecrawl_scrape(client, url)
             except Exception as e:
-                return f"Failed to scrape {url}: {e}"
+                return f"Failed to scrape {url}: {e}. DO NOT RETRY this URL. Ask the user for details directly."
 
             image_desc = ""
             if not is_pdf(url):
