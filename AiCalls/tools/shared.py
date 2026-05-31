@@ -1,14 +1,8 @@
 import re
-from config import REDIS_URL
+from config import FIRECRAWL_URL
 from services.vision import describe_image
 import httpx # type: ignore
-import redis.asyncio as aioredis # type: ignore
 
-cache = aioredis.from_url(
-    REDIS_URL, 
-    decode_responses=True,
-    encoding="utf-8"
-)
 
 MAX_CONTENT_CHARS = 3000
 MAX_IMAGES_PER_PAGE = 2
@@ -68,7 +62,7 @@ async def analyze_page_images(client: httpx.AsyncClient, image_urls: list[str]) 
 
 async def firecrawl_scrape(client: httpx.AsyncClient, url: str) -> str:
     res = await client.post(
-        "http://localhost:3002/v1/scrape",
+        f"{FIRECRAWL_URL}/v1/scrape",
         json={"url": url, "formats": ["markdown"]}
     )
     res.raise_for_status()

@@ -6,7 +6,7 @@ export interface UserData {
   id: string
   name: string
   email: string
-  // ✅ No token field here — access token is in memory, refresh in localStorage
+  role?: string
 }
 
 // ─── Cookie Helpers (kept for anything that still needs cookies) ───────────────

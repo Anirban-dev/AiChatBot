@@ -10,3 +10,14 @@ uv run main.py
 # Run dev in root
 # Run mongodb
 # Run docker ai
+
+
+uv run -m tests.test_router
+uv run -m tests.test_router highllm huggingface/deepseek-ai/DeepSeek-V4-Pro
+
+
+LIGHTENING AI
+export OLLAMA_HOST=0.0.0.0
+export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+~/bin/ollama serve &
+~/bin/ollama run gemma3:12b "hi"

@@ -2,7 +2,7 @@ import asyncio
 import json
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
-from config import client, LLM_LOW_MODEL, SYSTEM_PROMPT, CONCURRENT_STREAMS
+from config import client, LLM_HIGH_MODEL, SYSTEM_PROMPT, CONCURRENT_STREAMS
 from services import vector_store as vs
 from services import session_state as ss
 from state import active_streams
@@ -93,7 +93,7 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                 iteration += 1
 
                 response = await client.chat.completions.create(
-                    model=LLM_LOW_MODEL,
+                    model=LLM_HIGH_MODEL,
                     messages=messages,
                     tools=tool_manager.get_schemas(),
                     tool_choice="auto",
@@ -105,7 +105,7 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
 
                 if not tool_calls:
                     stream = await client.chat.completions.create(
-                        model=LLM_LOW_MODEL,
+                        model=LLM_HIGH_MODEL,
                         messages=messages,
                         stream=True,
                         **thinking_kwargs,

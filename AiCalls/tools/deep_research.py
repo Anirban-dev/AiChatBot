@@ -1,9 +1,11 @@
 import httpx # type: ignore
 from tools.shared import (
-    cache, is_volatile, firecrawl_scrape, extract_image_urls,
+    is_volatile, firecrawl_scrape, extract_image_urls,
     analyze_page_images, is_pdf
 )
 from langchain_core.tools import tool # type: ignore
+from lib.redis import redis as cache
+from config import SEARXNG_URL
 
 @tool
 async def deep_research(query: str) -> str:
@@ -12,7 +14,7 @@ async def deep_research(query: str) -> str:
     async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
 
         search_res = await client.get(
-            "http://localhost:8888/search",
+            f"{ SEARXNG_URL}/search",
             params={"q": query, "format": "json"}
         )
         search_res.raise_for_status()

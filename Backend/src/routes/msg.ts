@@ -4,6 +4,7 @@ import { Message } from '../models/msg'
 import { Chat } from '../models/chat'
 import authMiddleware, { AuthRequest } from '../middleware/auth'
 import { midLimiter, strictLimiter } from '../utils/ratelimitHelper'
+import { writeLog } from '../utils/logger'
 
 const router = Router({ mergeParams: true }) 
 router.use(authMiddleware)
@@ -28,6 +29,8 @@ router.post('/', strictLimiter, async (req: AuthRequest<{ chatId: string }>, res
   if (!content) {
     return res.status(400).json({ error: 'Content is required' })
   }
+
+  const startTime = Date.now()
 
   try {
     const chat = await Chat.findOne({ _id: chatId, userId: req.userId })
@@ -104,8 +107,41 @@ router.post('/', strictLimiter, async (req: AuthRequest<{ chatId: string }>, res
     res.write(`event: done\ndata: ${JSON.stringify(assistantMessage)}\n\n`)
     res.end()
 
+    const latency = Date.now() - startTime
+    await writeLog({
+      userId: req.userId,
+      action: 'AI_CHAT',
+      status: 'success',
+      method: 'POST',
+      path: `/api/chats/${chatId}/msgs`,
+      ipAddress: req.ip || req.socket.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      latency,
+      details: {
+        chatId,
+        promptLength: content.length,
+        responseLength: fullContent.length
+      }
+    })
+
   } catch (err) {
     console.error("Streaming Error:", err);
+    const latency = Date.now() - startTime
+    await writeLog({
+      userId: req.userId,
+      action: 'AI_CHAT',
+      status: 'failed',
+      method: 'POST',
+      path: `/api/chats/${chatId}/msgs`,
+      ipAddress: req.ip || req.socket.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      latency,
+      details: {
+        chatId,
+        error: err instanceof Error ? err.message : String(err)
+      }
+    })
+
     if (!res.headersSent) {
         return res.status(500).json({ error: 'Internal Server Error' });
     }

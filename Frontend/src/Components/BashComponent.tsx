@@ -6,7 +6,7 @@ import { Play, Loader2 } from 'lucide-react';
 interface MarkdownRendererProps {
   content: string
   isUser: boolean
-  runCode?: (code: string) => Promise<any> // Add the function prop
+  runCode?: (code: string) => Promise<any>
 }
 
 // 1. Separate component for Python Execution
@@ -66,7 +66,7 @@ const BashTerminal = ({ children }: { children: React.ReactNode }) => (
     <div className="px-4 py-3 overflow-x-auto">
       <div className="flex gap-2 items-start">
         <span className="text-pink-500/90 select-none">$</span>
-        <code className="text-gray-500 dark:text-gray-200 whitespace-pre-wrap break-words flex-1 leading-relaxed">{children}</code>
+        <code className="text-gray-500 dark:text-gray-200 whitespace-pre-wrap wrap-break-word flex-1 leading-relaxed">{children}</code>
       </div>
     </div>
   </div>

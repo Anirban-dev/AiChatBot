@@ -6,7 +6,7 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain_core.messages import SystemMessage
 from tools.scrap_url import scrape_url
 from tools.deep_research import deep_research
-from config import router
+from lib.litellm_config import router
 
 tools = [deep_research, scrape_url]
 

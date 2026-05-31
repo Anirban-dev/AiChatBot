@@ -1,7 +1,6 @@
 # C:\Users\KIIT\Documents\Visual Studio 2022\Projects\AiChatBot\AiCalls\tests\test_router.py
 import logging
 import sys
-import os
 
 # Suppress internal startup warnings completely
 logging.basicConfig(level=logging.CRITICAL)
@@ -11,12 +10,9 @@ import asyncio
 import time
 import litellm
 from litellm import Router
-from litellm_config import LITELLM_ROUTER_CONFIG
+from litellm_models import LITELLM_ROUTER_MODELS
 
-# Force clean console outputs without internal framework noise
-litellm.set_verbose = False
-
-router = Router(**LITELLM_ROUTER_CONFIG)
+router = Router(**LITELLM_ROUTER_MODELS)
 
 async def test_single_model(tier: str, model_string: str):
     print(f"Pinging Tier [{tier}] -> Endpoint: {model_string}... ", end="", flush=True)
@@ -48,7 +44,7 @@ async def test_single_model(tier: str, model_string: str):
 async def test_all_routes():
     print("🔮 Starting Automated Free Tier API End-to-End Diagnostics...\n")
     
-    for item in LITELLM_ROUTER_CONFIG["model_list"]:
+    for item in LITELLM_ROUTER_MODELS["model_list"]:
         tier = item["model_name"]
         model_string = item["litellm_params"]["model"]
         
@@ -56,4 +52,9 @@ async def test_all_routes():
         await asyncio.sleep(0.5)
 
 if __name__ == "__main__":
-    asyncio.run(test_all_routes())
+    if len(sys.argv) == 3:
+        tier = sys.argv[1]
+        model_string = sys.argv[2]
+        asyncio.run(test_single_model(tier, model_string))
+    else:
+        asyncio.run(test_all_routes())

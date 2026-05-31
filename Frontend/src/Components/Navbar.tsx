@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Sun, Moon, Menu, ChevronDown } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { logout } from '../API/Login'
 import AccountModal from './AccModal'
 import { getCurrentUser } from '../Auth/authHelper'
@@ -13,6 +14,7 @@ interface NavbarProps {
 type Tab = 'details' | 'credentials' | 'accounts'
 
 const Navbar = ({ dark, setDark, toggleSidebar }: NavbarProps) => {
+  const navigate = useNavigate()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [modalInitialTab, setModalInitialTab] = useState<Tab>('details') // ✅ track which tab to open on
@@ -93,6 +95,16 @@ const Navbar = ({ dark, setDark, toggleSidebar }: NavbarProps) => {
                 </div>
 
                 <div className="py-1">
+                  {currentUser.role === 'admin' && (
+                    <button
+                      onClick={() => { setDropdownOpen(false); navigate('/admin'); }}
+                      className="w-full text-left px-4 py-2.5 text-sm font-semibold text-blue-600 dark:text-blue-400
+                        hover:bg-blue-50 dark:hover:bg-blue-950/20 transition cursor-pointer"
+                    >
+                      Admin Dashboard
+                    </button>
+                  )}
+
                   {/* Opens modal on 'details' tab */}
                   <button
                     onClick={() => openModal('details')}

@@ -28,7 +28,6 @@ api.interceptors.request.use(config => {
 
 // ── Response: on 401 → refresh → retry original request ──────────────────────
 let isRefreshing = false
-// Queue of requests that arrived while a refresh was already in flight
 let queue: Array<{ resolve: (t: string) => void; reject: (e: unknown) => void }> = []
 
 const drainQueue = (token: string) => queue.forEach(p => p.resolve(token))
@@ -39,7 +38,6 @@ api.interceptors.response.use(
   async err => {
     const original = err.config
 
-    // Only intercept 401s that haven't already been retried
     if (err.response?.status !== 401 || original._retry || original.url.includes('/login')) {
       const message = err.response?.data?.error || err.message || 'Something went wrong'
       throw new Error(message)
@@ -79,7 +77,6 @@ api.interceptors.response.use(
       return api(original)
     } catch (refreshErr) {
       rejectQueue(refreshErr)
-      // Refresh failed — session is dead, send to login
       clearAccessToken()
       localStorage.removeItem('refreshToken')
       window.location.href = '/login'

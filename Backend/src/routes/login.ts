@@ -7,6 +7,7 @@ import { OAuth2Client } from 'google-auth-library'
 import { redis } from '../utils/redis'
 import { sendOTP } from '../utils/email'
 import { googleLoginLimiter, refreshLimiter } from '../utils/ratelimitHelper'
+import { writeLog } from '../utils/logger'
 
 const router = Router()
 const client = new OAuth2Client(
@@ -108,10 +109,13 @@ router.post('/google-login', googleLoginLimiter,  async (req: Request, res: Resp
 
     let user = await User.findOne({ email })
     if (!user) {
+      const userCount = await User.countDocuments()
+      const role = userCount === 0 ? 'admin' : 'user'
       user = await User.create({
         name: name ?? email.split('@')[0],
         email,
         googleAuth: true,
+        role,
       } as any)
     }
 
@@ -119,13 +123,33 @@ router.post('/google-login', googleLoginLimiter,  async (req: Request, res: Resp
     const refreshToken = signRefreshToken(user._id.toString())
     await saveRefreshToken(user._id.toString(), refreshToken)
 
+    await writeLog({
+      userId: user._id.toString(),
+      action: 'GOOGLE_LOGIN',
+      status: 'success',
+      method: 'POST',
+      path: '/api/login/google-login',
+      ipAddress: req.ip || req.socket.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      details: { email: user.email }
+    })
+
     return res.json({
       accessToken,
       refreshToken,
-      user: { id: user._id, name: user.name, email: user.email },
+      user: { id: user._id, name: user.name, email: user.email, role: (user as any).role || 'user' },
     })
   } catch (err) {
     console.error('Google Login Error:', err)
+    await writeLog({
+      action: 'GOOGLE_LOGIN',
+      status: 'failed',
+      method: 'POST',
+      path: '/api/login/google-login',
+      ipAddress: req.ip || req.socket.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      details: { error: err instanceof Error ? err.message : String(err) }
+    })
     return res.status(500).json({ error: 'Google login failed' })
   }
 })
@@ -197,7 +221,9 @@ router.post('/signup', async (req: Request, res: Response) => {
     if (existing) return res.status(409).json({ error: 'Email already in use' })
 
     const hashed = await bcrypt.hash(password, 10)
-    const user   = await User.create({ name, email, password: hashed })
+    const userCount = await User.countDocuments()
+    const role = userCount === 0 ? 'admin' : 'user'
+    const user   = await User.create({ name, email, password: hashed, role })
 
     await redis.del(`otp:${email}`)
     await clearAttempts(`otp:${email}`)
@@ -206,13 +232,33 @@ router.post('/signup', async (req: Request, res: Response) => {
     const refreshToken = signRefreshToken(user._id.toString())
     await saveRefreshToken(user._id.toString(), refreshToken)
 
+    await writeLog({
+      userId: user._id.toString(),
+      action: 'SIGNUP',
+      status: 'success',
+      method: 'POST',
+      path: '/api/login/signup',
+      ipAddress: req.ip || req.socket.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      details: { email }
+    })
+
     return res.status(201).json({
       accessToken,
       refreshToken,
-      user: { id: user._id, name: user.name, email: user.email },
+      user: { id: user._id, name: user.name, email: user.email, role: (user as any).role || 'user' },
     })
   } catch (err) {
     console.error('Signup error:', err)
+    await writeLog({
+      action: 'SIGNUP',
+      status: 'failed',
+      method: 'POST',
+      path: '/api/login/signup',
+      ipAddress: req.ip || req.socket.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      details: { email, error: err instanceof Error ? err.message : String(err) }
+    })
     return res.status(500).json({ error: 'Signup failed' })
   }
 })
@@ -239,6 +285,15 @@ router.post('/login', async (req: Request, res: Response) => {
     // This prevents user enumeration via timing differences
     if (!user || (user as any).googleAuth || !user.password) {
       await recordFailedAttempt(`login:${email}`, LOGIN_WINDOW_TTL)
+      await writeLog({
+        action: 'LOGIN',
+        status: 'failed',
+        method: 'POST',
+        path: '/api/login/login',
+        ipAddress: req.ip || req.socket.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        details: { email, error: 'Invalid credentials or googleAuth account' }
+      })
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 
@@ -246,6 +301,16 @@ router.post('/login', async (req: Request, res: Response) => {
 
     if (!match) {
       const attempts = await recordFailedAttempt(`login:${email}`, LOGIN_WINDOW_TTL)
+
+      await writeLog({
+        action: 'LOGIN',
+        status: 'failed',
+        method: 'POST',
+        path: '/api/login/login',
+        ipAddress: req.ip || req.socket.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        details: { email, error: 'Invalid credentials', attemptsLeft: MAX_LOGIN_ATTEMPTS - attempts }
+      })
 
       if (attempts >= MAX_LOGIN_ATTEMPTS) {
         await blockIdentifier(`login:${email}`, LOGIN_BLOCK_TTL)
@@ -267,13 +332,33 @@ router.post('/login', async (req: Request, res: Response) => {
     const refreshToken = signRefreshToken(user._id.toString())
     await saveRefreshToken(user._id.toString(), refreshToken)
 
+    await writeLog({
+      userId: user._id.toString(),
+      action: 'LOGIN',
+      status: 'success',
+      method: 'POST',
+      path: '/api/login/login',
+      ipAddress: req.ip || req.socket.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      details: { email }
+    })
+
     return res.json({
       accessToken,
       refreshToken,
-      user: { id: user._id, name: user.name, email: user.email },
+      user: { id: user._id, name: user.name, email: user.email, role: (user as any).role || 'user' },
     })
   } catch (err) {
     console.error('Login error:', err)
+    await writeLog({
+      action: 'LOGIN',
+      status: 'failed',
+      method: 'POST',
+      path: '/api/login/login',
+      ipAddress: req.ip || req.socket.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      details: { email, error: err instanceof Error ? err.message : String(err) }
+    })
     return res.status(500).json({ error: 'Login failed' })
   }
 })
