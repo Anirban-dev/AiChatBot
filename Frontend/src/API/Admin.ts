@@ -5,7 +5,7 @@ import axios from 'axios'
 const BASE_URL = import.meta.env.VITE_BASE_URL
 
 // ── Admin token lives in sessionStorage (tab-only, cleared on close) ──────────
-const ADMIN_TOKEN_KEY = 'admin_access_token'
+const ADMIN_TOKEN_KEY = import.meta.env.VITE_ADMIN_TOKEN
 
 export const getAdminToken = (): string | null =>
   sessionStorage.getItem(ADMIN_TOKEN_KEY)

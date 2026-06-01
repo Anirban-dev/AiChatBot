@@ -4,12 +4,13 @@ import { Chat } from '../../models/chat'
 import { Message } from '../../models/msg'
 import { Log } from '../../models/log'
 import { adminAuthMiddleware, AdminRequest } from './middleware'
+import { midLimiter } from '../../utils/ratelimitHelper'
 
 const router = Router()
 
 router.use(adminAuthMiddleware)
 
-router.get('/stats', async (req: AdminRequest, res: Response) => {
+router.get('/stats', midLimiter, async (req: AdminRequest, res: Response) => {
   try {
     const totalUsers = await User.countDocuments()
     const totalChats = await Chat.countDocuments()
