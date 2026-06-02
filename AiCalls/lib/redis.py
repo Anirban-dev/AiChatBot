@@ -1,5 +1,7 @@
 import redis.asyncio as aioredis
-from config import REDIS_URL
+import os
+
+REDIS_URL = os.getenv("REDIS_URL")
 
 redis = aioredis.from_url(
     REDIS_URL,

@@ -40,7 +40,7 @@ const SearchModal = ({ isOpen, onClose, recentChats }: SearchModalProps) => {
     }
   }, [isOpen, onClose])
 
-  // Handle Search Input Queries — FIXED: Triggers for any character typed (> 0)
+  // Handle Search Input Queries
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       if (searchQuery.trim().length > 0) {

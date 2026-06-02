@@ -53,7 +53,7 @@ async def describe_image(image_bytes: bytes, media_type: str = "image/png") -> s
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:{media_type};base64,{b64_image}",
-                            "detail": "low"  # High detail ensures better OCR accuracy
+                            "detail": "small"  # High detail ensures better OCR accuracy
                         }
                     },
                 ]

@@ -22,6 +22,11 @@ const userSchema = new mongoose.Schema({
     type: String,
     enum: ['admin', 'user'],
     default: 'user',
+  },
+  tier: {
+    type: String,
+    enum: ['free', 'premium', 'enterprise'],
+    default: 'free', // New users start here automatically
   }
 }, {
   timestamps: true,

@@ -1,7 +1,7 @@
 // src/Routes/Admin/OverviewTab.tsx
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Users, MessageSquare, Clock, ShieldCheck, RefreshCw } from 'lucide-react'
-import { getAdminStats, getAdminMetrics, clearAdminToken } from '../../API/Admin'
+import { getAdminStats, getAdminMetrics } from '../../API/Admin'
 import type { AdminStats, MetricsResponse } from '../../API/Admin'
 
 interface Props {
@@ -14,7 +14,7 @@ const OverviewTab = ({ onExpired }: Props) => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
@@ -22,8 +22,12 @@ const OverviewTab = ({ onExpired }: Props) => {
       setStats(s)
       setMetrics(m)
     } catch (err: any) {
-      if (err.message?.includes('expired')) {
-        clearAdminToken()
+      const msg = err.message?.toLowerCase() || ''
+      const isAuthError = msg.includes('expired') || msg.includes('unauthorized') || msg.includes('denied')
+
+      if (isAuthError) {
+        localStorage.removeItem('accessToken')
+        sessionStorage.removeItem('accessToken')
         onExpired()
       } else {
         setError(err.message || 'Failed to load data')
@@ -31,11 +35,11 @@ const OverviewTab = ({ onExpired }: Props) => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [onExpired])
 
   useEffect(() => {
     fetchData()
-  }, [])
+  }, [fetchData])
 
   const statCards = [
     {

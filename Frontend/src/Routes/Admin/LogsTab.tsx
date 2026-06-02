@@ -1,14 +1,13 @@
 // src/Routes/Admin/LogsTab.tsx
 import { useState, useEffect, useCallback } from 'react'
-import { Search, Filter, ChevronLeft, ChevronRight, CheckCircle2, XCircle, RefreshCw } from 'lucide-react'
-import { getAdminLogs, clearAdminToken } from '../../API/Admin'
+import { Search, Filter, ChevronLeft, ChevronRight, CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
+import { getAdminLogs } from '../../API/Admin'
 import type { ActivityLog } from '../../API/Admin'
+import React from 'react'
 
 interface Props {
   onExpired: () => void
 }
-
-const ACTIONS = ['LOGIN', 'GOOGLE_LOGIN', 'SIGNUP', 'AI_CHAT', 'CREATE_CHAT', 'DELETE_CHAT', 'FILE_UPLOAD', 'UPDATE_USER_ROLE', 'DELETE_USER', 'ADMIN_LOGIN']
 
 const LogsTab = ({ onExpired }: Props) => {
   const [logs, setLogs] = useState<ActivityLog[]>([])
@@ -19,8 +18,17 @@ const LogsTab = ({ onExpired }: Props) => {
   const [actionFilter, setActionFilter] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  
+  // Track which log ID has its details panel open
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null)
 
   const PAGE_SIZE = 15
+
+  // Extract distinct actions dynamically to keep the dropdown filter up to date
+  const standardActions = [
+    'LOGIN', 'GOOGLE_LOGIN', 'SIGNUP', 'SEND_OTP', 
+    'REFRESH_TOKEN', 'LOGOUT', 'AI_CHAT', 'AI_TOOL_CALL', 'DELETE_USER'
+  ]
 
   const fetchLogs = useCallback(async () => {
     setLoading(true)
@@ -30,8 +38,12 @@ const LogsTab = ({ onExpired }: Props) => {
       setLogs(data.logs)
       setTotal(data.total)
     } catch (err: any) {
-      if (err.message?.includes('expired')) {
-        clearAdminToken()
+      const msg = err.message?.toLowerCase() || ''
+      const isAuthError = msg.includes('expired') || msg.includes('unauthorized') || msg.includes('denied')
+
+      if (isAuthError) {
+        localStorage.removeItem('accessToken')
+        sessionStorage.removeItem('accessToken')
         onExpired()
       } else {
         setError(err.message || 'Failed to load logs')
@@ -39,7 +51,7 @@ const LogsTab = ({ onExpired }: Props) => {
     } finally {
       setLoading(false)
     }
-  }, [search, statusFilter, actionFilter, page])
+  }, [search, statusFilter, actionFilter, page, onExpired])
 
   useEffect(() => {
     fetchLogs()
@@ -53,6 +65,10 @@ const LogsTab = ({ onExpired }: Props) => {
     if (m === 'DELETE') return 'bg-rose-50 dark:bg-rose-500/15 text-rose-600 dark:text-rose-400'
     if (m === 'PUT') return 'bg-amber-50 dark:bg-amber-500/15 text-amber-600 dark:text-amber-400'
     return 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+  }
+
+  const toggleExpandRow = (id: string) => {
+    setExpandedLogId(expandedLogId === id ? null : id)
   }
 
   return (
@@ -81,7 +97,9 @@ const LogsTab = ({ onExpired }: Props) => {
             className="w-full pl-9 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-500/40 focus:border-indigo-500 transition appearance-none cursor-pointer"
           >
             <option value="">All Actions</option>
-            {ACTIONS.map(a => <option key={a} value={a}>{a}</option>)}
+            {standardActions.map(act => (
+              <option key={act} value={act}>{act}</option>
+            ))}
           </select>
         </div>
 
@@ -124,13 +142,14 @@ const LogsTab = ({ onExpired }: Props) => {
                 <th className="px-5 py-3.5 text-left">User</th>
                 <th className="px-5 py-3.5 text-right">Latency</th>
                 <th className="px-5 py-3.5 text-right">Time</th>
+                <th className="w-10"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800/70">
               {loading ? (
                 Array.from({ length: 6 }).map((_, i) => (
                   <tr key={i}>
-                    {Array.from({ length: 6 }).map((_, j) => (
+                    {Array.from({ length: 7 }).map((_, j) => (
                       <td key={j} className="px-5 py-4">
                         <div className="h-3.5 bg-slate-100 dark:bg-slate-800 rounded animate-pulse w-full" />
                       </td>
@@ -138,68 +157,120 @@ const LogsTab = ({ onExpired }: Props) => {
                   </tr>
                 ))
               ) : logs.length > 0 ? (
-                logs.map((log) => (
-                  <tr key={log._id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition">
+                logs.map((log) => {
+                  const isExpanded = expandedLogId === log._id;
+                  return (
+                    <React.Fragment key={log._id}>
+                      {/* Base Row Data */}
+                      <tr 
+                        onClick={() => toggleExpandRow(log._id)}
+                        className={`transition cursor-pointer select-none ${
+                          isExpanded 
+                            ? 'bg-slate-50/80 dark:bg-slate-800/40' 
+                            : 'hover:bg-slate-50/50 dark:hover:bg-slate-800/30'
+                        }`}
+                      >
+                        {/* Status */}
+                        <td className="px-5 py-3.5">
+                          {log.status === 'success' ? (
+                            <CheckCircle2 className="text-emerald-500" size={16} />
+                          ) : (
+                            <XCircle className="text-rose-500" size={16} />
+                          )}
+                        </td>
 
-                    {/* Status */}
-                    <td className="px-5 py-3.5">
-                      {log.status === 'success' ? (
-                        <CheckCircle2 className="text-emerald-500" size={16} />
-                      ) : (
-                        <XCircle className="text-rose-500" size={16} />
+                        {/* Action + Method */}
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold font-mono ${methodColor(log.method)}`}>
+                              {log.method}
+                            </span>
+                            <span className="font-semibold text-slate-800 dark:text-slate-300 text-xs">{log.action}</span>
+                          </div>
+                        </td>
+
+                        {/* Path */}
+                        <td className="px-5 py-3.5">
+                          <span className="font-mono text-[11px] text-slate-400 dark:text-slate-500 truncate block max-w-56" title={log.path}>
+                            {log.path}
+                          </span>
+                        </td>
+
+                        {/* User */}
+                        <td className="px-5 py-3.5">
+                          {log.userId ? (
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-slate-800 dark:text-slate-300 truncate max-w-36">{log.userId.name}</p>
+                              <p className="text-[10px] text-slate-400 dark:text-slate-600 truncate max-w-36">{log.userId.email}</p>
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 dark:text-slate-600 italic">Anonymous</span>
+                          )}
+                        </td>
+
+                        {/* Latency */}
+                        <td className="px-5 py-3.5 text-right">
+                          <span className={`text-xs font-semibold ${
+                            log.latency
+                              ? log.latency > 5000 ? 'text-rose-500' : log.latency > 2000 ? 'text-amber-500' : 'text-emerald-500'
+                              : 'text-slate-400 dark:text-slate-600'
+                          }`}>
+                            {log.latency ? `${(log.latency / 1000).toFixed(2)}s` : '—'}
+                          </span>
+                        </td>
+
+                        {/* Timestamp */}
+                        <td className="px-5 py-3.5 text-right text-[11px] text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                          {fmt(log.createdAt)}
+                        </td>
+
+                        {/* Expand Icon */}
+                        <td className="px-4 text-slate-400 dark:text-slate-600 text-right">
+                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        </td>
+                      </tr>
+
+                      {/* Collapsible Meta Block Details Display */}
+                      {isExpanded && (
+                        <tr className="bg-slate-50/40 dark:bg-slate-900/40">
+                          <td colSpan={7} className="px-8 py-4 border-l-2 border-indigo-500/70 dark:border-indigo-500/40">
+                            <div className="space-y-3">
+                              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                Context Execution Attributes
+                              </h4>
+                              
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
+                                <div>
+                                  <p className="text-slate-400 dark:text-slate-500 mb-1">Network Client Signature:</p>
+                                  <div className="p-2.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-400">
+                                    <p><span className="text-slate-400">IP:</span> {log.ipAddress || 'Unknown'}</p>
+                                    <p className="truncate" title={log.userAgent}><span className="text-slate-400">UA:</span> {log.userAgent || 'Unknown'}</p>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <p className="text-slate-400 dark:text-slate-500 mb-1">Context Payload Payload Details (`details`):</p>
+                                  {log.details && Object.keys(log.details).length > 0 ? (
+                                    <pre className="p-2.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-400 overflow-x-auto max-h-40 text-[11px]">
+                                      {JSON.stringify(log.details, null, 2)}
+                                    </pre>
+                                  ) : (
+                                    <div className="p-2.5 rounded-lg bg-white dark:bg-slate-950 border border-slate-100 dark:border-slate-800 text-slate-400 dark:text-slate-600 italic">
+                                      No supplemental object metadata captured.
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
                       )}
-                    </td>
-
-                    {/* Action + Method */}
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-2">
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold font-mono ${methodColor(log.method)}`}>
-                          {log.method}
-                        </span>
-                        <span className="font-semibold text-slate-800 dark:text-slate-300 text-xs">{log.action}</span>
-                      </div>
-                    </td>
-
-                    {/* Path */}
-                    <td className="px-5 py-3.5">
-                      <span className="font-mono text-[11px] text-slate-400 dark:text-slate-500 truncate block max-w-56" title={log.path}>
-                        {log.path}
-                      </span>
-                    </td>
-
-                    {/* User */}
-                    <td className="px-5 py-3.5">
-                      {log.userId ? (
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold text-slate-800 dark:text-slate-300 truncate max-w-36">{log.userId.name}</p>
-                          <p className="text-[10px] text-slate-400 dark:text-slate-600 truncate max-w-36">{log.userId.email}</p>
-                        </div>
-                      ) : (
-                        <span className="text-[11px] text-slate-405 dark:text-slate-600 italic">Anonymous</span>
-                      )}
-                    </td>
-
-                    {/* Latency */}
-                    <td className="px-5 py-3.5 text-right">
-                      <span className={`text-xs font-semibold ${
-                        log.latency
-                          ? log.latency > 5000 ? 'text-rose-500' : log.latency > 2000 ? 'text-amber-500' : 'text-emerald-500'
-                          : 'text-slate-400 dark:text-slate-600'
-                      }`}>
-                        {log.latency ? `${(log.latency / 1000).toFixed(2)}s` : '—'}
-                      </span>
-                    </td>
-
-                    {/* Timestamp */}
-                    <td className="px-5 py-3.5 text-right text-[11px] text-slate-400 dark:text-slate-500 whitespace-nowrap">
-                      {fmt(log.createdAt)}
-                    </td>
-
-                  </tr>
-                ))
+                    </React.Fragment>
+                  )
+                })
               ) : (
                 <tr>
-                  <td colSpan={6} className="text-center py-12 text-slate-400 dark:text-slate-600 font-medium">
+                  <td colSpan={7} className="text-center py-12 text-slate-400 dark:text-slate-600 font-medium">
                     No logs matching the current filters.
                   </td>
                 </tr>

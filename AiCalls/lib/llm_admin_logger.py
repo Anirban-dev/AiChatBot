@@ -1,109 +1,84 @@
-# llm_admin_logger.py
-import json
-from lib.redis import redis as redis_client
+# lib/llm_admin_logger.py
+
+
+import os
+import redis as redis_lib
 import litellm
 from datetime import datetime, timezone
 
-class AdminCallbackHandler(litellm.CustomLogger):
 
-    async def _push_event(self, event: dict):
-        print("🔥 SUCCESS EVENT PUSHED TO REDIS")
-        ts = datetime.now(timezone.utc).timestamp()
-        model = event.get("model", "unknown")
-        tier  = event.get("tier",  "unknown")
+def _get_redis_client():
+    url = os.environ.get("REDIS_URL")
+    if url:
+        return redis_lib.from_url(url, decode_responses=True)
 
-        pipe = redis_client.pipeline()
+    return redis_lib.Redis(
+        host=os.environ["REDIS_HOST"],
+        port=int(os.environ.get("REDIS_PORT", 6379)),
+        password=os.environ.get("REDIS_PASSWORD"),
+        decode_responses=True,
+    )
 
-        # 1. Time-series event log — queryable by time range, keep 7 days
-        pipe.zadd("llm:events", {json.dumps(event): ts})
-        pipe.zremrangebyscore("llm:events", 0, ts - 7 * 86400)
 
-        # 2. Per-model counters
-        if event["type"] == "success":
-            pipe.incr(f"llm:stats:{model}:success")
-            pipe.incr(f"llm:stats:{tier}:success")
-        elif event["type"] == "failure":
-            pipe.incr(f"llm:stats:{model}:failure")
-            pipe.incr(f"llm:stats:{tier}:failure")
-        elif event["type"] == "retry":
-            pipe.incr(f"llm:stats:{model}:retries")
-            pipe.incr(f"llm:stats:{tier}:retries")
+_redis = _get_redis_client()
 
-        # 3. Rolling latency list — last 500 per model
-        if event.get("latency_ms") is not None:
-            pipe.lpush(f"llm:latency:{model}", event["latency_ms"])
-            pipe.ltrim(f"llm:latency:{model}", 0, 499)
 
-        # 4. Cost accumulation
-        if event.get("cost"):
-            pipe.incrbyfloat(f"llm:cost:{model}", event["cost"])
-            pipe.incrbyfloat("llm:cost:total", event["cost"])
+def _minute_stamp() -> str:
+    """Returns the current UTC minute as YYYY-MM-DD-HH-MM."""
+    now = datetime.now(timezone.utc)
+    return now.strftime("%Y-%m-%d-%H-%M")
 
-        # 5. Token accumulation
-        if event.get("prompt_tokens"):
-            pipe.incrby(f"llm:tokens:{model}:prompt",     event["prompt_tokens"])
-            pipe.incrby(f"llm:tokens:{model}:completion",  event.get("completion_tokens", 0))
 
-        await pipe.execute()
+class AdminCallbackHandler(litellm.integrations.custom_logger.CustomLogger):
+    """
+    Fired after every successful LiteLLM completion.
+    Increments per-user TPM and RPM counters in Redis.
+    """
 
-    # ── cooldown: litellm fires this when a model is put on cooldown ──
-    async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):
-        model    = kwargs.get("model", "unknown")
-        metadata = kwargs.get("metadata", {})
-        tier     = metadata.get("model_group", model)
-        latency  = round((end_time - start_time).total_seconds() * 1000)
-
-        event = {
-            "type":       "failure",
-            "model":      model,
-            "tier":       tier,
-            "error":      str(kwargs.get("exception", "")),
-            "latency_ms": latency,
-            "timestamp":  datetime.now(timezone.utc).isoformat(),
-            "api_base":   metadata.get("api_base", ""),
-        }
-        await self._push_event(event)
-
-        # Mark cooldown in Redis with TTL matching litellm's cooldown window
-        # litellm default cooldown is 60s, match whatever you set in your router config
-        cooldown_seconds = 60
-        await redis_client.set(f"llm:cooldown:{model}", "1", ex=cooldown_seconds)
+    def log_success_event(self, kwargs, response_obj, start_time, end_time):
+        """Synchronous success hook — called for non-streaming completions."""
+        try:
+            self._record_usage(kwargs, response_obj)
+        except Exception as e:
+            print(f"[AdminCallbackHandler] log_success_event error: {e}")
 
     async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
-        print("🔥 SUCCESS EVENT FIRED", kwargs.get("model"))
-        model    = kwargs.get("model", "unknown")
-        metadata = kwargs.get("metadata", {})
-        tier     = metadata.get("model_group", model)
-        usage    = getattr(response_obj, "usage", None)
-        latency  = round((end_time - start_time).total_seconds() * 1000)
+        """Async success hook — called for streaming completions."""
+        try:
+            self._record_usage(kwargs, response_obj)
+        except Exception as e:
+            print(f"[AdminCallbackHandler] async_log_success_event error: {e}")
 
-        event = {
-            "type":              "success",
-            "model":             model,
-            "tier":              tier,
-            "latency_ms":        latency,
-            "timestamp":         datetime.now(timezone.utc).isoformat(),
-            "prompt_tokens":     getattr(usage, "prompt_tokens",     0) if usage else 0,
-            "completion_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
-            "cost":              kwargs.get("response_cost", 0),
-            "call_id":           kwargs.get("litellm_call_id", ""),
-        }
-        await self._push_event(event)
+    def _record_usage(self, kwargs: dict, response_obj):
+        # LiteLLM passes client_id through the optional_params dict
+        optional = kwargs.get("optional_params") or {}
+        user_id  = optional.get("client_id") or kwargs.get("client_id")
 
-        # Clear cooldown if this model just succeeded
-        await redis_client.delete(f"llm:cooldown:{model}")
+        if not user_id:
+            # No user_id means we can't attribute usage — skip silently
+            return
 
-    async def async_log_retry_event(self, kwargs, response_obj, start_time, end_time):
-        model    = kwargs.get("model", "unknown")
-        metadata = kwargs.get("metadata", {})
-        tier     = metadata.get("model_group", model)
+        # Extract token usage from the response
+        usage  = getattr(response_obj, "usage", None)
+        tokens = 0
+        if usage:
+            # total_tokens is preferred; fall back to sum of prompt + completion
+            tokens = getattr(usage, "total_tokens", None)
+            if tokens is None:
+                tokens = (
+                    getattr(usage, "prompt_tokens",     0) +
+                    getattr(usage, "completion_tokens", 0)
+                )
 
-        event = {
-            "type":      "retry",
-            "model":     model,
-            "tier":      tier,
-            "attempt":   kwargs.get("num_retries", 0),
-            "error":     str(kwargs.get("exception", "")),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-        await self._push_event(event)
+        stamp   = _minute_stamp()
+        tpm_key = f"usage:tpm:{user_id}:{stamp}"
+        rpm_key = f"usage:rpm:{user_id}:{stamp}"
+
+        # Use a pipeline so both increments hit Redis in one round-trip
+        pipe = _redis.pipeline()
+        pipe.incrby(tpm_key, int(tokens))
+        pipe.incr(rpm_key)
+        # TTL of 120s — 1 full minute of buffer past the current minute boundary
+        pipe.expire(tpm_key, 120)
+        pipe.expire(rpm_key, 120)
+        pipe.execute()

@@ -68,7 +68,7 @@ export default function AccountModal({
       setErrorMsg('')
       try {
         const data = await googleLogin(code)
-        saveAccount(data.user, data.token)
+        saveAccount(data.user, data.accessToken)
         setStatus('success')
         setTimeout(() => {
           onClose()

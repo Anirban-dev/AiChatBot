@@ -16,6 +16,13 @@ export const useSendMessage = (chatId: string) => {
   const currentFileName = useRef<string | null>(null)
   const loading = isLoading(chatId)
 
+  // ── INFRASTRUCTURE CONTROLS ──────────────────────────────────────────────
+  const [selectedModel, setSelectedModel] = useState<'small' | 'large' | 'thinking' | 'critiq'>('small')
+  const [activeTool, setActiveTool] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  const clearError = () => setErrorMessage(null)
+
   // File Attachment & Staging States
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -57,6 +64,7 @@ export const useSendMessage = (chatId: string) => {
       console.error("Stop error:", err)
     } finally {
       setLoading(chatId, false)
+      setActiveTool(null) // Reset tool indicator on manual stop
     }
   }
 
@@ -85,17 +93,50 @@ export const useSendMessage = (chatId: string) => {
 
     if (!forcedContent) setInput('')
     setLoading(chatId, true)
+    
+    // Clear out pipeline alerts on fresh execution cycles
+    setErrorMessage(null)
+    setActiveTool(null)
+
     abortControllerRef.current = new AbortController()
     const streamingId = crypto.randomUUID()
     const targetChatId = chatId 
 
     try {
+      // ✅ Arguments are now perfectly aligned sequence-wise with our SSE Fetch helper
       await sendMsg(
-        targetChatId,
-        content,
-        (token) => appendToken(targetChatId, streamingId, token),
-        (userMsg) => appendMessage(targetChatId, userMsg),
+        targetChatId,      // #1: chatId
+        content,           // #2: content
+        selectedModel,     // #3: model tier selection ('small' | 'large' | 'thinking' | "critiq")
+        
+        // #4: onToken
+        (token: string) => {
+          setActiveTool(null) // Drop tool status banner once standard text tokens start arriving
+          appendToken(targetChatId, streamingId, token)
+        },
+        
+        // #5: onUserMessage
+        (userMsg: any) => {
+          appendMessage(targetChatId, {
+            _id: userMsg._id || crypto.randomUUID(),
+            role: 'user',
+            content: userMsg.content || content,
+            createdAt: userMsg.createdAt || new Date().toISOString()
+          })
+        },
+        
+        // #6: onToolCall (Captures our active custom tool stream keys)
+        (toolPayload: any) => {
+          if (toolPayload?.status === 'running' && toolPayload?.tool_call?.name) {
+            setActiveTool(toolPayload.tool_call.name)
+          } else {
+            setActiveTool(null)
+          }
+        },
+        
+        // #7: onDone
         async (assistantMsg) => {
+          setActiveTool(null)
           updateMessage(targetChatId, streamingId, assistantMsg)
           if (targetChatId === chatId) setLoading(chatId, false)
 
@@ -119,14 +160,24 @@ export const useSendMessage = (chatId: string) => {
             }
           }
         },
-        () => {
+        
+        // #8: onError (Handles explicit error packets streaming from Python agent loop)
+        (errData: { type?: string; message: string }) => {
+          setActiveTool(null)
           removeMessage(targetChatId, streamingId)
+          setErrorMessage(errData.message || "A streaming worker pipeline exception occurred.")
           if (targetChatId === chatId) setLoading(chatId, false)
         },
-        abortControllerRef.current.signal 
+        
+        // #9: AbortSignal
+        abortControllerRef.current.signal
       )
     } catch (err: any) {
-      if (err.name !== 'AbortError') console.error(err)
+      if (err.name !== 'AbortError') {
+        console.error(err)
+        setErrorMessage(err.message || "An unexpected engine execution fault occurred.")
+      }
+      setActiveTool(null)
       setLoading(chatId, false)
     }
   }
@@ -152,6 +203,9 @@ export const useSendMessage = (chatId: string) => {
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // If an error exists, block the enter key submission path
+    if (errorMessage) return
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSendAction()
@@ -209,9 +263,17 @@ export const useSendMessage = (chatId: string) => {
   const formatTime = (date: string) =>
     new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
+  // Clear runtime errors automatically when the user begins typing
+  useEffect(() => {
+    if (input.trim() && errorMessage) {
+      setErrorMessage(null)
+    }
+  }, [input])
+
   return { 
     input, setInput, sendMessage, stopGeneration, handleFileUpload, loading, uploading, runCode, isPythonReady,
     pendingFile, previewUrl, clearStaging, handleSendAction, handleKeyDown, 
-    handlePaste, onFileSelect, formatFileSize, getFileIcon, getFileColor, formatTime
+    handlePaste, onFileSelect, formatFileSize, getFileIcon, getFileColor, formatTime,
+    activeTool, setActiveTool, errorMessage, setErrorMessage, selectedModel, setSelectedModel, clearError
   }
 }

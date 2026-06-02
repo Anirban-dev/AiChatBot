@@ -41,17 +41,6 @@ export const requestLogger = (req: AuthRequest, res: Response, next: NextFunctio
       
       // Compute clean action name
       let action = `${req.method} ${req.baseUrl || ''}${req.path}`
-      
-      // Let's rewrite action names to be user-friendly in the logs table
-      if (req.method === 'POST' && req.originalUrl.startsWith('/api/chats') && req.originalUrl.endsWith('/stop')) {
-        action = 'AI_CHAT_STOP'
-      } else if (req.method === 'POST' && req.originalUrl.startsWith('/api/chats') && req.originalUrl.split('/').length === 3) {
-        action = 'CREATE_CHAT'
-      } else if (req.method === 'DELETE' && req.originalUrl.startsWith('/api/chats') && req.originalUrl.split('/').length === 4) {
-        action = 'DELETE_CHAT'
-      } else if (req.method === 'POST' && req.originalUrl.startsWith('/api/files')) {
-        action = 'FILE_UPLOAD'
-      }
 
       await writeLog({
         userId: req.userId,

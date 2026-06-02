@@ -1,6 +1,4 @@
 // src/Routes/Admin/index.tsx
-// Entry point for /admin route.
-// AdminGate wraps everything — no password, no access. Period.
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Database, LogOut } from 'lucide-react'
@@ -9,7 +7,6 @@ import OverviewTab from './OverviewTab'
 import UsersTab from './UsersTab'
 import LogsTab from './LogsTab'
 import LLMTab from './Litellm'
-import { clearAdminToken } from '../../API/Admin'
 
 type Tab = 'overview' | 'users' | 'logs' | 'llm'
 
@@ -18,13 +15,16 @@ const AdminDashboard = () => {
   const [tab, setTab] = useState<Tab>('overview')
   const [gateKey, setGateKey] = useState(0)
 
+  // If a request returns a 401/403 deep inside a child panel component
   const handleExpired = () => {
-    clearAdminToken()
-    setGateKey(k => k + 1)
+    localStorage.removeItem('accessToken')
+    sessionStorage.removeItem('accessToken')
+    setGateKey(k => k + 1) // Forces Guard re-evaluation -> displays Access Denied instantly
   }
 
   const handleLogout = () => {
-    clearAdminToken()
+    localStorage.removeItem('accessToken')
+    sessionStorage.removeItem('accessToken')
     navigate('/')
   }
 
@@ -32,14 +32,13 @@ const AdminDashboard = () => {
     { id: 'overview', label: 'Overview' },
     { id: 'users', label: 'Users' },
     { id: 'logs', label: 'Activity Logs' },
-    { id: 'llm', label: 'LLM Logs'}
+    { id: 'llm', label: 'LLM Logs' }
   ]
 
   return (
-    // AdminGate re-mounts on key change, which resets its auth check
     <AdminGate key={gateKey}>
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 transition-colors duration-300">
-
+        
         {/* Header */}
         <header className="sticky top-0 z-20 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-950/90 backdrop-blur-md">
           <div className="max-w-7xl mx-auto px-6 md:px-10 h-16 flex items-center justify-between">
@@ -83,10 +82,10 @@ const AdminDashboard = () => {
               <button
                 onClick={handleLogout}
                 className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-800 hover:border-rose-500/30 px-3 py-2 rounded-lg transition cursor-pointer"
-                title="Lock and exit"
+                title="Log out session"
               >
                 <LogOut size={14} />
-                <span className="hidden sm:inline">Lock</span>
+                <span className="hidden sm:inline">Logout</span>
               </button>
             </div>
 
@@ -115,7 +114,7 @@ const AdminDashboard = () => {
           {tab === 'overview' && <OverviewTab onExpired={handleExpired} />}
           {tab === 'users'    && <UsersTab    onExpired={handleExpired} />}
           {tab === 'logs'     && <LogsTab     onExpired={handleExpired} />}
-          {tab === 'llm'  && <LLMTab     onExpired={handleExpired} />}
+          {tab === 'llm'      && <LLMTab      onExpired={handleExpired} />}
         </main>
 
       </div>
