@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ShieldAlert, ArrowLeft } from 'lucide-react'
-import { getAdminStats } from '../../API/Admin'
+import { getAdminStats } from '../../API/Admin/AdminStats'
 
 interface AdminGateProps {
   children: React.ReactNode

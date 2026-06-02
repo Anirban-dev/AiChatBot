@@ -7,6 +7,8 @@ import { midLimiter } from '../utils/ratelimitHelper'
 import { writeLog }   from '../utils/logger'
 import { redis }      from '../utils/redis' // 🌟 Added Redis client import
 import { TIER_DEFAULTS } from './admin/users' // 🌟 Added Tier Defaults sync import
+import { LlmLog } from '../models/llmLog'
+
 
 const router = Router({ mergeParams: true })
 router.use(authMiddleware)
@@ -229,23 +231,65 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
           try {
             const toolPayload = JSON.parse(data)
             const tc          = toolPayload.tool_call ?? toolPayload.functionCall ?? toolPayload
-            const toolName    = tc.name ?? tc.functionName ?? 'unknown'
+            const toolId      = tc?.id ?? 'unknown'
+            const toolName    = tc?.name ?? tc?.functionName ?? 'unknown'
             const toolStatus  = toolPayload.status ?? 'running'
-            activeToolCalls.push(tc)
+            const toolResult  = toolPayload.result ?? ''
+            const toolError   = toolPayload.error ?? ''
+
+            // Add or update in activeToolCalls
+            const existingIdx = activeToolCalls.findIndex((item: any) => item.id === toolId)
+            if (existingIdx > -1) {
+              activeToolCalls[existingIdx] = { 
+                id: toolId, 
+                name: toolName, 
+                status: toolStatus, 
+                result: toolResult, 
+                error: toolError 
+              }
+            } else {
+              activeToolCalls.push({ 
+                id: toolId, 
+                name: toolName, 
+                status: toolStatus, 
+                result: toolResult, 
+                error: toolError 
+              })
+            }
 
             writeLog({
               userId,
               action:    'AI_TOOL_CALL',
-              status:    'success',
+              status:    toolStatus === 'failed' ? 'failed' : 'success',
               method:    'POST',
               path:      `/api/chats/${chatId}/msgs`,
               ipAddress: req.ip ?? req.socket.remoteAddress,
               userAgent: req.headers['user-agent'],
               latency:   Date.now() - startTime,
-              details:   { chatId, toolName, toolStatus },
+              details:   { chatId, toolName, toolStatus, toolResult, toolError },
             }).catch(e => console.error('Tool call log error:', e))
 
-            res.write(`event: tool\ndata: ${JSON.stringify({ tool: toolName, status: toolStatus })}\n\n`)
+            // Log tool_call event to MongoDB llmlogs collection
+            if (toolStatus !== 'running') {
+              LlmLog.create({
+                type: 'tool_call',
+                userId,
+                chatId,
+                tool_name: toolName,
+                tool_status: toolStatus,
+                tool_result: toolStatus === 'completed' ? toolResult : undefined,
+                error: toolStatus === 'failed' ? toolError : undefined,
+                timestamp: new Date()
+              }).catch(e => console.error('Failed to save tool call log:', e))
+            }
+
+            res.write(`event: tool\ndata: ${JSON.stringify({ 
+              tool: toolName, 
+              id: toolId, 
+              status: toolStatus, 
+              result: toolResult, 
+              error: toolError 
+            })}\n\n`)
           } catch (e) {
             console.error('Failed to parse tool call payload:', e)
           }
@@ -279,6 +323,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       chatId: req.params.chatId,
       role:    'assistant',
       content: fullContent,
+      toolCalls: activeToolCalls,
     })
 
     // ─── 🌟 REDIS HOURLY TRACKING COMMIT ────────────────────────────────────────

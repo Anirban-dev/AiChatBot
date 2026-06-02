@@ -1,8 +1,8 @@
 // src/Routes/Admin/LogsTab.tsx
 import { useState, useEffect, useCallback } from 'react'
-import { Search, Filter, ChevronLeft, ChevronRight, CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react'
-import { getAdminLogs } from '../../API/Admin'
-import type { ActivityLog } from '../../API/Admin'
+import { Search, Filter, ChevronLeft, ChevronRight, CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp, Trash2, AlertTriangle } from 'lucide-react'
+import { getAdminLogs, deleteActivityLog, clearAllActivityLogs } from '../../API/Admin/AdminLogs'
+import type { ActivityLog } from '../../API/Admin/AdminLogs'
 import React from 'react'
 
 interface Props {
@@ -21,6 +21,9 @@ const LogsTab = ({ onExpired }: Props) => {
   
   // Track which log ID has its details panel open
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [clearing, setClearing] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
 
   const PAGE_SIZE = 15
 
@@ -71,8 +74,50 @@ const LogsTab = ({ onExpired }: Props) => {
     setExpandedLogId(expandedLogId === id ? null : id)
   }
 
+  const handleDelete = async (e: React.MouseEvent, logId: string) => {
+    e.stopPropagation()
+    setDeletingId(logId)
+    try {
+      await deleteActivityLog(logId)
+      setLogs(prev => prev.filter(l => l._id !== logId))
+      setTotal(t => t - 1)
+    } catch { /* silently ignore */ }
+    finally { setDeletingId(null) }
+  }
+
+  const handleClearAll = async () => {
+    if (!confirmClear) { setConfirmClear(true); return }
+    setClearing(true)
+    try {
+      await clearAllActivityLogs()
+      setLogs([])
+      setTotal(0)
+      setPage(1)
+    } catch { /* silently ignore */ }
+    finally { setClearing(false); setConfirmClear(false) }
+  }
+
   return (
     <div className="space-y-5">
+      {/* Header Row */}
+      <div className="flex items-center justify-between">
+        <div />
+        <button
+          onClick={handleClearAll}
+          disabled={clearing || logs.length === 0}
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer disabled:opacity-40 ${
+            confirmClear
+              ? 'bg-rose-600 border-rose-600 text-white hover:bg-rose-700'
+              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-rose-500 hover:border-rose-400 dark:hover:border-rose-600'
+          }`}
+          onBlur={() => setConfirmClear(false)}
+        >
+          {confirmClear
+            ? <><AlertTriangle size={13} />Confirm — clear ALL logs</>  
+            : <><Trash2 size={13} />{clearing ? 'Clearing…' : 'Clear All Logs'}</>
+          }
+        </button>
+      </div>
 
       {/* Filter Bar */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -235,9 +280,18 @@ const LogsTab = ({ onExpired }: Props) => {
                         <tr className="bg-slate-50/40 dark:bg-slate-900/40">
                           <td colSpan={7} className="px-8 py-4 border-l-2 border-indigo-500/70 dark:border-indigo-500/40">
                             <div className="space-y-3">
-                              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                                Context Execution Attributes
-                              </h4>
+                              <div className="flex items-center justify-between">
+                                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                  Context Execution Attributes
+                                </h4>
+                                <button
+                                  onClick={(e) => handleDelete(e, log._id)}
+                                  disabled={deletingId === log._id}
+                                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition cursor-pointer disabled:opacity-50"
+                                >
+                                  <Trash2 size={11} />{deletingId === log._id ? 'Deleting…' : 'Delete Log'}
+                                </button>
+                              </div>
                               
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
                                 <div>

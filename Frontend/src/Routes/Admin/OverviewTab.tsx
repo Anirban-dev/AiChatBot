@@ -1,8 +1,10 @@
-// src/Routes/Admin/OverviewTab.tsx
 import { useEffect, useState, useCallback } from 'react'
 import { Users, MessageSquare, Clock, ShieldCheck, RefreshCw } from 'lucide-react'
-import { getAdminStats, getAdminMetrics } from '../../API/Admin'
-import type { AdminStats, MetricsResponse } from '../../API/Admin'
+import { getAdminStats } from '../../API/Admin/AdminStats'
+// UPDATED: Import the real implementation function alongside your structural interfaces
+import { getAdminMetrics } from '../../API/Admin/AdminLogs'
+import type { AdminStats } from '../../API/Admin/AdminStats'
+import type { MetricsResponse } from '../../API/Admin/AdminLogs'
 
 interface Props {
   onExpired: () => void
@@ -18,6 +20,7 @@ const OverviewTab = ({ onExpired }: Props) => {
     setLoading(true)
     setError('')
     try {
+      // Now fires clean concurrent API network requests to your real routes
       const [s, m] = await Promise.all([getAdminStats(), getAdminMetrics()])
       setStats(s)
       setMetrics(m)
@@ -220,4 +223,4 @@ const OverviewTab = ({ onExpired }: Props) => {
   )
 }
 
-export default OverviewTab
+export default OverviewTab;

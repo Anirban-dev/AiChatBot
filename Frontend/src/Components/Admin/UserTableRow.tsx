@@ -2,8 +2,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { Trash2, ChevronDown } from 'lucide-react'
 import { UsageBar } from './UsageBar'
-import type { AdminUser } from '../../API/Admin'
-import { updateUserTier } from '../../API/Admin'
+import type { AdminUser } from '../../API/Admin/AdminUsers'
+import { updateUserTier } from '../../API/Admin/AdminUsers'
 
 const TIERS = ['free', 'premium', 'enterprise'] as const
 type Tier = typeof TIERS[number]
@@ -89,7 +89,7 @@ export const UserTableRow = ({ user, actionId, onRoleChange, onOpenLimits, onDel
 
       {/* Active Tier Dropdown Trigger Column */}
       <td className="px-5 py-4">
-        <div className="relative inline-block" ref={menuRef}>
+        <div className="absolute inline-block" ref={menuRef}>
           <button
             onClick={() => setTierMenuOpen(!tierMenuOpen)}
             className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 hover:brightness-95 dark:hover:brightness-110 transition cursor-pointer ${TIER_STYLE[user.tier] || TIER_STYLE.free}`}

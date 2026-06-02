@@ -10,10 +10,18 @@ services:
     restart: on-failure
     networks:
       - backend
+    depends_on:
+      - tor-proxy
+
+  # --- ADDED TOR PROXY FOR ONION SEARCH (AHMIA/TORCH) ---
+  tor-proxy:
+    image: peterdavehello/tor-socks-proxy:latest
+    restart: on-failure
+    networks:
+      - backend
 
   firecrawl-api:
     image: trieve/firecrawl:v0.0.46
-    # ... your existing configs ...
     environment:
       - PORT=3002
       - HOST=0.0.0.0
@@ -30,10 +38,11 @@ services:
       - redis
       - playwright-service
       - mongodb
+    networks:
+      - backend
 
   firecrawl-worker:
     image: trieve/firecrawl:v0.0.46
-    # ... your existing configs ...
     environment:
       - REDIS_URL=redis://redis:6379
       - PLAYWRIGHT_MICROSERVICE_URL=http://playwright-service:3000
@@ -46,6 +55,8 @@ services:
       - playwright-service
       - mongodb
       - firecrawl-api
+    networks:
+      - backend
 
   playwright-service:
     image: trieve/puppeteer-service-ts:v0.0.6

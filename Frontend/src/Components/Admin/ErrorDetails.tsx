@@ -1,6 +1,6 @@
 import { X, Copy, Check, ShieldAlert } from 'lucide-react'
 import { useState } from 'react'
-import type { LLMEvent } from './ModalCard'
+import type { LLMEvent } from '../../API/Admin/AdminLlm'
 
 interface ErrorDetailsModalProps {
   isOpen: boolean
@@ -26,13 +26,9 @@ export const ErrorDetailsModal = ({ isOpen, onClose, event }: ErrorDetailsModalP
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-xs animate-fade-in">
-      {/* Backdrop Click Closer */}
       <div className="absolute inset-0" onClick={onClose} />
 
-      {/* Modal Container */}
       <div className="relative w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden animate-scale-up">
-        
-        {/* Header Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/10">
           <div className="flex items-center gap-2">
             <ShieldAlert size={16} className="text-rose-500" />
@@ -49,9 +45,7 @@ export const ErrorDetailsModal = ({ isOpen, onClose, event }: ErrorDetailsModalP
           </button>
         </div>
 
-        {/* Content Body */}
         <div className="p-5 space-y-4">
-          {/* Metadata Row */}
           <div className="flex gap-4 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
             <div>
               Status Code: <span className="text-rose-600 dark:text-rose-400 font-extrabold">{event.status_code || 'None'}</span>
@@ -61,7 +55,6 @@ export const ErrorDetailsModal = ({ isOpen, onClose, event }: ErrorDetailsModalP
             </div>
           </div>
 
-          {/* Codeblock Wrap Viewport */}
           <div className="relative group">
             <button
               onClick={handleCopy}
@@ -74,13 +67,13 @@ export const ErrorDetailsModal = ({ isOpen, onClose, event }: ErrorDetailsModalP
               )}
             </button>
             
+            {/* Standardized break-words token to secure layouts against unspaced string expansions */}
             <div className="w-full max-h-60 overflow-y-auto rounded-xl bg-slate-950 p-4 font-mono text-xs text-rose-400 dark:text-rose-400/90 leading-relaxed border border-slate-900 shadow-inner wrap-break-word whitespace-pre-wrap">
               {event.error || 'System reported a dynamic operational abort routine without string logging outputs.'}
             </div>
           </div>
         </div>
 
-        {/* Action Footer bar */}
         <div className="flex justify-end px-5 py-3 border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/30 dark:bg-slate-950/5">
           <button
             onClick={onClose}

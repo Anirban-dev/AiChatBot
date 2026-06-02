@@ -1,8 +1,8 @@
 // src/components/Admin/UsersTab.tsx
 import { useState, useEffect, useCallback, type SetStateAction } from 'react'
 import { Search, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
-import { getAdminUsers, deleteAdminUser, updateUserRole } from '../../API/Admin'
-import type { AdminUser } from '../../API/Admin'
+import { getAdminUsers, deleteAdminUser, updateUserRole } from '../../API/Admin/AdminUsers'
+import type { AdminUser } from '../../API/Admin/AdminUsers'
 import { UserTableRow } from '../../Components/Admin/UserTableRow'
 import { LimitsModal } from '../../Components/Admin/UserLimitModal'
 

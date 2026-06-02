@@ -8,11 +8,20 @@ interface FileMetadata {
     extension: string,
 }
 
-interface Message {
+export interface ToolCall {
+  id: string
+  name: string
+  status: 'running' | 'completed' | 'failed'
+  result?: string
+  error?: string
+}
+
+export interface Message {
   _id: string
   role: 'user' | 'assistant'
   content: string
   fileInfo?: FileMetadata
+  toolCalls?: ToolCall[]
   createdAt: string
 }
 
@@ -23,6 +32,7 @@ interface ChatContextType {
   updateMessage: (chatId: string, msgId: string, update: Partial<Message>) => void
   removeMessage: (chatId: string, msgId: string) => void
   appendToken: (chatId: string, msgId: string, token: string) => void
+  updateToolCall: (chatId: string, msgId: string, toolCall: ToolCall) => void
   setLoading: (chatId: string, val: boolean) => void
   isLoading: (chatId: string) => boolean
 }
@@ -94,10 +104,28 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
     })
   }
 
+  const updateToolCall = (chatId: string, msgId: string, toolCall: ToolCall) => {
+    setStore(prev => {
+      const msgs = prev[chatId] || []
+      return {
+        ...prev,
+        [chatId]: msgs.map(m => {
+          if (m._id !== msgId) return m
+          const existingCalls = m.toolCalls || []
+          const existingIdx = existingCalls.findIndex(tc => tc.id === toolCall.id)
+          const updatedCalls = existingIdx > -1
+            ? existingCalls.map((tc, i) => i === existingIdx ? toolCall : tc)
+            : [...existingCalls, toolCall]
+          return { ...m, toolCalls: updatedCalls }
+        })
+      }
+    })
+  }
+
   return (
     <ChatContext.Provider value={{
       getMessages, setMessages, appendMessage,
-      updateMessage, removeMessage, appendToken, setLoading, isLoading
+      updateMessage, removeMessage, appendToken, updateToolCall, setLoading, isLoading
     }}>
       {children}
     </ChatContext.Provider>

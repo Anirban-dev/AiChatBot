@@ -73,4 +73,41 @@ router.get('/metrics', midLimiter, async (req: AdminRequest, res: Response) => {
   }
 })
 
+// DELETE /api/admin/logs/:id - Delete a single activity log
+router.delete('/:id', midLimiter, async (req: AdminRequest, res: Response) => {
+  try {
+    const { id } = req.params
+    const result = await Log.findByIdAndDelete(id)
+    if (!result) return res.status(404).json({ error: 'Activity log not found' })
+    res.json({ success: true, message: 'Activity log deleted successfully' })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to delete activity log' })
+  }
+})
+
+// DELETE /api/admin/logs - Clear activity logs matching filters
+router.delete('/', midLimiter, async (req: AdminRequest, res: Response) => {
+  try {
+    const search = (req.query.search as string) || ''
+    const status = (req.query.status as string) || ''
+    const action = (req.query.action as string) || ''
+
+    const query: any = {}
+    if (status) query.status = status
+    if (action) query.action = action
+    if (search) {
+      query.$or = [
+        { action: { $regex: search, $options: 'i' } },
+        { path:   { $regex: search, $options: 'i' } },
+        { method: { $regex: search, $options: 'i' } },
+      ]
+    }
+
+    const result = await Log.deleteMany(query)
+    res.json({ success: true, message: `${result.deletedCount} activity logs cleared successfully` })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to clear activity logs' })
+  }
+})
+
 export default router

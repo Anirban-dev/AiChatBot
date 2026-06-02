@@ -1,10 +1,23 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { RefreshCw, ChevronDown, ChevronUp, Cpu } from 'lucide-react'
-import { getLLMEvents, getLLMStatus } from '../../API/Admin'
-import type { ModelStat, LLMEvent } from '../../Components/Admin/ModalCard'
+import { 
+  getLLMEvents, 
+  getLLMStatus, 
+  getAgentToolCalls, 
+  getAgentToolStats, 
+  deleteLLMEvent, 
+  clearAllLLMEvents,
+} from '../../API/Admin/AdminLlm'
+import type { 
+  ModelStat, 
+  LLMEvent, 
+  ToolCallLog, 
+  ToolMetric 
+} from '../../API/Admin/AdminLlm'
 import { HealthOverview } from '../../Components/Admin/HealthOverview'
 import { ModelCard } from '../../Components/Admin/ModalCard'
 import { EventsLogTable } from '../../Components/Admin/EventsLogTable'
+import { AgentToolsPanel } from '../../Components/Admin/AgentToolsPanel'
 
 interface LLMStatus {
   model_stats: Record<string, ModelStat>
@@ -18,21 +31,27 @@ interface Props {
 
 const LLMTab = ({ onExpired }: Props) => {
   const [status, setStatus] = useState<LLMStatus | null>(null)
-  const [events, setEvents] = useState<LLMEvent[]>([]);
+  const [events, setEvents] = useState<LLMEvent[]>([])
+  const [toolLogs, setToolLogs] = useState<ToolCallLog[]>([])
+  const [toolStats, setToolStats] = useState<ToolMetric[]>([])
+  
   const [loadingStatus, setLoadingStatus] = useState(true)
   const [loadingEvents, setLoadingEvents] = useState(true)
+  const [loadingTools, setLoadingTools] = useState(true)
   const [error, setError] = useState('')
   
-
-  // Clutter reduction visibility register
   const [showModels, setShowModels] = useState(false)
 
-  // Query filter registers (Including new backend filters)
+  // System Core Filters
   const [typeFilter, setTypeFilter] = useState('')
   const [tierFilter, setTierFilter] = useState('')
   const [hoursFilter, setHoursFilter] = useState('24')
   const [modelFilter, setModelFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+
+  // New Agent Tool Specific Filters
+  const [toolNameFilter, setToolNameFilter] = useState('')
+  const [toolStatusFilter, setToolStatusFilter] = useState<'running' | 'completed' | 'failed' | ''>('')
 
   const handleError = useCallback((err: any) => {
     const msg = err.message?.toLowerCase() || ''
@@ -61,7 +80,6 @@ const LLMTab = ({ onExpired }: Props) => {
   const fetchEvents = useCallback(async () => {
     setLoadingEvents(true)
     try {
-      // Passing the new backend filter parameters here
       const data = await getLLMEvents(
         parseInt(hoursFilter), 
         typeFilter, 
@@ -71,7 +89,7 @@ const LLMTab = ({ onExpired }: Props) => {
       )
       const normalizedEvents = data.events.map(event => ({
         ...event,
-        status_code: event.error_details?.status_code ?? null // Lift it to the root level
+        status_code: event.error_details?.status_code ?? null // Standardizes the deep root resolution catch cleanly
       }))
       setEvents(normalizedEvents)
     } catch (err: any) {
@@ -81,15 +99,71 @@ const LLMTab = ({ onExpired }: Props) => {
     }
   }, [hoursFilter, typeFilter, tierFilter, modelFilter, statusFilter, handleError])
 
-  useEffect(() => { fetchEvents() }, [fetchEvents])
+  // Fetches background data for remaining Agent Tooling APIs
+  const fetchToolingData = useCallback(async () => {
+    setLoadingTools(true)
+    try {
+      const [logsRes, statsRes] = await Promise.all([
+        getAgentToolCalls({
+          tool_name: toolNameFilter || undefined,
+          tool_status: toolStatusFilter || undefined,
+          limit: 40
+        }),
+        getAgentToolStats()
+      ])
+      if (logsRes.success) setToolLogs(logsRes.data)
+      if (statsRes.success) setToolStats(statsRes.stats)
+    } catch (err: any) {
+      handleError(err)
+    } finally {
+      setLoadingTools(false)
+    }
+  }, [toolNameFilter, toolStatusFilter, handleError])
+
+  // Single Entry Mutation Execution Hook
+  const handleDeleteEvent = async (id: string) => {
+    try {
+      await deleteLLMEvent(id)
+      setEvents(prev => prev.filter(e => e._id !== id))
+    } catch (err: any) {
+      handleError(err)
+    }
+  }
+
+  // Bulk Sweep Deletion Execution Hook
+  const handleClearAllEvents = async () => {
+    try {
+      await clearAllLLMEvents({
+        type: typeFilter || undefined,
+        tier: tierFilter || undefined,
+        model: modelFilter || undefined
+      })
+      setEvents([])
+    } catch (err: any) {
+      handleError(err)
+    }
+  }
+
+  // Fixing the execution halt by cleanly loading structural frameworks on initial mount
+  useEffect(() => {
+    fetchStatus()
+  }, [fetchStatus])
+
+  useEffect(() => {
+    fetchEvents()
+  }, [fetchEvents])
+
+  useEffect(() => {
+    fetchToolingData()
+  }, [fetchToolingData])
 
   const handleRefresh = () => {
     setError('')
     fetchStatus()
     fetchEvents()
+    fetchToolingData()
   }
 
-  // Calculate derived analytics summary values 
   const topStats = useMemo(() => {
     if (!status) return null
     const models = Object.values(status.model_stats)
@@ -117,7 +191,6 @@ const LLMTab = ({ onExpired }: Props) => {
 
   return (
     <div className="space-y-6 max-w-350 mx-auto animate-fade-in">
-      {/* Structural Title Header Area */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">System Cluster Diagnostic Infrastructure</h2>
@@ -125,11 +198,11 @@ const LLMTab = ({ onExpired }: Props) => {
         </div>
         <button
           onClick={handleRefresh}
-          disabled={loadingStatus || loadingEvents}
+          disabled={loadingStatus || loadingEvents || loadingTools}
           className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 px-3.5 py-2 rounded-xl transition cursor-pointer disabled:opacity-45 shadow-xs bg-white dark:bg-slate-900"
         >
-          <RefreshCw size={13} className={loadingStatus || loadingEvents ? 'animate-spin' : ''} />
-          <span>Refresh Metrics</span>
+          <RefreshCw size={13} className={loadingStatus || loadingEvents || loadingTools ? 'animate-spin' : ''} />
+          <span>Refresh Dashboard</span>
         </button>
       </div>
 
@@ -139,14 +212,12 @@ const LLMTab = ({ onExpired }: Props) => {
         </div>
       )}
 
-      {/* Aggregate HUD metrics grid */}
       <HealthOverview 
         loading={loadingStatus} 
         totalCost={status?.total_cost ?? 0} 
         stats={topStats} 
       />
 
-      {/* Collapsible Model Node Cards Control Wrapper */}
       <div className="space-y-3 p-4 rounded-2xl border border-slate-100 dark:border-slate-800/60 bg-slate-50/30 dark:bg-slate-900/10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -170,7 +241,7 @@ const LLMTab = ({ onExpired }: Props) => {
               ? Array.from({ length: 3 }).map((_, i) => (
                   <div key={i} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-3.5 shadow-xs">
                     {Array.from({ length: 4 }).map((_, j) => (
-                      <div key={j} className="h-3.5 bg-slate-100 dark:bg-slate-800/80 rounded dynamic-pulse-element animate-pulse w-full" />
+                      <div key={j} className="h-3.5 bg-slate-100 dark:bg-slate-800/80 rounded animate-pulse w-full" />
                     ))}
                   </div>
                 ))
@@ -186,7 +257,7 @@ const LLMTab = ({ onExpired }: Props) => {
         )}
       </div>
 
-      {/* Structured tracing system event table */}
+      {/* Renders the upgraded Tracing Logs Table with active row Deletions & Purge triggers */}
       <EventsLogTable
         loading={loadingEvents}
         events={filteredEvents}
@@ -201,6 +272,21 @@ const LLMTab = ({ onExpired }: Props) => {
         onHoursChange={setHoursFilter}
         onModelChange={setModelFilter}
         onStatusChange={setStatusFilter}
+        onDeleteEvent={handleDeleteEvent}
+        onClearAllEvents={handleClearAllEvents}
+      />
+
+      <hr className="border-slate-100 dark:border-slate-800/80 my-2" />
+
+      {/* Renders the newly connected real-time Agent Tool Monitoring Panel */}
+      <AgentToolsPanel
+        loading={loadingTools}
+        logs={toolLogs}
+        stats={toolStats}
+        statusFilter={toolStatusFilter}
+        nameFilter={toolNameFilter}
+        onStatusFilterChange={setToolStatusFilter}
+        onNameFilterChange={setToolNameFilter}
       />
     </div>
   )

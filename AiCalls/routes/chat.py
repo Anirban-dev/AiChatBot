@@ -211,19 +211,28 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                     try:
                         args = json.loads(tc["function"]["arguments"])
                         result = await tool_manager.execute(func_name, args)
-                        return str(result)[:MAX_TOOL_RESULT]
+                        return {"status": "completed", "result": str(result)}
                     except Exception as exc:
-                        return f"Tool error: {exc}"
+                        return {"status": "failed", "error": str(exc)}
 
                 results = await asyncio.gather(*[_run(tc) for tc in tool_calls])
 
-                # Append execution tracking updates back into active history frames
-                for tc, result in zip(tool_calls, results):
+                # Append execution tracking updates back into active history frames and yield events
+                for tc, res in zip(tool_calls, results):
+                    func_name = tc["function"]["name"]
+                    tc_id = tc["id"]
+                    if res["status"] == "completed":
+                        result_content = res["result"][:MAX_TOOL_RESULT]
+                        yield f"data: {json.dumps({'tool_call': {'name': func_name, 'id': tc_id}, 'status': 'completed', 'result': result_content[:200]})}\n\n"
+                    else:
+                        result_content = f"Tool error: {res['error']}"
+                        yield f"data: {json.dumps({'tool_call': {'name': func_name, 'id': tc_id}, 'status': 'failed', 'error': res['error']})}\n\n"
+
                     messages.append({
                         "role":         "tool",
-                        "tool_call_id": tc["id"],
-                        "name":         tc["function"]["name"],
-                        "content":      result,
+                        "tool_call_id": tc_id,
+                        "name":         func_name,
+                        "content":      result_content,
                     })
                     
             else:

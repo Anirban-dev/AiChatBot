@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { CheckCircle2, XCircle, RefreshCw, SlidersHorizontal, Eye } from 'lucide-react'
-import type { LLMEvent } from './ModalCard'
+import { CheckCircle2, XCircle, RefreshCw, SlidersHorizontal, Eye, Trash2, ShieldAlert } from 'lucide-react'
+import type { LLMEvent } from '../../API/Admin/AdminLlm'
 import { ErrorDetailsModal } from './ErrorDetails'
+
 interface EventsLogTableProps {
   loading: boolean
   events: LLMEvent[]
@@ -16,6 +17,8 @@ interface EventsLogTableProps {
   onHoursChange: (v: string) => void
   onModelChange: (v: string) => void
   onStatusChange: (v: string) => void
+  onDeleteEvent: (id: string) => Promise<void>
+  onClearAllEvents: () => Promise<void>
 }
 
 const TIER_COLORS: Record<string, string> = {
@@ -44,26 +47,28 @@ export const EventsLogTable = ({
   onHoursChange,
   onModelChange,
   onStatusChange,
+  onDeleteEvent,
+  onClearAllEvents,
 }: EventsLogTableProps) => {
-  // Modal tracking view registers
   const [selectedEvent, setSelectedEvent] = useState<LLMEvent | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
 
-  const handleOpenErrorModal = (event: LLMEvent) => {
+  const handleOpenInspectModal = (event: LLMEvent, e: React.MouseEvent) => {
+    // Avoid triggering selection modal when clicking functional button parameters
+    if ((e.target as HTMLElement).closest('.action-btn-guard')) return
     setSelectedEvent(event)
     setIsModalOpen(true)
   }
 
   return (
     <div className="space-y-3">
-      {/* Segment Context Query Actions */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-200">
           <SlidersHorizontal size={14} className="text-indigo-500" />
           <span>Recent Execution Trace Log</span>
         </div>
 
-        {/* Filters Matrix container */}
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="text"
@@ -97,10 +102,32 @@ export const EventsLogTable = ({
               ))}
             </select>
           ))}
+
+          {/* Hard Delete All Traces Mutation Action */}
+          {events.length > 0 && (
+            <button
+              onClick={() => {
+                if (confirmClear) {
+                  onClearAllEvents();
+                  setConfirmClear(false);
+                } else {
+                  setConfirmClear(true);
+                  setTimeout(() => setConfirmClear(false), 4000);
+                }
+              }}
+              className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-xl border transition cursor-pointer shadow-xs ${
+                confirmClear 
+                  ? 'bg-rose-600 text-white border-rose-600 hover:bg-rose-700' 
+                  : 'bg-white dark:bg-slate-900 text-rose-500 border-slate-200 dark:border-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/20'
+              }`}
+            >
+              <ShieldAlert size={13} />
+              <span>{confirmClear ? 'Confirm Purge?' : 'Clear Filtered'}</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Records Output Matrix Layer */}
       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-4xl border-collapse">
@@ -112,7 +139,8 @@ export const EventsLogTable = ({
                 <th className="px-5 py-3.5 text-right">Latency</th>
                 <th className="px-5 py-3.5 text-right">Payload Tokens</th>
                 <th className="px-5 py-3.5 text-right">Cost</th>
-                <th className="px-5 py-3.5 text-left">Trace Error Response</th>
+                <th className="px-5 py-3.5 text-left">Trace Message / Payload</th>
+                <th className="px-5 py-3.5 text-center">Actions</th>
                 <th className="px-5 py-3.5 text-right">Timestamp</th>
               </tr>
             </thead>
@@ -120,7 +148,7 @@ export const EventsLogTable = ({
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i}>
-                    {Array.from({ length: 8 }).map((_, j) => (
+                    {Array.from({ length: 9 }).map((_, j) => (
                       <td key={j} className="px-5 py-3.5">
                         <div className="h-3.5 bg-slate-100 dark:bg-slate-800/80 rounded animate-pulse w-full" />
                       </td>
@@ -129,7 +157,11 @@ export const EventsLogTable = ({
                 ))
               ) : events.length > 0 ? (
                 events.map((e, i) => (
-                  <tr key={i} className="hover:bg-slate-50/40 dark:hover:bg-slate-800/10 transition">
+                  <tr 
+                    key={e._id || i} 
+                    onClick={(ev) => handleOpenInspectModal(e, ev)}
+                    className="hover:bg-slate-50/60 dark:hover:bg-slate-800/20 transition cursor-pointer group"
+                  >
                     <td className="px-5 py-3.5 whitespace-nowrap">
                       <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${
                         e.type === 'success'
@@ -164,24 +196,41 @@ export const EventsLogTable = ({
                       {fmtCost(e.cost)}
                     </td>
                     
-                    {/* UPDATED CLICKABLE LOG DIAGNOSTIC WINDOW CELL */}
                     <td className="px-5 py-3.5 text-xs max-w-xs truncate font-medium">
-                      {e.error ? (
-                        <button
-                          onClick={() => handleOpenErrorModal(e)}
-                          className="flex items-center gap-1.5 text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 transition text-left focus:outline-none font-semibold group cursor-pointer"
+                      <div className="flex items-center gap-1.5 text-left">
+                        {e.status_code ? (
+                          <span className={`font-extrabold border px-1 py-0.5 rounded text-[10px] ${
+                            e.type === 'failure' 
+                              ? 'border-rose-200 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/15 text-rose-600 dark:text-rose-400'
+                              : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                          }`}>
+                            {e.status_code}
+                          </span>
+                        ) : null}
+                        <span className={`truncate ${e.error ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-slate-500 dark:text-slate-400'}`}>
+                          {e.error || 'Execution metadata parsed successfully'}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Dual Action Controls: Inspect & Delete Row Entries */}
+                    <td className="px-5 py-2 text-center whitespace-nowrap action-btn-guard">
+                      <div className="inline-flex items-center gap-1">
+                        <button 
+                          onClick={(ev) => { ev.stopPropagation(); setSelectedEvent(e); setIsModalOpen(true); }}
+                          className="p-1.5 rounded-lg bg-slate-100 hover:bg-indigo-50 dark:bg-slate-800 dark:hover:bg-indigo-950/40 text-slate-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition cursor-pointer"
+                          title="Inspect Trace Log"
                         >
-                          {e.status_code ? (
-                            <span className="font-extrabold border border-rose-200 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/15 px-1 py-0.5 rounded text-[10px]">
-                              {e.status_code}
-                            </span>
-                          ) : null}
-                          <span className="truncate group-hover:underline">{e.error}</span>
-                          <Eye size={12} className="shrink-0 text-slate-400 group-hover:text-rose-500 transition opacity-0 group-hover:opacity-100" />
+                          <Eye size={13} />
                         </button>
-                      ) : (
-                        <span className="text-slate-400 dark:text-slate-600">—</span>
-                      )}
+                        <button 
+                          onClick={(ev) => { ev.stopPropagation(); if(e._id) onDeleteEvent(e._id); }}
+                          className="p-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 transition cursor-pointer"
+                          title="Delete Trace Entry"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </td>
 
                     <td className="px-5 py-3.5 text-right text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap font-medium">
@@ -191,7 +240,7 @@ export const EventsLogTable = ({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={8} className="text-center py-12 text-slate-400 dark:text-slate-600 font-semibold text-xs uppercase tracking-wider">
+                  <td colSpan={9} className="text-center py-12 text-slate-400 dark:text-slate-600 font-semibold text-xs uppercase tracking-wider">
                     No tracing records match your query filters.
                   </td>
                 </tr>
@@ -201,7 +250,6 @@ export const EventsLogTable = ({
         </div>
       </div>
 
-      {/* RENDER DIAGNOSTIC MODAL LAYER OVERLAY */}
       <ErrorDetailsModal 
         isOpen={isModalOpen} 
         onClose={() => { setIsModalOpen(false); setSelectedEvent(null); }} 

@@ -1,7 +1,7 @@
-from datetime import datetime, timezone
+# llmlite.py
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Query
-import json
-from lib.redis import redis as redis_client
+from lib.mongodb import llm_logs
 from litellm_models import LITELLM_ROUTER_MODELS
 
 router = APIRouter()
@@ -14,66 +14,104 @@ async def get_llm_status():
     })
     all_tiers = list({d["model_name"] for d in LITELLM_ROUTER_MODELS["model_list"]})
 
-    pipe = redis_client.pipeline()
+    # Aggregate metrics from MongoDB
+    pipeline = [
+        {
+            "$group": {
+                "_id": "$model",
+                "success": {"$sum": {"$cond": [{"$eq": ["$type", "success"]}, 1, 0]}},
+                "failure": {"$sum": {"$cond": [{"$eq": ["$type", "failure"]}, 1, 0]}},
+                "cost": {"$sum": "$cost"},
+                "prompt_tokens": {"$sum": "$prompt_tokens"},
+                "completion_tokens": {"$sum": "$completion_tokens"},
+                "latencies": {"$push": "$latency_ms"},
+            }
+        }
+    ]
 
-    # Queue all reads in one round-trip (Now 11 queries per model)
-    for model in all_models:
-        pipe.get(f"llm:stats:{model}:success")
-        pipe.get(f"llm:stats:{model}:failure")
-        pipe.get(f"llm:stats:{model}:retries")
-        pipe.lrange(f"llm:latency:{model}", 0, -1)
-        pipe.get(f"llm:cost:{model}")
-        pipe.get(f"llm:tokens:{model}:prompt")
-        pipe.get(f"llm:tokens:{model}:completion")
-        pipe.exists(f"llm:cooldown:{model}")
-        # --- NEW RICH METRICS ---
-        pipe.get(f"llm:stats:{model}:streaming_count")
-        pipe.get(f"llm:ratelimit:{model}:remaining_tokens")
-        pipe.get(f"llm:ratelimit:{model}:reset_requests")
+    cursor = llm_logs.aggregate(pipeline)
+    db_stats = {}
+    async for doc in cursor:
+        model = doc["_id"]
+        latencies = [l for l in doc["latencies"] if l is not None]
+        avg_latency = round(sum(latencies) / len(latencies)) if latencies else None
+        p95_latency = sorted(latencies)[int(len(latencies) * 0.95)] if latencies else None
 
-    results = await pipe.execute()
-
-    # Parse results — 11 values per model
-    model_stats = {}
-    stride = 11
-    for i, model in enumerate(all_models):
-        base = i * stride
-        latencies = [int(x) for x in (results[base + 3] or [])]
-        
-        # Parse new rate limit metrics safely
-        rem_tokens = results[base + 9]
-        reset_req = results[base + 10]
-
-        model_stats[model] = {
-            "success":           int(results[base + 0] or 0),
-            "failure":           int(results[base + 1] or 0),
-            "retries":           int(results[base + 2] or 0),
-            "avg_latency_ms":    round(sum(latencies) / len(latencies)) if latencies else None,
-            "p95_latency_ms":    sorted(latencies)[int(len(latencies) * 0.95)] if latencies else None,
-            "cost":              float(results[base + 4] or 0),
-            "prompt_tokens":     int(results[base + 5] or 0),
-            "completion_tokens": int(results[base + 6] or 0),
-            "cooling_down":      bool(results[base + 7]),
-            # --- NEW EXTRACTED FIELDS FOR FRONTEND GRAPHING ---
-            "streaming_requests": int(results[base + 8] or 0),
+        db_stats[model] = {
+            "success": doc["success"],
+            "failure": doc["failure"],
+            "retries": 0,
+            "avg_latency_ms": avg_latency,
+            "p95_latency_ms": p95_latency,
+            "cost": doc["cost"],
+            "prompt_tokens": doc["prompt_tokens"],
+            "completion_tokens": doc["completion_tokens"],
+            "cooling_down": False,
+            "streaming_requests": 0,
             "provider_limits": {
-                "remaining_tokens": int(rem_tokens) if rem_tokens is not None else None,
-                "reset_requests_sec": float(reset_req) if reset_req is not None else None,
+                "remaining_tokens": None,
+                "reset_requests_sec": None,
             }
         }
 
-    # Recent events (last 50, newest first)
-    raw_events = await redis_client.zrevrange("llm:events", 0, 49, withscores=False)
-    recent_events = [json.loads(e) for e in raw_events]
+    # Format model_stats for all known models in list (even if they have no logs yet)
+    model_stats = {}
+    for item in LITELLM_ROUTER_MODELS["model_list"]:
+        m = item["litellm_params"]["model"]
+        tier = item["model_name"]
+        if m in db_stats:
+            model_stats[m] = {**db_stats[m], "tier": tier}
+        else:
+            model_stats[m] = {
+                "tier": tier,
+                "success": 0,
+                "failure": 0,
+                "retries": 0,
+                "avg_latency_ms": None,
+                "p95_latency_ms": None,
+                "cost": 0.0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cooling_down": False,
+                "streaming_requests": 0,
+                "provider_limits": {
+                    "remaining_tokens": None,
+                    "reset_requests_sec": None,
+                }
+            }
+
+    # Fetch recent events (last 50, newest first) from MongoDB
+    events_cursor = llm_logs.find().sort("timestamp", -1).limit(50)
+    recent_events = []
+    async for event in events_cursor:
+        recent_events.append({
+            "id": str(event.get("_id")),
+            "type": event.get("type"),
+            "model": event.get("model"),
+            "tier": event.get("virtual_model"),
+            "latency_ms": event.get("latency_ms"),
+            "prompt_tokens": event.get("prompt_tokens"),
+            "completion_tokens": event.get("completion_tokens"),
+            "cost": event.get("cost"),
+            "error": event.get("error"),
+            "error_details": event.get("error_details"),
+            "timestamp": event.get("timestamp").isoformat() if event.get("timestamp") else None
+        })
 
     # Total cost
-    total_cost = float(await redis_client.get("llm:cost:total") or 0)
+    total_cost_pipeline = [
+        {"$group": {"_id": None, "total_cost": {"$sum": "$cost"}}}
+    ]
+    total_cost_cursor = llm_logs.aggregate(total_cost_pipeline)
+    total_cost = 0.0
+    async for doc in total_cost_cursor:
+        total_cost = doc.get("total_cost", 0.0)
 
     return {
-        "model_stats":    model_stats,
-        "recent_events":  recent_events,
-        "total_cost":     total_cost,
-        "tiers":          all_tiers,
+        "model_stats": model_stats,
+        "recent_events": recent_events,
+        "total_cost": total_cost,
+        "tiers": all_tiers,
     }
 
 
@@ -86,25 +124,34 @@ async def get_llm_events(
     status_code: int = Query(None), # Added filtering by HTTP error code
     limit: int = 100
 ):
-    """Filterable event log for the admin logs tab with telemetry support."""
-    now = datetime.now(timezone.utc).timestamp()
-    since = now - since_hours * 3600
-
-    raw = await redis_client.zrangebyscore(
-        "llm:events", since, now,
-        start=0, num=limit
-    )
-    events = [json.loads(e) for e in raw]
-
-    # Enhanced Python filtering for advanced debugging telemetry
+    """Filterable event log for the admin logs tab with telemetry support, powered by MongoDB."""
+    since = datetime.now(timezone.utc) - timedelta(hours=since_hours)
+    
+    query = {"timestamp": {"$gte": since}}
     if type:
-        events = [e for e in events if e.get("type") == type]
+        query["type"] = type
     if tier:
-        events = [e for e in events if e.get("tier") == tier]
+        query["virtual_model"] = tier
     if model:
-        events = [e for e in events if e.get("model") == model or e.get("virtual_model") == model]
-    if status_code:
-        events = [e for e in events if e.get("error_details", {}).get("status_code") == status_code]
+        query["$or"] = [{"model": model}, {"virtual_model": model}]
+    if status_code is not None:
+        query["error_details.status_code"] = status_code
 
-    events.reverse()  # newest first
+    cursor = llm_logs.find(query).sort("timestamp", -1).limit(limit)
+    events = []
+    async for doc in cursor:
+        events.append({
+            "id": str(doc.get("_id")),
+            "type": doc.get("type"),
+            "model": doc.get("model"),
+            "tier": doc.get("virtual_model"),
+            "latency_ms": doc.get("latency_ms"),
+            "prompt_tokens": doc.get("prompt_tokens"),
+            "completion_tokens": doc.get("completion_tokens"),
+            "cost": doc.get("cost"),
+            "error": doc.get("error"),
+            "error_details": doc.get("error_details"),
+            "timestamp": doc.get("timestamp").isoformat() if doc.get("timestamp") else None
+        })
+
     return {"events": events, "total": len(events)}

@@ -2,8 +2,8 @@
 import { useState, useEffect } from 'react'
 import { X, Gauge, Check, RefreshCw, RotateCcw } from 'lucide-react'
 import { UsageBar } from './UsageBar'
-import type { AdminUser } from '../../API/Admin'
-import { updateUserLimits } from '../../API/Admin'
+import type { AdminUser } from '../../API/Admin/AdminUsers'
+import { updateUserLimits } from '../../API/Admin/AdminUsers'
 
 interface LimitsModalProps {
   user: AdminUser | null

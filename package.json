@@ -6,6 +6,6 @@
     "dev": "concurrently \"cd frontend && npm run dev\" \"cd backend && npm run dev\" \"cd aicalls && uv run main.py --active\"",
     "server": "concurrently \"cd frontend && npm run dev\" \"cd backend && npm run dev\"",
     "ai": "cd aicalls && uv run main.py --active",
-    "make-admin": "cd Backend && npx tsx ./src/scripts/makeAdmin.tsx"
+    "make-admin": "cd Backend && npx tsx ./src/scripts/makeAdmin.ts"
   }
 }

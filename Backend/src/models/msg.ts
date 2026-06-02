@@ -22,6 +22,13 @@ const messageSchema = new mongoose.Schema({
     mimeType: String,
     extension: String,
   },
+  toolCalls: [{
+    id: String,
+    name: String,
+    status: { type: String, enum: ['running', 'completed', 'failed'] },
+    result: String,
+    error: String,
+  }],
 }, { timestamps: true })
 
 export const Message = mongoose.model('Message', messageSchema)

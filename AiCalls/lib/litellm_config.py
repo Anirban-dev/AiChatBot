@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 from lib.redis import redis as async_redis 
 
-os.environ['LITELLM_LOG'] = 'DEBUG'
+os.environ['LITELLM_LOG'] = 'CRITICAL'
 
 # ─── ROBUST ENV PARSING (Gives defaults if variables aren't populated yet) ────
 REDIS_URL = os.environ.get("REDIS_URL")
@@ -29,6 +29,48 @@ else:
     REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
     REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
     REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD")
+
+import asyncio
+from lib.mongodb import llm_logs
+
+async def log_llm_completion(
+    type: str,
+    virtual_model: str,
+    model: str,
+    user_id: str,
+    latency_ms: int,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    cost: float = 0.0,
+    error: str = None,
+    error_details: dict = None
+):
+    try:
+        from bson import ObjectId
+        user_obj_id = None
+        try:
+            if user_id and user_id != "unknown_user":
+                user_obj_id = ObjectId(user_id)
+        except Exception:
+            pass
+
+        doc = {
+            "type": type,
+            "model": model,
+            "virtual_model": virtual_model,
+            "userId": user_obj_id if user_obj_id else user_id,
+            "latency_ms": latency_ms,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "cost": cost,
+            "error": error,
+            "error_details": error_details,
+            "timestamp": datetime.now(timezone.utc)
+        }
+        await llm_logs.insert_one(doc)
+    except Exception:
+        pass
+
 
 # ── Tier limit definitions (must match TIER_DEFAULTS in routes/admin/users.ts) ─
 TIER_LIMITS = {
@@ -124,13 +166,144 @@ async def async_chat_completion(
             limit_type="tpm",
         )
 
-    # Delegate to LiteLLM Router
-    return await router.acompletion(
-        model=tier_name,
-        messages=messages,
-        client_id=user_id,
-        **kwargs,
-    )
+    # Intercept and log calls to MongoDB
+    start_time = datetime.now(timezone.utc)
+    if kwargs.get("stream"):
+        try:
+            raw_stream = await router.acompletion(
+                model=tier_name,
+                messages=messages,
+                client_id=user_id,
+                **kwargs,
+            )
+        except Exception as e:
+            end_time = datetime.now(timezone.utc)
+            latency_ms = int((end_time - start_time).total_seconds() * 1000)
+            status_code = getattr(e, "status_code", None)
+            err_details = {"status_code": status_code} if status_code else None
+            asyncio.create_task(log_llm_completion(
+                type="failure",
+                virtual_model=tier_name,
+                model=tier_name,
+                user_id=user_id,
+                latency_ms=latency_ms,
+                error=str(e).split('\n')[0][:100],
+                error_details=err_details
+            ))
+            raise e
+
+        async def stream_wrapper():
+            model_name = ""
+            prompt_tokens = 0
+            completion_tokens = 0
+            tokens_generated = 0
+            try:
+                async for chunk in raw_stream:
+                    if hasattr(chunk, "model") and chunk.model:
+                        model_name = chunk.model
+                    if hasattr(chunk, "usage") and chunk.usage:
+                        prompt_tokens = chunk.usage.prompt_tokens
+                        completion_tokens = chunk.usage.completion_tokens
+                    
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if delta and getattr(delta, "content", None):
+                        tokens_generated += 1
+                    yield chunk
+
+                end_time = datetime.now(timezone.utc)
+                latency_ms = int((end_time - start_time).total_seconds() * 1000)
+                
+                if not prompt_tokens:
+                    prompt_len = sum(len(m.get("content", "")) for m in messages if isinstance(m.get("content"), str))
+                    prompt_tokens = max(1, prompt_len // 4)
+                    completion_tokens = max(1, tokens_generated)
+
+                cost = 0.0
+                try:
+                    import litellm
+                    cost = litellm.completion_cost(
+                        model=model_name or tier_name,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens
+                    )
+                except Exception:
+                    pass
+
+                asyncio.create_task(log_llm_completion(
+                    type="success",
+                    virtual_model=tier_name,
+                    model=model_name or tier_name,
+                    user_id=user_id,
+                    latency_ms=latency_ms,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    cost=cost
+                ))
+            except Exception as e:
+                end_time = datetime.now(timezone.utc)
+                latency_ms = int((end_time - start_time).total_seconds() * 1000)
+                status_code = getattr(e, "status_code", None)
+                err_details = {"status_code": status_code} if status_code else None
+                asyncio.create_task(log_llm_completion(
+                    type="failure",
+                    virtual_model=tier_name,
+                    model=model_name or tier_name,
+                    user_id=user_id,
+                    latency_ms=latency_ms,
+                    error=str(e).split('\n')[0][:100],
+                    error_details=err_details
+                ))
+                raise e
+        return stream_wrapper()
+    else:
+        try:
+            response = await router.acompletion(
+                model=tier_name,
+                messages=messages,
+                client_id=user_id,
+                **kwargs,
+            )
+            end_time = datetime.now(timezone.utc)
+            latency_ms = int((end_time - start_time).total_seconds() * 1000)
+            
+            usage = response.get("usage", {})
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            model_name = response.get("model", "")
+            
+            cost = 0.0
+            try:
+                import litellm
+                cost = litellm.completion_cost(response)
+            except Exception:
+                pass
+                
+            asyncio.create_task(log_llm_completion(
+                type="success",
+                virtual_model=tier_name,
+                model=model_name or tier_name,
+                user_id=user_id,
+                latency_ms=latency_ms,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cost=cost
+            ))
+            return response
+        except Exception as e:
+            end_time = datetime.now(timezone.utc)
+            latency_ms = int((end_time - start_time).total_seconds() * 1000)
+            status_code = getattr(e, "status_code", None)
+            err_details = {"status_code": status_code} if status_code else None
+            asyncio.create_task(log_llm_completion(
+                type="failure",
+                virtual_model=tier_name,
+                model=tier_name,
+                user_id=user_id,
+                latency_ms=latency_ms,
+                error=str(e).split('\n')[0][:100],
+                error_details=err_details
+            ))
+            raise e
 
 
 async def async_embedding_call(text_list: list) -> list:

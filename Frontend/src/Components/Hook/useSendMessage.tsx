@@ -9,7 +9,7 @@ import { usePython } from './usePython'
 
 export const useSendMessage = (chatId: string) => {
   const [input, setInput] = useState('')
-  const { getMessages, setMessages, appendMessage, appendToken, updateMessage, removeMessage, isLoading, setLoading } = useChatStore()
+  const { getMessages, setMessages, appendMessage, appendToken, updateMessage, removeMessage, updateToolCall, isLoading, setLoading } = useChatStore()
   const { runCode, isReady: isPythonReady } = usePython()
 
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -131,13 +131,27 @@ const setCodeContext = (name: string, content: string) => {
           })
         },
         
-        // #6: onToolCall (Captures our active custom tool stream keys)
+        // #6: onToolCall (Captures our active custom tool stream keys and updates tool state)
         (toolPayload: any) => {
-          if (toolPayload?.status === 'running' && toolPayload?.tool_call?.name) {
-            setActiveTool(toolPayload.tool_call.name)
+          const tool = toolPayload?.tool_call ?? toolPayload
+          const toolName = tool?.name ?? tool?.tool ?? 'unknown'
+          const toolId   = tool?.id ?? toolName
+          const status   = toolPayload?.status ?? 'running'
+
+          if (status === 'running') {
+            setActiveTool(toolName)
           } else {
             setActiveTool(null)
           }
+
+          // Update live tool call state in the streaming message
+          updateToolCall(targetChatId, streamingId, {
+            id: toolId,
+            name: toolName,
+            status: status as 'running' | 'completed' | 'failed',
+            result: toolPayload?.result,
+            error: toolPayload?.error,
+          })
         },
         
         // #7: onDone
