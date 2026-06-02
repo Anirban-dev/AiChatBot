@@ -1,7 +1,7 @@
 // src/Routes/Admin/index.tsx
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Database, LogOut } from 'lucide-react'
+import { ArrowLeft, Database, LogOut, Sun, Moon } from 'lucide-react'
 import AdminGate from './AdminGate'
 import OverviewTab from './OverviewTab'
 import UsersTab from './UsersTab'
@@ -14,6 +14,26 @@ const AdminDashboard = () => {
   const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>('overview')
   const [gateKey, setGateKey] = useState(0)
+
+  // 1. Initialize state matching your Chat component preference pattern
+  const [dark, setDark] = useState<boolean>(() => {
+    const savedTheme = localStorage.getItem('theme')
+    if (savedTheme) {
+      return savedTheme === 'dark'
+    }
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+  })
+
+  // 2. Synchronize theme switches with the HTML element tree
+  useEffect(() => {
+    if (dark) {
+      document.documentElement.classList.add('dark')
+      localStorage.setItem('theme', 'dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+      localStorage.setItem('theme', 'light')
+    }
+  }, [dark])
 
   // If a request returns a 401/403 deep inside a child panel component
   const handleExpired = () => {
@@ -61,8 +81,8 @@ const AdminDashboard = () => {
               </div>
             </div>
 
-            {/* Tab Nav + Logout */}
-            <div className="flex items-center gap-6">
+            {/* Tab Nav + Theme Toggle + Logout */}
+            <div className="flex items-center gap-3 sm:gap-4">
               <nav className="hidden sm:flex items-center gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1">
                 {TABS.map(t => (
                   <button
@@ -78,6 +98,15 @@ const AdminDashboard = () => {
                   </button>
                 ))}
               </nav>
+
+              {/* Desktop Theme Toggle Button */}
+              <button
+                onClick={() => setDark(!dark)}
+                className="p-2 text-slate-500 hover:text-slate-950 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-lg transition cursor-pointer"
+                title={dark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+              >
+                {dark ? <Sun size={15} /> : <Moon size={15} />}
+              </button>
 
               <button
                 onClick={handleLogout}

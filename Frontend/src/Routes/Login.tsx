@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login, signup, googleLogin, sendOtp } from '../API/Login'
 import { saveSession } from '../Auth/authHelper'
 import { useGoogleLogin } from '@react-oauth/google'
-import { Mail, Lock, User, ArrowRight, Loader2 } from 'lucide-react'
+import { Mail, Lock, User, ArrowRight, Loader2, Sun, Moon } from 'lucide-react'
 
 const GoogleIcon = () => (
   <svg viewBox="0 0 24 24" width="17" height="17" xmlns="http://www.w3.org/2000/svg">
@@ -57,6 +57,26 @@ const Login = () => {
   const [error, setError] = useState('')
   const [otp, setOtp] = useState('')
   const [otpSent, setOtpSent] = useState(false)
+
+  // 1. Theme state initialization
+  const [dark, setDark] = useState<boolean>(() => {
+    const savedTheme = localStorage.getItem('theme')
+    if (savedTheme) {
+      return savedTheme === 'dark'
+    }
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+  })
+
+  // 2. Theme side-effect engine
+  useEffect(() => {
+    if (dark) {
+      document.documentElement.classList.add('dark')
+      localStorage.setItem('theme', 'dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+      localStorage.setItem('theme', 'light')
+    }
+  }, [dark])
 
   const navigate = useNavigate()
 
@@ -112,7 +132,19 @@ const Login = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 px-4 relative transition-colors duration-300">
+      
+      {/* Absolute Positioning Universal Theme Switcher Control */}
+      <div className="absolute top-4 right-4 sm:top-6 sm:right-6">
+        <button
+          onClick={() => setDark(!dark)}
+          className="p-2.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 shadow-xs hover:bg-gray-50 dark:hover:bg-gray-800 transition cursor-pointer"
+          title={dark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+        >
+          {dark ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
+      </div>
+
       <div className="w-full max-w-sm">
 
         {/* Logo / Brand */}
