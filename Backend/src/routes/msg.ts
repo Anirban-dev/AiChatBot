@@ -28,7 +28,6 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
 
   if (!content) return res.status(400).json({ error: 'Content is required' })
 
-  // Map incoming model strings to the four valid system tiers
   const validTiers = ['small', 'large', 'thinking', 'critiq']
   const targetTier = validTiers.includes(model) ? model : 'small'
 
@@ -52,7 +51,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     const tphKey = `usage:tph:${userId}:${stamp}`
     const rphKey = `usage:rph:${userId}:${stamp}`
 
-    // Pull custom manual limits and current hourly tracking aggregates
+    // Pull custom manual limits and current hourly tracking
     const [rawLimits, tphRaw, rphRaw] = await Promise.all([
       redis.get(`user_limits:${userId}`),
       redis.get(tphKey),
@@ -105,14 +104,14 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       }),
     })
 
-    // ── 429: quota exhausted (from our RateLimitExceeded raise in litellm_router.py)
+    // ── RateLimitExceeded raise in litellm
     if (response.status === 429) {
       let quotaMessage = `Rate limit reached for the '${targetTier}' model. Please wait a moment before retrying.`
       try {
         const body = await response.json()
         if (body?.detail)  quotaMessage = body.detail
         if (body?.message) quotaMessage = body.message
-      } catch { /* not JSON */ }
+      } catch { }
 
       await writeLog({
         userId,
@@ -130,13 +129,13 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       return res.end()
     }
 
-    // ── Any other non-2xx error
+    // ── Any other error
     if (!response.ok) {
       let pythonError = `Python API ${response.status}`
       try {
         const body = await response.json()
         pythonError = body?.detail ?? body?.error ?? pythonError
-      } catch { /* not JSON */ }
+      } catch { }
 
       await writeLog({
         userId,
@@ -202,7 +201,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
             if (parsed?.type === 'QUOTA_EXHAUSTED' || pythonErrMsg.toLowerCase().includes('quota')) {
               isMidpointQuotaLeak = true
             }
-          } catch { /* ok */ }
+          } catch { }
 
           await writeLog({
             userId,
@@ -278,13 +277,12 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       content: fullContent,
     })
 
-    // ─── 🌟 REDIS HOURLY TRACKING COMMIT (Post-Stream) ────────────────────────
-    // Generate character-to-token metric estimation rules (approx. 4 chars per token)
+    // ─── 🌟 REDIS HOURLY TRACKING COMMIT ────────────────────────────────────────
     const totalEstimatedTokens = Math.ceil((content.length + fullContent.length) / 4)
     
     // Compute total seconds remaining until the turn of the next UTC hour boundary
     const secondsUntilNextHour = 3600 - (now.getUTCMinutes() * 60 + now.getUTCSeconds())
-    const redisTTL = secondsUntilNextHour + 600 // Adding a safe 10-minute historical viewing window buffer
+    const redisTTL = secondsUntilNextHour + 600
 
     await redis.multi()
       .incrby(tphKey, totalEstimatedTokens)

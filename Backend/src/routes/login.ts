@@ -293,9 +293,8 @@ router.post('/signup', async (req: Request, res: Response) => {
     await redis.del(`otp:${email}`)
     await clearAttempts(`otp:${email}`)
 
-    // 🌟 New users default to 'free' tier via schema rules
     const userTier = (user as any).tier || 'free'
-    const userRole = (user as any).role || 'user' // Will be 'admin' for the first user, 'user' for others
+    const userRole = (user as any).role || 'user'
 
     const accessToken  = signAccessToken(user._id.toString(), userTier, userRole)
     const refreshToken = signRefreshToken(user._id.toString(), userTier, userRole)
@@ -399,7 +398,6 @@ router.post('/login', async (req: Request, res: Response) => {
 
     await clearAttempts(`login:${email}`)
 
-    // 🌟 Extract tier status out of database profile match
     const userTier = (user as any).tier || 'free'
     const userRole = (user as any).role || 'user'
 

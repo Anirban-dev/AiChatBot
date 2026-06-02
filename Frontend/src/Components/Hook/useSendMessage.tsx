@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from 'react'
-import { FileText, FileSpreadsheet, Image as ImageIcon, File } from 'lucide-react'
+// CHANGED: Renamed 'File' import to 'FileIcon' to prevent state/constructor overrides
+import { FileText, FileSpreadsheet, Image as ImageIcon, File as FileIcon } from 'lucide-react'
 import { sendMsg, stopMsg } from '../../API/Msg'
 import { uploadFile, deleteFileFromRAG } from '../../API/File'
 import { renameChat } from '../../API/Chat' 
@@ -14,6 +15,7 @@ export const useSendMessage = (chatId: string) => {
   const abortControllerRef = useRef<AbortController | null>(null)
   const [uploading, setUploading] = useState(false)
   const currentFileName = useRef<string | null>(null)
+  const [pendingCode, setPendingCode] = useState<{name: string, content: string} | null>(null);
   const loading = isLoading(chatId)
 
   // ── INFRASTRUCTURE CONTROLS ──────────────────────────────────────────────
@@ -23,7 +25,7 @@ export const useSendMessage = (chatId: string) => {
 
   const clearError = () => setErrorMessage(null)
 
-  // File Attachment & Staging States
+  // File Attachment & Staging States - Now safely references native browser File type
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
@@ -35,12 +37,17 @@ export const useSendMessage = (chatId: string) => {
   }, [previewUrl])
 
   const clearStaging = () => {
-    setPendingFile(null)
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl)
-      setPreviewUrl(null)
-    }
+  setPendingFile(null);
+  setPendingCode(null); // Clear the code too
+  if (previewUrl) {
+    URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
   }
+};
+
+const setCodeContext = (name: string, content: string) => {
+  setPendingCode({ name, content });
+};
 
   const stopGeneration = async () => {
     if (abortControllerRef.current) {
@@ -103,7 +110,6 @@ export const useSendMessage = (chatId: string) => {
     const targetChatId = chatId 
 
     try {
-      // ✅ Arguments are now perfectly aligned sequence-wise with our SSE Fetch helper
       await sendMsg(
         targetChatId,      // #1: chatId
         content,           // #2: content
@@ -243,12 +249,13 @@ export const useSendMessage = (chatId: string) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
   }
 
+  // CHANGED: Now returns instantiated elements safely using JSX style notation inside arrays
   const getFileIcon = (ext: string) => {
     const e = ext.toLowerCase()
-    if (['.pdf', '.doc', '.docx', '.txt', '.md'].includes(e)) return FileText({ size: 18, className: "text-blue-500" })
-    if (['.csv', '.xlsx', '.xls'].includes(e)) return FileSpreadsheet({ size: 18, className: "text-green-500" })
-    if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(e)) return ImageIcon({ size: 18, className: "text-purple-500" })
-    return File({ size: 18, className: "text-gray-400" })
+    if (['.pdf', '.doc', '.docx', '.txt', '.md'].includes(e)) return <FileText size={18} className="text-blue-500" />
+    if (['.csv', '.xlsx', '.xls'].includes(e)) return <FileSpreadsheet size={18} className="text-green-500" />
+    if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(e)) return <ImageIcon size={18} className="text-purple-500" />
+    return <FileIcon size={18} className="text-gray-400" />
   }
 
   const getFileColor = (ext: string) => {
@@ -272,7 +279,7 @@ export const useSendMessage = (chatId: string) => {
 
   return { 
     input, setInput, sendMessage, stopGeneration, handleFileUpload, loading, uploading, runCode, isPythonReady,
-    pendingFile, previewUrl, clearStaging, handleSendAction, handleKeyDown, 
+    pendingFile, previewUrl, clearStaging, handleSendAction, handleKeyDown, pendingCode, setCodeContext,
     handlePaste, onFileSelect, formatFileSize, getFileIcon, getFileColor, formatTime,
     activeTool, setActiveTool, errorMessage, setErrorMessage, selectedModel, setSelectedModel, clearError
   }

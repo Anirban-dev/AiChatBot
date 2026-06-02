@@ -1,9 +1,10 @@
-import { useRef, useEffect } from 'react'
-import { Send, Square, Loader2, Paperclip, X, AlertTriangle, Cpu } from 'lucide-react'
+import { useRef, useEffect, useState } from 'react'
+import { Send, Square, Loader2, Paperclip, X, AlertTriangle, Cpu, Image, FileText, Camera, Video, Code } from 'lucide-react'
 import { getMsgs } from '../API/Msg'
 import { useSendMessage } from './Hook/useSendMessage'
 import { useChatStore } from '../Context/ChatContext'
 import MarkdownRenderer from './BashComponent'
+import { CodeRagModal } from './CodeRag'
 
 const Msg = ({ chatId }: { chatId: string }) => {
   const { getMessages, setMessages } = useChatStore()
@@ -11,22 +12,37 @@ const Msg = ({ chatId }: { chatId: string }) => {
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
 
-  // Extracted core configuration properties matching the agent stream interface
+  // Stream toggles & display controls
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isCameraActive, setIsCameraActive] = useState(false)
+  const [isCodeModalOpen, setIsCodeModalOpen] = useState(false)
+  const [stream, setStream] = useState<MediaStream | null>(null)
+  const [fileAcceptType, setFileAcceptType] = useState<string>('.*')
+
   const { 
     input, setInput, stopGeneration, loading, uploading, runCode,
     pendingFile, previewUrl, clearStaging, handleSendAction, handleKeyDown, 
     handlePaste, onFileSelect, formatFileSize, getFileIcon, getFileColor, formatTime,
-    activeTool,     // Hook value indicating active execution tool string (e.g., "web_search") or null
-    errorMessage,   // Hook value carrying active string message description or null
-    selectedModel,  // Target runtime model: 'small' | 'large' | 'thinking' | 'critiq'
-    setSelectedModel,
-    clearError      // Cleanup action executor handler
+    activeTool, errorMessage, selectedModel, setSelectedModel, clearError, pendingCode, setCodeContext
   } = useSendMessage(chatId)
+
+  // Close attachment dropdown when clicking outside
+  const menuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, activeTool]) // Scroll down automatically when an autonomous tool execution cycle starts
+  }, [messages, activeTool])
 
   useEffect(() => {
     const textarea = textareaRef.current
@@ -49,8 +65,62 @@ const Msg = ({ chatId }: { chatId: string }) => {
     fetchMsgs()
   }, [chatId])
 
+  // Native Camera Handlers
+  const startCamera = async () => {
+    try {
+      setIsMenuOpen(false)
+      setIsCameraActive(true)
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+      setStream(mediaStream)
+      if (videoRef.current) videoRef.current.srcObject = mediaStream
+    } catch (err) {
+      console.error("Camera access denied or unavailable", err)
+      alert("Could not access system camera device.")
+      setIsCameraActive(false)
+    }
+  }
+
+  const closeCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop())
+    }
+    setStream(null)
+    setIsCameraActive(false)
+  }
+
+  const capturePhoto = () => {
+    if (!videoRef.current) return
+    const canvas = document.createElement('canvas')
+    canvas.width = videoRef.current.videoWidth
+    canvas.height = videoRef.current.videoHeight
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height)
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const file = new window.File([blob], `snapshot_${Date.now()}.jpg`, { type: 'image/jpeg' })
+          const dataTransfer = new DataTransfer()
+          dataTransfer.items.add(file)
+          const syntheticEvent = {
+            target: { files: dataTransfer.files }
+          } as React.ChangeEvent<HTMLInputElement>
+          onFileSelect(syntheticEvent)
+        }
+      }, 'image/jpeg')
+    }
+    closeCamera()
+  }
+
+  const triggerNativeUpload = (acceptType: string) => {
+    setFileAcceptType(acceptType)
+    setIsMenuOpen(false)
+    setTimeout(() => {
+      fileInputRef.current?.click()
+    }, 50)
+  }
+
   return (
-    <div className="flex flex-col h-full bg-gray-50/50 dark:bg-gray-900/20">
+    <div className="flex flex-col h-full bg-gray-50/50 dark:bg-gray-900/20 relative">
       {/* Messages Viewport */}
       <div id="active-chat-stream" className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-5">
         {messages.length === 0 && !loading && (
@@ -103,7 +173,6 @@ const Msg = ({ chatId }: { chatId: string }) => {
               {uploading ? (
                 <div className="flex items-center gap-2 text-xs text-gray-400"><Loader2 size={12} className="animate-spin text-blue-500" />Uploading…</div>
               ) : activeTool ? (
-                /* Dynamic Custom Tool Calling Indicator */
                 <div className="flex items-center gap-2.5 text-xs font-medium text-amber-600 dark:text-amber-400 py-0.5">
                   <div className="relative flex items-center justify-center">
                     <Cpu size={14} className="animate-pulse text-amber-500 shrink-0" />
@@ -114,7 +183,6 @@ const Msg = ({ chatId }: { chatId: string }) => {
                   </span>
                 </div>
               ) : (
-                /* Standard Text Generation Placeholder */
                 <div className="flex gap-1 items-center py-1 px-1.5">
                   <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce [animation-delay:0ms]" />
                   <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce [animation-delay:150ms]" />
@@ -153,6 +221,39 @@ const Msg = ({ chatId }: { chatId: string }) => {
             </div>
           )}
 
+          {/* Claude-Style Code Block Preview Card */}
+          {pendingCode && (
+            <div 
+              onClick={() => setIsCodeModalOpen(true)}
+              className="flex flex-col mb-2.5 bg-gray-950 text-gray-200 rounded-xl border border-gray-800 dark:border-gray-700/70 w-64 overflow-hidden relative group cursor-pointer hover:border-indigo-500/80 transition-all shadow-md select-none animate-in fade-in slide-in-from-bottom-2 duration-150"
+              title="Click to edit code snippet context"
+            >
+              {/* Virtual File Banner */}
+              <div className="flex items-center justify-between px-3 py-2 bg-gray-900 border-b border-gray-800 shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Code size={13} className="text-indigo-400 shrink-0" />
+                  <span className="text-[11px] font-mono font-medium text-gray-300 truncate">{pendingCode.name}</span>
+                </div>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); clearStaging(); }} 
+                  className="p-0.5 rounded-md hover:bg-gray-800 text-gray-400 hover:text-red-400 transition-colors"
+                  title="Remove snippet"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+              
+              {/* Micro Text Snippet Pane */}
+              <div className="p-2.5 font-mono text-[10px] leading-relaxed text-gray-400 max-h-20 overflow-hidden relative mask-linear-gradient">
+                <pre className="whitespace-pre-wrap truncate-lines">
+                  {pendingCode.content.split('\n').slice(0, 4).join('\n') || 'Empty block'}
+                </pre>
+                {/* Bottom fade mask block */}
+                <div className="absolute bottom-0 left-0 right-0 h-4 bg-linear-to-t from-gray-950 to-transparent pointer-events-none" />
+              </div>
+            </div>
+          )}
+
           {/* Structured Network Error Alert Header */}
           {errorMessage && (
             <div className="flex items-center justify-between gap-3 mb-2.5 p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 text-red-700 dark:text-red-400 text-xs rounded-xl shadow-xs animate-in fade-in slide-in-from-bottom-2 duration-150">
@@ -172,16 +273,55 @@ const Msg = ({ chatId }: { chatId: string }) => {
           <div className={`flex items-end gap-2 bg-white dark:bg-gray-800 rounded-2xl border px-3 py-2.5 shadow-sm transition-all focus-within:ring-1 focus-within:ring-gray-300 dark:focus-within:ring-gray-600 ${
             errorMessage ? 'border-red-300 dark:border-red-900/60 bg-red-50/10' : 'border-gray-200 dark:border-gray-700 focus-within:border-gray-300 dark:focus-within:border-gray-600'
           }`}>
-            <input type="file" ref={fileInputRef} onChange={(e) => { onFileSelect(e); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="hidden" accept=".*" />
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={(e) => { onFileSelect(e); if (fileInputRef.current) fileInputRef.current.value = ''; }} 
+              className="hidden" 
+              accept={fileAcceptType} 
+            />
             
-            <button 
-              onClick={() => !uploading && fileInputRef.current?.click()} 
-              disabled={uploading || !!errorMessage} 
-              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0 mb-0.5" 
-              title="Attach file"
-            >
-              <Paperclip size={17} />
-            </button>
+            {/* Attachment Actions Selector Menu */}
+            <div className="relative" ref={menuRef}>
+              <button 
+                onClick={() => !uploading && !errorMessage && setIsMenuOpen(!isMenuOpen)} 
+                disabled={uploading || !!errorMessage} 
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0 mb-0.5 ${
+                  isMenuOpen ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-white' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`} 
+                title="Attach features"
+              >
+                <Paperclip size={17} />
+              </button>
+
+              {/* Float Dropdown Action List */}
+              {isMenuOpen && (
+                <div className="absolute bottom-full left-0 mb-2 w-56 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in slide-in-from-bottom-3 duration-200">
+                  <button onClick={() => triggerNativeUpload('image/*')} className="w-full px-3 py-2 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/60 flex items-center gap-2.5 transition-colors cursor-pointer">
+                    <Image size={15} className="text-blue-500" />
+                    <span>Upload image</span>
+                  </button>
+                  <button onClick={() => triggerNativeUpload('.pdf,.doc,.docx,.txt,.csv,.json')} className="w-full px-3 py-2 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/60 flex items-center gap-2.5 transition-colors cursor-pointer">
+                    <FileText size={15} className="text-purple-500" />
+                    <span>Upload document</span>
+                  </button>
+                  <button onClick={startCamera} className="w-full px-3 py-2 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/60 flex items-center gap-2.5 transition-colors cursor-pointer">
+                    <Camera size={15} className="text-emerald-500" />
+                    <span>Photo (Camera snap)</span>
+                  </button>
+                  <button onClick={() => { setIsMenuOpen(false); alert("Live context video stream execution is coming soon!"); }} className="w-full px-3 py-2 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/60 flex items-center gap-2.5 opacity-60 transition-colors cursor-not-allowed">
+                    <Video size={15} className="text-orange-500" />
+                    <span className="flex-1">Video Live</span>
+                    <span className="text-[9px] font-bold bg-gray-100 dark:bg-gray-900 px-1 py-0.5 rounded text-gray-400">UI ONLY</span>
+                  </button>
+                  <div className="h-px bg-gray-100 dark:bg-gray-700/60 my-1" />
+                  <button onClick={() => { setIsMenuOpen(false); setIsCodeModalOpen(true); }} className="w-full px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/60 flex items-center gap-2.5 transition-colors cursor-pointer">
+                    <Cpu size={15} className="text-indigo-500" />
+                    <span>Inject Code RAG Context</span>
+                  </button>
+                </div>
+              )}
+            </div>
 
             <textarea 
               ref={textareaRef} 
@@ -197,8 +337,6 @@ const Msg = ({ chatId }: { chatId: string }) => {
 
             {/* Combined Tier Selector & Action Trigger Wrapper Group */}
             <div className="flex items-center gap-2 shrink-0 mb-0.5">
-              
-              {/* Dynamic Compute Tier Dropdown Menu Selector */}
               <select 
                 value={selectedModel || 'small'} 
                 onChange={(e) => setSelectedModel?.(e.target.value as 'small' | 'large' | 'thinking' | 'critiq')}
@@ -216,7 +354,6 @@ const Msg = ({ chatId }: { chatId: string }) => {
                   <Square size={15} fill="white" />
                 </button>
               ) : (
-                /* Block Send Button if errorMessage tracking state contains strings */
                 <button 
                   onClick={handleSendAction} 
                   disabled={(!input.trim() && !pendingFile) || !!errorMessage} 
@@ -230,6 +367,39 @@ const Msg = ({ chatId }: { chatId: string }) => {
           <p className="text-center text-[11px] text-gray-400 dark:text-gray-500 mt-2">Enter to send · Shift+Enter for new line</p>
         </div>
       </div>
+
+      {/* Isolated External Component Flow */}
+      <CodeRagModal 
+        isOpen={isCodeModalOpen} 
+        onClose={() => setIsCodeModalOpen(false)} 
+        onInject={setCodeContext} 
+        initialData={pendingCode}
+      />
+
+      {/* CAMERA VIEWER WINDOW LAYER */}
+      {isCameraActive && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+                <Camera size={16} className="text-emerald-500" /> Camera Snap Capture
+              </h3>
+              <button onClick={closeCamera} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"><X size={18} /></button>
+            </div>
+            <div className="relative bg-black aspect-video flex items-center justify-center">
+              <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover transform -scale-x-100" />
+            </div>
+            <div className="p-4 bg-gray-50 dark:bg-gray-800/40 flex justify-center gap-3">
+              <button onClick={closeCamera} className="px-4 py-2 border border-gray-200 dark:border-gray-700 text-xs font-medium rounded-xl text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer">
+                Cancel
+              </button>
+              <button onClick={capturePhoto} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium rounded-xl flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer">
+                Capture Frame
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
