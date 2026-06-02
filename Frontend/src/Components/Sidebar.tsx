@@ -87,7 +87,6 @@ const Sidebar = ({ isMobile, collapsed, setCollapsed }: SidebarProps) => {
     try {
       await renameChat(chatId, newTitle)
       
-      // 💥 FIXED: Dispatches event so Parent Chat state & Navbar catch manual renames immediately!
       window.dispatchEvent(new CustomEvent('chat-auto-renamed', {
         detail: { chatId, title: newTitle }
       }))
@@ -138,9 +137,10 @@ const Sidebar = ({ isMobile, collapsed, setCollapsed }: SidebarProps) => {
         />
       )}
 
+      {/* ◄ FIXED BELOW: Changed transition-all to transition-[width,transform] */}
       <div
         className={`
-          h-screen flex flex-col transition-all duration-300 ease-in-out
+          h-screen flex flex-col transition-[width,transform] duration-300 ease-in-out
           bg-gray-50 dark:bg-gray-950
           border-r border-gray-200/80 dark:border-gray-800/60
           ${isMobile

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Code, X } from 'lucide-react'
 
 interface CodeRagModalProps {
@@ -10,33 +10,57 @@ interface CodeRagModalProps {
 
 export const CodeRagModal = ({ isOpen, onClose, onInject, initialData }: CodeRagModalProps) => {
   const [codeSnippet, setCodeSnippet] = useState('')
-  const [codeFileName, setCodeFileName] = useState('context.py')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Sync internal form state with existing context when modal opens
+  // Sync internal form state and manage focus window states
   useEffect(() => {
     if (isOpen) {
-      setCodeFileName(initialData?.name || 'context.py')
       setCodeSnippet(initialData?.content || '')
+      
+      const focusTimeout = setTimeout(() => {
+        textareaRef.current?.focus()
+      }, 60)
+      
+      return () => clearTimeout(focusTimeout)
     }
   }, [isOpen, initialData])
+
+  // Handle Close on Escape (Esc) keypress
+  useEffect(() => {
+    const handleEscapeKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    if (isOpen) {
+      window.addEventListener('keydown', handleEscapeKey)
+    }
+
+    return () => {
+      window.removeEventListener('keydown', handleEscapeKey)
+    }
+  }, [isOpen, onClose])
 
   if (!isOpen) return null
 
   const handleSaveCodeContext = () => {
     if (!codeSnippet.trim()) return
-    onInject(codeFileName, codeSnippet) // Directly pass values to hook context
+    
+    const genericName = initialData?.name || 'snippet.txt'
+    onInject(genericName, codeSnippet) 
     onClose()
   }
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col h-[70vh] max-h-[85vh]">
         
         {/* Header */}
         <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between shrink-0">
           <h3 className="text-sm font-semibold text-gray-800 dark:text-white flex items-center gap-2">
             <Code size={16} className="text-indigo-500" /> 
-            {initialData ? 'Edit Staged Code Block Context' : 'Inject RAG Code Block Context'}
+            {initialData ? 'Edit Staged Code Context' : 'Inject Code RAG Context'}
           </h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer">
             <X size={18} />
@@ -44,28 +68,17 @@ export const CodeRagModal = ({ isOpen, onClose, onInject, initialData }: CodeRag
         </div>
 
         {/* Form Body */}
-        <div className="p-4 flex flex-col gap-3 flex-1 overflow-y-auto">
-          <div>
-            <label className="text-[11px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider block mb-1">
-              Context Reference Virtual Filename
-            </label>
-            <input 
-              type="text" 
-              value={codeFileName} 
-              onChange={e => setCodeFileName(e.target.value)} 
-              placeholder="e.g. database_schema.py, vectors.json"
-              className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs text-gray-800 dark:text-white outline-none focus:border-indigo-500"
-            />
-          </div>
-          <div className="flex-1 flex flex-col min-h-64">
-            <label className="text-[11px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider block mb-1">
+        <div className="p-4 flex flex-col flex-1 overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0">
+            <label className="text-[11px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider block mb-2">
               Paste Source Code Blocks
             </label>
             <textarea 
+              ref={textareaRef}
               value={codeSnippet}
               onChange={e => setCodeSnippet(e.target.value)}
-              placeholder="Paste multi-file payloads, long classes or functions here..."
-              className="w-full flex-1 bg-gray-900 text-gray-100 font-mono text-xs p-3.5 rounded-xl border border-gray-800 outline-none focus:border-indigo-500 resize-none leading-relaxed"
+              placeholder="Paste raw data structures, long configuration profiles, multi-file contents or target execution scripts directly..."
+              className="w-full flex-1 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-mono text-xs p-4 rounded-xl border border-gray-200 dark:border-gray-700/80 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 resize-none leading-relaxed shadow-inner"
             />
           </div>
         </div>
@@ -80,7 +93,7 @@ export const CodeRagModal = ({ isOpen, onClose, onInject, initialData }: CodeRag
             disabled={!codeSnippet.trim()}
             className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium rounded-xl flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
           >
-            {initialData ? 'Update Context' : 'Inject Document Context'}
+            {initialData ? 'Update Context' : 'Inject Context'}
           </button>
         </div>
       </div>

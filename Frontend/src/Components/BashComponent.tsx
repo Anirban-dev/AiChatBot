@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Play, Loader2 } from 'lucide-react';
+import { Play, Loader2, Copy, Check, Trash2 } from 'lucide-react'
 
 interface MarkdownRendererProps {
   content: string
@@ -9,64 +9,158 @@ interface MarkdownRendererProps {
   runCode?: (code: string) => Promise<any>
 }
 
-// 1. Separate component for Python Execution
-const PythonTerminal = ({ code, runCode }: { code: string, runCode?: (code: string) => Promise<any> }) => {
-  const [result, setResult] = useState<string | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
+// Opaque & blurred floating copy action button
+const CopyButton = ({ text }: { text: string }) => {
+  const [copied, setCopied] = useState(false)
 
-  const handleRun = async () => {
-    if (!runCode) return;
-    setIsRunning(true);
+  const handleCopy = async () => {
     try {
-      const output = await runCode(code);
-      setResult(String(output));
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
     } catch (err) {
-      setResult(`${err}`);
-    } finally {
-      setIsRunning(false);
+      console.error('Failed to copy text: ', err)
     }
-  };
+  }
 
   return (
-    <div className="my-3 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0d1117] shadow-sm">
-      <div className="flex items-center justify-between bg-gray-100 dark:bg-[#161b22] px-3 py-1.5 border-b border-gray-200 dark:border-gray-700">
-        <span className="text-gray-500 text-[10px] font-mono uppercase tracking-wider">python</span>
+    <button
+      onClick={handleCopy}
+      className="flex items-center gap-1.5 text-[10px] text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200 transition-all bg-white/90 dark:bg-gray-800/90 hover:bg-white dark:hover:bg-gray-700 px-2.5 py-1 rounded-md font-sans font-medium border border-gray-200 dark:border-gray-700 shadow-xs backdrop-blur-xs cursor-pointer select-none"
+      title="Copy code to clipboard"
+    >
+      {copied ? <Check size={11} className="text-green-500" /> : <Copy size={11} />}
+      {copied ? 'Copied!' : 'Copy'}
+    </button>
+  )
+}
+
+// 1. Python Execution Terminal Component
+const PythonTerminal = ({ code, runCode }: { code: string; runCode?: (code: string) => Promise<any> }) => {
+  const [result, setResult] = useState<string | null>(null)
+  const [isRunning, setIsRunning] = useState(false)
+
+  const handleRun = async () => {
+    if (!runCode) return
+    setIsRunning(true)
+    try {
+      const output = await runCode(code)
+      setResult(String(output))
+    } catch (err) {
+      setResult(`${err}`)
+    } finally {
+      setIsRunning(false)
+    }
+  }
+
+  return (
+    <div className="my-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0d1117] shadow-sm">
+      {/* Top element bar layer */}
+      <div className="flex items-center justify-between bg-gray-100 dark:bg-[#161b22] px-3 py-2 border-b border-gray-200 dark:border-gray-700 rounded-t-lg">
+        <span className="text-gray-500 text-[11px] font-mono uppercase tracking-wider font-bold">python</span>
         <button
           onClick={handleRun}
           disabled={isRunning || !runCode}
-          className="flex items-center gap-1.5 text-[11px] bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-2.5 py-1 rounded-md transition-all active:scale-95"
+          className="flex items-center gap-1.5 text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-3 py-1.5 rounded-md shadow-xs transition-all active:scale-95 cursor-pointer"
         >
           {isRunning ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} fill="currentColor" />}
           Run Code
         </button>
       </div>
-      <div className="px-4 py-3 overflow-x-auto bg-gray-50 dark:bg-gray-900/50">
-        <code className="text-[12.5px] font-mono text-gray-700 dark:text-gray-300 whitespace-pre">{code}</code>
-      </div>
-      {result !== null && (
-        <div className="px-4 py-2 bg-gray-100 dark:bg-black border-t border-gray-200 dark:border-gray-800">
-          <div className="text-[10px] text-gray-400 uppercase mb-1">Output</div>
-          <pre className="text-[12px] font-mono text-green-600 dark:text-green-400 whitespace-pre-wrap">{result}</pre>
+      
+      {/* Code viewport with tracking right sidebar for the copy button */}
+      <div className="relative flex flex-col">
+        <div className="px-4 py-3 overflow-x-auto bg-gray-50 dark:bg-gray-900/50">
+          <code className="text-[12.5px] font-mono text-gray-700 dark:text-gray-300 whitespace-pre">{code}</code>
         </div>
-      )}
+        
+        {/* Invisible scroll-bound structural track element */}
+        <div className="absolute inset-y-0 right-0 w-20 pointer-events-none flex flex-col items-end pt-2 pr-2">
+          <div className="sticky top-3 pointer-events-auto">
+            <CopyButton text={code} />
+          </div>
+        </div>
+      </div>
+
+      {/* Persistent Console Output Panel */}
+      <div className="px-4 py-2.5 bg-gray-100 dark:bg-black border-t border-gray-200 dark:border-gray-800 rounded-b-lg">
+        <div className="flex items-center justify-between h-7 mb-1.5">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider font-bold">Console Output</div>
+          {result !== null && !isRunning && (
+            <button
+              onClick={() => setResult(null)}
+              className="flex items-center gap-1.5 text-[11px] font-semibold bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 px-2.5 py-1 rounded-md shadow-xs transition-all active:scale-95 cursor-pointer"
+              title="Clear console window"
+            >
+              <Trash2 size={12} />
+              Clear Output
+            </button>
+          )}
+        </div>
+        
+        <div className="flex flex-col justify-center">
+          {isRunning ? (
+            <div className="text-[12px] font-mono text-blue-500 flex items-center gap-2 animate-pulse">
+              <Loader2 size={12} className="animate-spin" />
+              Executing script...
+            </div>
+          ) : result !== null ? (
+            <pre className="text-[12px] font-mono text-green-600 dark:text-green-400 whitespace-pre-wrap leading-relaxed">{result}</pre>
+          ) : (<div />
+          )}
+        </div>
+      </div>
     </div>
-  );
+  )
 }
 
-const BashTerminal = ({ children }: { children: React.ReactNode }) => (
-  <div className="my-2 rounded-lg overflow-hidden border font-mono bg-gray-50 border-gray-200 text-black dark:bg-[#0d1117] dark:border-gray-700 dark:text-gray-300 shadow-md w-full">
-    <div className="flex items-center justify-between bg-gray-100 border-gray-200 dark:bg-[#161b22] dark:border-gray-700/40 px-3 py-1.5 border-b">
-      <div className="flex gap-1.5">
+// 2. Bash/Shell System Block Terminal Component
+const BashTerminal = ({ code }: { code: string }) => (
+  <div className="my-2 rounded-lg border font-mono bg-gray-50 border-gray-200 text-black dark:bg-[#0d1117] dark:border-gray-700 dark:text-gray-300 shadow-md w-full">
+    <div className="flex items-center bg-gray-100 border-gray-200 dark:bg-[#161b22] dark:border-gray-700/40 px-3 py-2 border-b rounded-t-lg">
+      <div className="flex gap-1.5 items-center">
         <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f56]/80" />
         <div className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e]/80" />
         <div className="w-2.5 h-2.5 rounded-full bg-[#27c93f]/80" />
+        <span className="text-gray-500 text-[9px] uppercase tracking-widest font-semibold ml-1.5">bash</span>
       </div>
-      <span className="text-gray-500 text-[9px] uppercase tracking-widest font-semibold">bash</span>
     </div>
-    <div className="px-4 py-3 overflow-x-auto">
-      <div className="flex gap-2 items-start">
-        <span className="text-pink-500/90 select-none">$</span>
-        <code className="text-gray-500 dark:text-gray-200 whitespace-pre-wrap wrap-break-word flex-1 leading-relaxed">{children}</code>
+
+    <div className="relative flex flex-col">
+      <div className="px-4 py-3 overflow-x-auto rounded-b-lg">
+        <div className="flex gap-2 items-start">
+          <span className="text-pink-500/90 select-none">$</span>
+          <code className="text-gray-500 dark:text-gray-200 whitespace-pre-wrap wrap-break-word flex-1 leading-relaxed">{code}</code>
+        </div>
+      </div>
+
+      <div className="absolute inset-y-0 right-0 w-20 pointer-events-none flex flex-col items-end pt-2 pr-2">
+        <div className="sticky top-3 pointer-events-auto">
+          <CopyButton text={code} />
+        </div>
+      </div>
+    </div>
+  </div>
+)
+
+// 3. Fallback Standard Generic Code Blocks
+const DefaultTerminal = ({ language, code, children }: { language: string; code: string; children: React.ReactNode }) => (
+  <div className="my-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0d1117] shadow-md w-full">
+    <div className="flex items-center justify-between bg-gray-100 border-gray-200 dark:bg-[#161b22] dark:border-gray-700/40 px-3 py-2 border-b rounded-t-lg">
+      <span className="text-gray-500 text-[10px] font-mono uppercase tracking-wider font-semibold">
+        {language || 'code'}
+      </span>
+    </div>
+
+    <div className="relative flex flex-col">
+      <pre className="px-4 py-3 overflow-x-auto text-gray-800 dark:text-gray-100 font-mono text-[12.5px] leading-relaxed rounded-b-lg bg-gray-50 dark:bg-gray-900/50">
+        {children}
+      </pre>
+
+      <div className="absolute inset-y-0 right-0 w-20 pointer-events-none flex flex-col items-end pt-2 pr-2">
+        <div className="sticky top-3 pointer-events-auto">
+          <CopyButton text={code} />
+        </div>
       </div>
     </div>
   </div>
@@ -88,7 +182,7 @@ const MarkdownRenderer = ({ content, isUser, runCode }: MarkdownRendererProps) =
             const codeText = String(codeChild?.props?.children ?? '').replace(/\n$/, '')
 
             if (['bash', 'sh', 'shell'].includes(language)) {
-              return <BashTerminal>{codeText}</BashTerminal>
+              return <BashTerminal code={codeText} />
             }
 
             if (language === 'python') {
@@ -96,9 +190,9 @@ const MarkdownRenderer = ({ content, isUser, runCode }: MarkdownRendererProps) =
             }
 
             return (
-              <pre className="bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-900 dark:text-gray-100 dark:border-gray-700/50 px-4 py-3 rounded-lg overflow-x-auto my-2 font-mono text-[12.5px] border leading-relaxed">
+              <DefaultTerminal language={language} code={codeText}>
                 {children}
-              </pre>
+              </DefaultTerminal>
             )
           },
           code: ({ className, children, ...props }) => (
@@ -113,7 +207,6 @@ const MarkdownRenderer = ({ content, isUser, runCode }: MarkdownRendererProps) =
             </code>
           ),
           p: ({ children }) => <p className="mb-1.5 last:mb-0 leading-relaxed">{children}</p>,
-          // ... rest of your existing component overrides (strong, em, h1, ul, etc.)
         }}
       >
         {content}

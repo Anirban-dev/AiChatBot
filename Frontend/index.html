@@ -1,10 +1,22 @@
-<!doctype html>
-<html lang="en" class="dark">
+<!DOCTYPE html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React + TS</title>
+    <title>My Chat App</title>
+
+    <script>
+      (function () {
+        const savedTheme = localStorage.getItem('chat-theme');
+        // Since your default is dark mode, we add 'dark' if it's 'true' OR if nothing is saved yet
+        if (savedTheme === 'true' || savedTheme === null) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

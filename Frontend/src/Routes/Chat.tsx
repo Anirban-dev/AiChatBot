@@ -3,10 +3,19 @@ import { useParams } from 'react-router-dom'
 import { getChat } from '../API/Chat'
 import Sidebar from '../Components/Sidebar'
 import Navbar from '../Components/Navbar'
-import Msg from '../Components/Msg'
+import { Msg } from '../Components/Msg'
 
 function Chat() {
-  const [dark, setDark] = useState(true)
+  // 1. Initialize state by checking localStorage first, falling back to system preferences
+  const [dark, setDark] = useState<boolean>(() => {
+    const savedTheme = localStorage.getItem('theme')
+    if (savedTheme) {
+      return savedTheme === 'dark'
+    }
+    // Optional fallback: Match the user's OS light/dark theme default if nothing is saved yet
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+  })
+
   const [collapsed, setCollapsed] = useState(window.innerWidth < 640)
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640)
   const { chatId } = useParams()
@@ -25,9 +34,15 @@ function Chat() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
+  // 2. Synchronize theme switches with DOM tree and save state choices locally
   useEffect(() => {
-    if (dark) document.documentElement.classList.add('dark')
-    else document.documentElement.classList.remove('dark')
+    if (dark) {
+      document.documentElement.classList.add('dark')
+      localStorage.setItem('theme', 'dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+      localStorage.setItem('theme', 'light')
+    }
   }, [dark])
 
   useEffect(() => {
@@ -45,12 +60,11 @@ function Chat() {
     fetchChat()
   }, [chatId])
 
-  // ENAME LISTENER
+  // RENAME LISTENER
   useEffect(() => {
     const handleGlobalRename = (e: Event) => {
       const { chatId: renamedId, title: newTitle } = (e as CustomEvent).detail
       
-      // If the chat that was just renamed is the one currently open on screen, update the title!
       if (renamedId === chatId) {
         setChat((prev: any) => prev ? { ...prev, title: newTitle } : { title: newTitle })
       }
@@ -73,7 +87,7 @@ function Chat() {
           dark={dark}
           setDark={setDark}
           toggleSidebar={() => setCollapsed(false)}
-          chatTitle={chat?.title} // ◄ Automatically receives the updated state instantly
+          chatTitle={chat?.title}
         />
 
         <div className="flex-1 min-h-0 bg-gray-50 dark:bg-gray-800/50">
