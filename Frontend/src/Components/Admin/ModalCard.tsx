@@ -1,5 +1,4 @@
-// src/components/Admin/ModelCard.tsx
-import { Snowflake, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Snowflake, AlertTriangle, CheckCircle2, Activity, ShieldAlert } from 'lucide-react'
 
 export interface LLMEvent {
   type: 'success' | 'failure' | 'retry'
@@ -10,7 +9,11 @@ export interface LLMEvent {
   completion_tokens: number | null
   cost: number | null
   error: string | null
+  status_code: number | null // New Backend Property Added
   timestamp: string
+  error_details?: {
+    status_code: number | null;
+  };
 }
 
 export interface ModelStat {
@@ -24,6 +27,10 @@ export interface ModelStat {
   prompt_tokens: number
   completion_tokens: number
   cooling_down: boolean
+  streaming_requests: number // New Backend Property Added
+  provider_limits?: {        // New Backend Property Added
+    remaining_tokens: number | null
+  } | null
 }
 
 interface ModelCardProps {
@@ -32,10 +39,10 @@ interface ModelCardProps {
 }
 
 const TIER_COLORS: Record<string, string> = {
-  highllm:    'text-blue-500 dark:text-blue-400',
-  lowllm:     'text-emerald-500 dark:text-emerald-400',
-  summaryllm: 'text-amber-500 dark:text-amber-400',
-  visionllm:  'text-pink-500 dark:text-pink-400',
+  highllm:     'text-blue-500 dark:text-blue-400',
+  lowllm:      'text-emerald-500 dark:text-emerald-400',
+  summaryllm:  'text-amber-500 dark:text-amber-400',
+  visionllm:   'text-pink-500 dark:text-pink-400',
 }
 
 const fmtNum = (n: number | null) => (n == null ? '—' : n.toLocaleString())
@@ -115,6 +122,26 @@ export const ModelCard = ({ modelName, stats }: ModelCardProps) => {
             </span>
           </div>
         ))}
+      </div>
+
+      {/* New Live System Streaming & Provider Quota Limits Row */}
+      <div className="pt-3 border-t border-slate-100 dark:border-slate-800/60 grid grid-cols-2 gap-4 text-[10px] uppercase tracking-wider font-bold">
+        <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+          <Activity size={12} className="text-indigo-500 shrink-0" />
+          <div className="truncate">
+            <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium leading-none mb-0.5">Live Streams</p>
+            <p className="font-extrabold text-slate-800 dark:text-slate-200">{fmtNum(stats.streaming_requests)}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 justify-end text-right">
+          <div className="truncate">
+            <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium leading-none mb-0.5">Quota Remaining</p>
+            <p className="font-extrabold text-slate-800 dark:text-slate-200">
+              {stats.provider_limits?.remaining_tokens != null ? fmtNum(stats.provider_limits.remaining_tokens) : 'unlimited'}
+            </p>
+          </div>
+          <ShieldAlert size={12} className="text-amber-500 shrink-0" />
+        </div>
       </div>
 
       {/* Resource Expense Summary Footer */}

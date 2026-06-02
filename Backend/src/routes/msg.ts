@@ -162,6 +162,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     let fullContent    = ''
     let buffer         = ''
     let activeToolCalls: Record<string, unknown>[] = []
+    let hasSeenActivity = false
 
     function parsePythonEvent(raw: string): { event?: string; data?: string } {
       const lines  = raw.split('\n')
@@ -193,6 +194,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
         const { event, data } = parsePythonEvent(part)
 
         if (event === 'error') {
+          hasSeenActivity = true
           let pythonErrMsg        = data ?? 'Unknown stream error'
           let isMidpointQuotaLeak = false
           try {
@@ -223,6 +225,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
         }
 
         if (data && isToolCallPayload(data)) {
+          hasSeenActivity = true
           try {
             const toolPayload = JSON.parse(data)
             const tc          = toolPayload.tool_call ?? toolPayload.functionCall ?? toolPayload
@@ -250,6 +253,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
         }
 
         if (data) {
+          hasSeenActivity = true
           let token = data
           try {
             const parsed = JSON.parse(data)
@@ -263,7 +267,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     }
 
     // 6. Persist completed response
-    if (!fullContent.trim()) {
+    if (!hasSeenActivity && !fullContent.trim()) {
       res.write(`event: error\ndata: ${JSON.stringify({
         type:    'EMPTY_RESPONSE',
         message: 'The AI returned an empty response. Please try again.',

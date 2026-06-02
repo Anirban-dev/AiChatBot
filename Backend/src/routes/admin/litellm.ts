@@ -29,8 +29,11 @@ router.get('/events', midLimiter, async (req: AdminRequest, res: Response) => {
       since_hours: String(req.query.since_hours || 24),
       limit:       String(req.query.limit || 100),
     }
+    
     if (req.query.type) params.type = String(req.query.type)
     if (req.query.tier) params.tier = String(req.query.tier)
+    if (req.query.model) params.model = String(req.query.model)
+    if (req.query.status_code) params.status_code = String(req.query.status_code)
 
     const qs = new URLSearchParams(params).toString()
     const r  = await fetch(`${getBackendUrl()}/events?${qs}`)

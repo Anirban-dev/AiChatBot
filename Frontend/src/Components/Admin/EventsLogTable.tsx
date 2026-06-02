@@ -1,18 +1,7 @@
-// src/components/Admin/EventsLogTable.tsx
-import { CheckCircle2, XCircle, RefreshCw, SlidersHorizontal } from 'lucide-react'
-
-export interface LLMEvent {
-  type: 'success' | 'failure' | 'retry'
-  model: string
-  tier: string
-  latency_ms: number | null
-  prompt_tokens: number | null
-  completion_tokens: number | null
-  cost: number | null
-  error: string | null
-  timestamp: string
-}
-
+import { useState } from 'react'
+import { CheckCircle2, XCircle, RefreshCw, SlidersHorizontal, Eye } from 'lucide-react'
+import type { LLMEvent } from './ModalCard'
+import { ErrorDetailsModal } from './ErrorDetails'
 interface EventsLogTableProps {
   loading: boolean
   events: LLMEvent[]
@@ -20,16 +9,20 @@ interface EventsLogTableProps {
   typeFilter: string
   tierFilter: string
   hoursFilter: string
+  modelFilter: string
+  statusFilter: string
   onTypeChange: (v: string) => void
   onTierChange: (v: string) => void
   onHoursChange: (v: string) => void
+  onModelChange: (v: string) => void
+  onStatusChange: (v: string) => void
 }
 
 const TIER_COLORS: Record<string, string> = {
-  highllm:    'text-blue-500 dark:text-blue-400',
-  lowllm:     'text-emerald-500 dark:text-emerald-400',
-  summaryllm: 'text-amber-500 dark:text-amber-400',
-  visionllm:  'text-pink-500 dark:text-pink-400',
+  highllm:     'text-blue-500 dark:text-blue-400',
+  lowllm:      'text-emerald-500 dark:text-emerald-400',
+  summaryllm:  'text-amber-500 dark:text-amber-400',
+  visionllm:   'text-pink-500 dark:text-pink-400',
 }
 
 const fmtMs = (ms: number | null) => (ms == null ? '—' : ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms}ms`)
@@ -44,10 +37,23 @@ export const EventsLogTable = ({
   typeFilter,
   tierFilter,
   hoursFilter,
+  modelFilter,
+  statusFilter,
   onTypeChange,
   onTierChange,
   onHoursChange,
+  onModelChange,
+  onStatusChange,
 }: EventsLogTableProps) => {
+  // Modal tracking view registers
+  const [selectedEvent, setSelectedEvent] = useState<LLMEvent | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+
+  const handleOpenErrorModal = (event: LLMEvent) => {
+    setSelectedEvent(event)
+    setIsModalOpen(true)
+  }
+
   return (
     <div className="space-y-3">
       {/* Segment Context Query Actions */}
@@ -57,7 +63,24 @@ export const EventsLogTable = ({
           <span>Recent Execution Trace Log</span>
         </div>
 
+        {/* Filters Matrix container */}
         <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            placeholder="Search Model Architecture..."
+            value={modelFilter}
+            onChange={e => onModelChange(e.target.value)}
+            className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/10 transition placeholder-slate-400 max-w-45"
+          />
+
+          <input
+            type="number"
+            placeholder="Status Code (ex: 429)"
+            value={statusFilter}
+            onChange={e => onStatusChange(e.target.value)}
+            className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/10 transition placeholder-slate-400 max-w-32.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
+
           {[
             { value: typeFilter, onChange: onTypeChange, options: [['', 'All Types'], ['success', 'Success'], ['failure', 'Failure'], ['retry', 'Retry']] },
             { value: tierFilter, onChange: onTierChange, options: [['', 'All Tiers'], ...allTiers.filter(Boolean).map(t => [t, t.toUpperCase()])] },
@@ -140,9 +163,27 @@ export const EventsLogTable = ({
                     <td className="px-5 py-3.5 text-right text-xs font-mono font-medium text-slate-600 dark:text-slate-400">
                       {fmtCost(e.cost)}
                     </td>
-                    <td className="px-5 py-3.5 text-xs text-rose-500 dark:text-rose-400 max-w-xs truncate font-medium" title={e.error ?? ''}>
-                      {e.error ?? '—'}
+                    
+                    {/* UPDATED CLICKABLE LOG DIAGNOSTIC WINDOW CELL */}
+                    <td className="px-5 py-3.5 text-xs max-w-xs truncate font-medium">
+                      {e.error ? (
+                        <button
+                          onClick={() => handleOpenErrorModal(e)}
+                          className="flex items-center gap-1.5 text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 transition text-left focus:outline-none font-semibold group cursor-pointer"
+                        >
+                          {e.status_code ? (
+                            <span className="font-extrabold border border-rose-200 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/15 px-1 py-0.5 rounded text-[10px]">
+                              {e.status_code}
+                            </span>
+                          ) : null}
+                          <span className="truncate group-hover:underline">{e.error}</span>
+                          <Eye size={12} className="shrink-0 text-slate-400 group-hover:text-rose-500 transition opacity-0 group-hover:opacity-100" />
+                        </button>
+                      ) : (
+                        <span className="text-slate-400 dark:text-slate-600">—</span>
+                      )}
                     </td>
+
                     <td className="px-5 py-3.5 text-right text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap font-medium">
                       {fmtTime(e.timestamp)}
                     </td>
@@ -159,6 +200,13 @@ export const EventsLogTable = ({
           </table>
         </div>
       </div>
+
+      {/* RENDER DIAGNOSTIC MODAL LAYER OVERLAY */}
+      <ErrorDetailsModal 
+        isOpen={isModalOpen} 
+        onClose={() => { setIsModalOpen(false); setSelectedEvent(null); }} 
+        event={selectedEvent} 
+      />
     </div>
   )
 }

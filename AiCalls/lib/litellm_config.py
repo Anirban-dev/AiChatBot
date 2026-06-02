@@ -8,7 +8,6 @@ import litellm
 from litellm import Router
 from datetime import datetime, timezone
 from urllib.parse import urlparse
-from lib.llm_admin_logger import AdminCallbackHandler
 from lib.redis import redis as async_redis 
 
 os.environ['LITELLM_LOG'] = 'DEBUG'
@@ -81,8 +80,6 @@ class RateLimitExceeded(Exception):
 
 def _make_router():
     from litellm_models import LITELLM_ROUTER_MODELS
-
-    litellm.callbacks = [AdminCallbackHandler()]
     
     # FIX: Use the parsed variables here instead of dangerous os.environ lookups
     return Router(

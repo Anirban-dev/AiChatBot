@@ -1,4 +1,3 @@
-// src/components/Admin/LLMTab.tsx
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { RefreshCw, ChevronDown, ChevronUp, Cpu } from 'lucide-react'
 import { getLLMEvents, getLLMStatus } from '../../API/Admin'
@@ -19,18 +18,21 @@ interface Props {
 
 const LLMTab = ({ onExpired }: Props) => {
   const [status, setStatus] = useState<LLMStatus | null>(null)
-  const [events, setEvents] = useState<LLMEvent[]>([])
+  const [events, setEvents] = useState<LLMEvent[]>([]);
   const [loadingStatus, setLoadingStatus] = useState(true)
   const [loadingEvents, setLoadingEvents] = useState(true)
   const [error, setError] = useState('')
+  
 
   // Clutter reduction visibility register
   const [showModels, setShowModels] = useState(false)
 
-  // Query filter registers
+  // Query filter registers (Including new backend filters)
   const [typeFilter, setTypeFilter] = useState('')
   const [tierFilter, setTierFilter] = useState('')
   const [hoursFilter, setHoursFilter] = useState('24')
+  const [modelFilter, setModelFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
 
   const handleError = useCallback((err: any) => {
     const msg = err.message?.toLowerCase() || ''
@@ -59,16 +61,26 @@ const LLMTab = ({ onExpired }: Props) => {
   const fetchEvents = useCallback(async () => {
     setLoadingEvents(true)
     try {
-      const data = await getLLMEvents(parseInt(hoursFilter), typeFilter, tierFilter)
-      setEvents(data.events)
+      // Passing the new backend filter parameters here
+      const data = await getLLMEvents(
+        parseInt(hoursFilter), 
+        typeFilter, 
+        tierFilter,
+        modelFilter || undefined,
+        statusFilter ? parseInt(statusFilter) : undefined
+      )
+      const normalizedEvents = data.events.map(event => ({
+        ...event,
+        status_code: event.error_details?.status_code ?? null // Lift it to the root level
+      }))
+      setEvents(normalizedEvents)
     } catch (err: any) {
       handleError(err)
     } finally {
       setLoadingEvents(false)
     }
-  }, [hoursFilter, typeFilter, tierFilter, handleError])
+  }, [hoursFilter, typeFilter, tierFilter, modelFilter, statusFilter, handleError])
 
-  useEffect(() => { fetchStatus() }, [fetchStatus])
   useEffect(() => { fetchEvents() }, [fetchEvents])
 
   const handleRefresh = () => {
@@ -127,7 +139,7 @@ const LLMTab = ({ onExpired }: Props) => {
         </div>
       )}
 
-      {/* Aggregate HUD metrics grid (Always visible for fast health checks) */}
+      {/* Aggregate HUD metrics grid */}
       <HealthOverview 
         loading={loadingStatus} 
         totalCost={status?.total_cost ?? 0} 
@@ -152,7 +164,6 @@ const LLMTab = ({ onExpired }: Props) => {
           </button>
         </div>
 
-        {/* Conditional Rendering Block based on display toggle register */}
         {showModels && (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pt-1 animate-slide-down">
             {loadingStatus
@@ -183,9 +194,13 @@ const LLMTab = ({ onExpired }: Props) => {
         typeFilter={typeFilter}
         tierFilter={tierFilter}
         hoursFilter={hoursFilter}
+        modelFilter={modelFilter}
+        statusFilter={statusFilter}
         onTypeChange={setTypeFilter}
         onTierChange={setTierFilter}
         onHoursChange={setHoursFilter}
+        onModelChange={setModelFilter}
+        onStatusChange={setStatusFilter}
       />
     </div>
   )

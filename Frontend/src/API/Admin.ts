@@ -92,6 +92,7 @@ export interface MetricsResponse {
   actionTypes: Array<{ _id: string; count: number }>
 }
 
+// UPDATED: Added new backend tracking metrics for frontend UI rendering
 export interface ModelStat {
   tier: string
   success: number
@@ -103,8 +104,14 @@ export interface ModelStat {
   prompt_tokens: number
   completion_tokens: number
   cooling_down: boolean
+  streaming_requests: number                                // <-- ADDED
+  provider_limits: {                                        // <-- ADDED
+    remaining_tokens: number | null
+    reset_requests_sec: number | null
+  }
 }
 
+// UPDATED: Extended error schema payload option
 export interface LLMEvent {
   type: 'success' | 'failure' | 'retry'
   model: string
@@ -114,6 +121,9 @@ export interface LLMEvent {
   completion_tokens: number | null
   cost: number | null
   error: string | null
+  error_details?: {                                         // <-- ADDED
+    status_code: number | null
+  }
   timestamp: string
 }
 
@@ -167,16 +177,21 @@ export const getLLMStatus = async (): Promise<LLMStatus> => {
   return res.data
 }
 
+// UPDATED: Added new dynamic filter parameters for model isolating and status matching
 export const getLLMEvents = async (
   since_hours = 24,
   type = '',
   tier = '',
+  model = '',                                               // <-- ADDED
+  status_code: number | null = null,                        // <-- ADDED
   limit = 100
 ): Promise<LLMEventsResponse> => {
   const qs = new URLSearchParams({
     since_hours: String(since_hours),
     ...(type && { type }),
     ...(tier && { tier }),
+    ...(model && { model }),                                // <-- ADDED
+    ...(status_code && { status_code: String(status_code) }), // <-- ADDED
     limit: String(limit),
   })
   const res = await api.get(`/admin/llm/events?${qs}`)

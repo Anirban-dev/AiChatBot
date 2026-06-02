@@ -1,7 +1,5 @@
-# admin_routes.py
 from datetime import datetime, timezone
-
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 import json
 from lib.redis import redis as redis_client
 from litellm_models import LITELLM_ROUTER_MODELS
@@ -18,7 +16,7 @@ async def get_llm_status():
 
     pipe = redis_client.pipeline()
 
-    # Queue all reads in one round-trip
+    # Queue all reads in one round-trip (Now 11 queries per model)
     for model in all_models:
         pipe.get(f"llm:stats:{model}:success")
         pipe.get(f"llm:stats:{model}:failure")
@@ -28,14 +26,24 @@ async def get_llm_status():
         pipe.get(f"llm:tokens:{model}:prompt")
         pipe.get(f"llm:tokens:{model}:completion")
         pipe.exists(f"llm:cooldown:{model}")
+        # --- NEW RICH METRICS ---
+        pipe.get(f"llm:stats:{model}:streaming_count")
+        pipe.get(f"llm:ratelimit:{model}:remaining_tokens")
+        pipe.get(f"llm:ratelimit:{model}:reset_requests")
 
     results = await pipe.execute()
 
-    # Parse results — 8 values per model
+    # Parse results — 11 values per model
     model_stats = {}
+    stride = 11
     for i, model in enumerate(all_models):
-        base = i * 8
+        base = i * stride
         latencies = [int(x) for x in (results[base + 3] or [])]
+        
+        # Parse new rate limit metrics safely
+        rem_tokens = results[base + 9]
+        reset_req = results[base + 10]
+
         model_stats[model] = {
             "success":           int(results[base + 0] or 0),
             "failure":           int(results[base + 1] or 0),
@@ -46,6 +54,12 @@ async def get_llm_status():
             "prompt_tokens":     int(results[base + 5] or 0),
             "completion_tokens": int(results[base + 6] or 0),
             "cooling_down":      bool(results[base + 7]),
+            # --- NEW EXTRACTED FIELDS FOR FRONTEND GRAPHING ---
+            "streaming_requests": int(results[base + 8] or 0),
+            "provider_limits": {
+                "remaining_tokens": int(rem_tokens) if rem_tokens is not None else None,
+                "reset_requests_sec": float(reset_req) if reset_req is not None else None,
+            }
         }
 
     # Recent events (last 50, newest first)
@@ -66,11 +80,13 @@ async def get_llm_status():
 @router.get("/agent/events")
 async def get_llm_events(
     since_hours: int = 24,
-    type: str = "",       # "success" | "failure" | "retry" | ""
+    type: str = "",         # "success" | "failure" | "retry"
     tier: str = "",
+    model: str = "",        # Added filtering by model name
+    status_code: int = Query(None), # Added filtering by HTTP error code
     limit: int = 100
 ):
-    """Filterable event log for the admin logs tab."""
+    """Filterable event log for the admin logs tab with telemetry support."""
     now = datetime.now(timezone.utc).timestamp()
     since = now - since_hours * 3600
 
@@ -80,11 +96,15 @@ async def get_llm_events(
     )
     events = [json.loads(e) for e in raw]
 
-    # Filter in Python (dataset is small — last 7 days)
+    # Enhanced Python filtering for advanced debugging telemetry
     if type:
         events = [e for e in events if e.get("type") == type]
     if tier:
         events = [e for e in events if e.get("tier") == tier]
+    if model:
+        events = [e for e in events if e.get("model") == model or e.get("virtual_model") == model]
+    if status_code:
+        events = [e for e in events if e.get("error_details", {}).get("status_code") == status_code]
 
     events.reverse()  # newest first
     return {"events": events, "total": len(events)}

@@ -123,7 +123,7 @@ async def _wikipedia(client: httpx.AsyncClient, url: str) -> str | None:
         return None
 
 
-async def _youtube(url: str) -> str | None:
+async def _youtube(client: httpx.AsyncClient, url: str) -> str | None:
     if "youtube.com" not in url and "youtu.be" not in url:
         return None
     try:
@@ -138,15 +138,35 @@ async def _youtube(url: str) -> str | None:
         if not vid:
             return None
 
-        transcript_list = YouTubeTranscriptApi.get_transcript(vid)
+        # 🌟 2. Fetch basic metadata (Title) safely via oEmbed API to bypass structural scrapers
+        video_title = "Unknown Title"
+        try:
+            meta_res = await client.get(f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={vid}&format=json", timeout=5.0)
+            if meta_res.status_code == 200:
+                video_title = meta_res.json().get("title", "Unknown Title")
+        except Exception:
+            pass # Fallback gracefully if oEmbed is unreachable
+
+        # 🌟 3. Wrap blocking call using any native async wrapper loop context, or use standard safe thread executors
+        import asyncio
+        loop = asyncio.get_event_loop()
+        
+        # Runs the blocking transcript fetch safely in a thread pool executor
+        transcript_list = await loop.run_in_executor(
+            None, 
+            lambda: YouTubeTranscriptApi.get_transcript(vid)
+        )
+        
         transcript = " ".join(t["text"] for t in transcript_list)
 
         return (
+            f"Title: {video_title}\n"  # 🌟 Added metadata title verification
             f"YouTube Video ID: {vid}\n"
             f"URL: {url}\n\n"
             f"Transcript:\n{transcript[:MAX_CONTENT_CHARS]}"
         )
-    except Exception:
+    except Exception as e:
+        print(f"[YouTube Handler Error]: {e}") # Log it internally so you see it in terminal
         return None
 
 
@@ -285,7 +305,7 @@ async def scrape_url(url: str) -> str:
             await _github(client, url)
             or await _reddit(client, url)
             or await _wikipedia(client, url)
-            or await _youtube(url)
+            or await _youtube(client, url)
             or await _arxiv(client, url)
             or await _hackernews(client, url)
             or await _stackoverflow(client, url)

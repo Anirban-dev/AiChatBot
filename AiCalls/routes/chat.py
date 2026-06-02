@@ -130,8 +130,7 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                     yield f"event: error\ndata: {json.dumps(quota_payload)}\n\n"
                 return
 
-            # ── ALL OTHER EXPERT MODES: REASONING & TOOL CALL LOOPS ──
-            # Map target model routing variants cleanly
+           # ── ALL OTHER EXPERT MODES: REASONING & TOOL CALL LOOPS ──
             target_model = LLM_HIGH_MODEL
             if mode == "thinking":
                 from config import LLM_THINKING_MODEL
@@ -141,79 +140,96 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
             while iteration < MAX_ITERATIONS:
                 iteration += 1
 
-                # Static check pass to evaluate tool routing
-                response = await client.chat.completions.create(
+                # 🌟 Stream EVERYTHING. One single call per iteration loop turn.
+                stream = await client.chat.completions.create(
                     model=target_model,
                     messages=messages,
                     tools=tool_manager.get_schemas(),
                     tool_choice="auto",
+                    stream=True,
                     client_id=user_id,
                     user_tier=user_tier,
+                    max_retries=0,  # 🌟 explicitly silence max_retries warning frames
                     **thinking_kwargs,
                 )
 
-                message    = response.choices[0].message
-                tool_calls = message.tool_calls
+                tool_calls_buffer = {}
+                text_content_buffer = []
+                is_tool_call = False
 
-                if not tool_calls:
-                    # Final synthesis token streaming loop
-                    stream = await client.chat.completions.create(
-                        model=target_model,
-                        messages=messages,
-                        stream=True,
-                        client_id=user_id,
-                        user_tier=user_tier,
-                        **thinking_kwargs,
-                    )
+                async for chunk in stream:
+                    if not active_streams.get(chat_id):
+                        break
+                    
+                    delta = chunk.choices[0].delta
+                    
+                    # A. Handle Streaming Tool Interactions
+                    if delta.tool_calls:
+                        is_tool_call = True
+                        for tc in delta.tool_calls:
+                            idx = tc.index
+                            if idx not in tool_calls_buffer:
+                                tool_calls_buffer[idx] = {
+                                    "id": tc.id,
+                                    "type": "function",
+                                    "function": {"name": "", "arguments": ""}
+                                }
+                            
+                            if tc.id:
+                                tool_calls_buffer[idx]["id"] = tc.id
+                            if tc.function.name:
+                                tool_calls_buffer[idx]["function"]["name"] = tc.function.name
+                                # Stream status up to Express instantly so connection stays hot!
+                                yield f"data: {json.dumps({'tool_call': {'name': tc.function.name, 'id': tool_calls_buffer[idx]['id']}, 'status': 'running'})}\n\n"
+                            if tc.function.arguments:
+                                tool_calls_buffer[idx]["function"]["arguments"] += tc.function.arguments
 
-                    try:
-                        async for chunk in stream:
-                            if not active_streams.get(chat_id):
-                                break
-                            content = chunk.choices[0].delta.content
-                            if content is not None:
-                                yield f"data: {json.dumps({'token': content})}\n\n"
-                                await asyncio.sleep(0)
-                    except RateLimitError:
-                        quota_payload = {
-                            "type": "QUOTA_EXHAUSTED",
-                            "message": "Your user token/request tier limits for this minute have been exhausted mid-stream."
-                        }
-                        yield f"event: error\ndata: {json.dumps(quota_payload)}\n\n"
+                    # B. Handle Standard Content Streaming
+                    elif delta.content is not None:
+                        text_content_buffer.append(delta.content)
+                        yield f"data: {json.dumps({'token': delta.content})}\n\n"
+                        await asyncio.sleep(0)
+
+                # Differentiate based on what the stream delivered
+                if not is_tool_call:
+                    # Model provided a text response and no tools. We are done!
                     break
 
-                # Append running message context to execution context window state
-                messages.append(
-                    strip_thinking_blocks(message.model_dump(exclude_unset=True))
-                )
+                # Reconstruct tool_calls array from collected delta chunks
+                tool_calls = list(tool_calls_buffer.values())
 
-                # Push tool orchestration event metadata up to Express
-                for tc in tool_calls:
-                    payload = {"tool_call": {"name": tc.function.name, "id": tc.id}, "status": "running"}
-                    yield f"data: {json.dumps(payload)}\n\n"
+                # Append assistant tool intent back into tracking history
+                messages.append({
+                    "role": "assistant",
+                    "tool_calls": tool_calls,
+                    "content": "".join(text_content_buffer) if text_content_buffer else None
+                })
 
+                # Orchestrate execution block parallel threads
                 async def _run(tc):
-                    args = json.loads(tc.function.arguments)
+                    func_name = tc["function"]["name"]
                     try:
-                        result = await tool_manager.execute(tc.function.name, args)
+                        args = json.loads(tc["function"]["arguments"])
+                        result = await tool_manager.execute(func_name, args)
                         return str(result)[:MAX_TOOL_RESULT]
                     except Exception as exc:
                         return f"Tool error: {exc}"
 
                 results = await asyncio.gather(*[_run(tc) for tc in tool_calls])
 
+                # Append execution tracking updates back into active history frames
                 for tc, result in zip(tool_calls, results):
                     messages.append({
                         "role":         "tool",
-                        "tool_call_id": tc.id,
-                        "name":         tc.function.name,
+                        "tool_call_id": tc["id"],
+                        "name":         tc["function"]["name"],
                         "content":      result,
                     })
-
+                    
             else:
                 err_payload = {"message": "Agent hit the maximum iteration limit without a final answer."}
                 yield f"event: error\ndata: {json.dumps(err_payload)}\n\n"
-
+                
         except RateLimitError:
             quota_payload = {
                 "type": "QUOTA_EXHAUSTED",
