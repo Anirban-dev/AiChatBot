@@ -2,6 +2,7 @@
 import { Router, Request, Response } from 'express'
 import { Message }    from '../models/msg'
 import { Chat }       from '../models/chat'
+import { User }       from '../models/user'
 import authMiddleware, { AuthRequest } from '../middleware/auth'
 import { midLimiter } from '../utils/ratelimitHelper'
 import { writeLog }   from '../utils/logger'
@@ -53,25 +54,47 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     const tphKey = `usage:tph:${userId}:${stamp}`
     const rphKey = `usage:rph:${userId}:${stamp}`
 
-    // Pull custom manual limits and current hourly tracking
-    const [rawLimits, tphRaw, rphRaw] = await Promise.all([
-      redis.get(`user_limits:${userId}`),
+    // Fetch user limits from MongoDB and current hourly tracking from Redis
+    const [userDoc, tphRaw, rphRaw] = await Promise.all([
+      User.findById(userId).select('tpm rpm'),
       redis.get(tphKey),
       redis.get(rphKey),
     ])
 
-    let limits = TIER_DEFAULTS[userTier] ?? TIER_DEFAULTS.free
-    if (rawLimits) {
-      try { limits = JSON.parse(rawLimits) } catch { /* fallback to defaults */ }
+    const limits = {
+      tpm: (userDoc as any)?.tpm ?? TIER_DEFAULTS[userTier]?.tpm ?? TIER_DEFAULTS.free.tpm,
+      rpm: (userDoc as any)?.rpm ?? TIER_DEFAULTS[userTier]?.rpm ?? TIER_DEFAULTS.free.rpm,
     }
 
     const tokensUsedThisHour = parseInt(tphRaw ?? '0', 10)
     const requestsUsedThisHour = parseInt(rphRaw ?? '0', 10)
 
     if (requestsUsedThisHour >= limits.rpm) {
+      await writeLog({
+        userId,
+        action: 'AI_CHAT',
+        status: 'failed',
+        method: 'POST',
+        path: `/api/chats/${chatId}/msgs`,
+        ipAddress: req.ip ?? req.socket.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        latency: Date.now() - startTime,
+        details: { chatId, reason: 'RPM limit reached', stage: 'rate_limiting_pre_check', limit: limits.rpm, used: requestsUsedThisHour }
+      })
       return res.status(429).json({ error: 'Hourly request limit reached. Please wait until the next hour.' })
     }
     if (tokensUsedThisHour >= limits.tpm) {
+      await writeLog({
+        userId,
+        action: 'AI_CHAT',
+        status: 'failed',
+        method: 'POST',
+        path: `/api/chats/${chatId}/msgs`,
+        ipAddress: req.ip ?? req.socket.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        latency: Date.now() - startTime,
+        details: { chatId, reason: 'TPM limit reached', stage: 'rate_limiting_pre_check', limit: limits.tpm, used: tokensUsedThisHour }
+      })
       return res.status(429).json({ error: 'Hourly token quota consumed. Please wait until the next hour.' })
     }
     // ──────────────────────────────────────────────────────────────────────────
@@ -100,8 +123,6 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
         message:   content,
         chat_id:   chatId,
         mode:      targetTier,
-        user_id:   userId,
-        user_tier: userTier,
         history:   previousMessages.map(m => ({ role: m.role, content: m.content })),
       }),
     })
@@ -165,6 +186,19 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     let buffer         = ''
     let activeToolCalls: Record<string, unknown>[] = []
     let hasSeenActivity = false
+    let isAborted = false
+
+    req.on('close', () => {
+      if (!hasSeenActivity || !fullContent.trim()) {
+        isAborted = true
+        // Call Python stop API to cancel LLM generation thread
+        fetch(`${process.env.AI_API}/stop`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ chat_id: chatId }),
+        }).catch(err => console.error('Failed to call stop on client disconnect:', err))
+      }
+    })
 
     function parsePythonEvent(raw: string): { event?: string; data?: string } {
       const lines  = raw.split('\n')
@@ -184,6 +218,13 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     }
 
     while (true) {
+      if (isAborted || req.destroyed || req.closed) {
+        try {
+          await reader.cancel()
+        } catch {}
+        break
+      }
+
       const { done, value } = await reader.read()
       if (done) break
 
@@ -289,7 +330,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
               status: toolStatus, 
               result: toolResult, 
               error: toolError 
-            })}\n\n`)
+              })}\n\n`)
           } catch (e) {
             console.error('Failed to parse tool call payload:', e)
           }
@@ -310,6 +351,10 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       }
     }
 
+    if (isAborted || req.destroyed || req.closed) {
+      return res.end()
+    }
+
     // 6. Persist completed response
     if (!hasSeenActivity && !fullContent.trim()) {
       res.write(`event: error\ndata: ${JSON.stringify({
@@ -319,12 +364,16 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       return res.end()
     }
 
+    const cleanContent = fullContent && fullContent.trim() !== "" 
+      ? fullContent 
+      : (activeToolCalls.length > 0 ? "[Executed Tool Action]" : "[Stream Disconnected]");
+
     const assistantMessage = await Message.create({
       chatId: req.params.chatId,
       role:    'assistant',
-      content: fullContent,
+      content: cleanContent, // 🚀 Uses the sanitized, non-empty variable
       toolCalls: activeToolCalls,
-    })
+    });
 
     // ─── 🌟 REDIS HOURLY TRACKING COMMIT ────────────────────────────────────────
     const totalEstimatedTokens = Math.ceil((content.length + fullContent.length) / 4)

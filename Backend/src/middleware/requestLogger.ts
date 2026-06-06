@@ -19,8 +19,8 @@ export const requestLogger = (req: AuthRequest, res: Response, next: NextFunctio
     // Skip AI_CHAT and LOGIN / SIGNUP / GOOGLE-LOGIN endpoints because they are manually logged with rich payload metadata
     const manualLoggedPaths = [
       '/api/chats/', // We manually log inside msg.ts (the chat stream is under chats/:chatId/msgs)
-      '/api/login/login',
-      '/api/login/signup',
+      '/api/login',
+      '/api/signup',
       '/api/login/google-login'
     ]
 

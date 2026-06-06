@@ -49,7 +49,7 @@ async def deep_research(query: str) -> str:
 
             full = content + (f"\n\nImages:\n{image_desc}" if image_desc else "")
 
-            if not is_volatile:
+            if not volatile:
                 await cache.setex(url, 86400, full)
 
             research_data.append(f"Source: {url}\nContent: {full}")

@@ -81,24 +81,25 @@ def get_store(chat_id: str) -> QdrantVectorStore | None:
 async def add_documents(docs: list[Document], chat_id: str) -> None:
     async with _get_lock(chat_id):
         name = get_collection_name(chat_id)
-        ensure_collection(name)
 
         store = _stores.get(chat_id)
         if store is None:
             store = instantiate_vector_store(name)
             _stores.set(chat_id, store)
 
-        store.add_documents(docs)
+        await asyncio.to_thread(store.add_documents, docs)
         print(f"[VectorStore] Upserted {len(docs)} chunks for chat '{chat_id}'")
 
-def search(query: str, chat_id: str, k: int = TOP_K_RESULTS) -> list[Document]:
+async def search(query: str, chat_id: str, k: int = TOP_K_RESULTS) -> list[Document]:
     store = get_store(chat_id)
     if store is None:
         return []
 
     fetch_k = k * 3
-    text_chunks = store.similarity_search(query, k=fetch_k, filter=type_filter("content"))
-    image_chunks = store.similarity_search(query, k=fetch_k, filter=type_filter("embedded_image"))
+    text_task = asyncio.to_thread(store.similarity_search, query, k=fetch_k, filter=type_filter("content"))
+    image_task = asyncio.to_thread(store.similarity_search, query, k=fetch_k, filter=type_filter("embedded_image"))
+
+    text_chunks, image_chunks = await asyncio.gather(text_task, image_task)
 
     if _is_visual_query(query):
         merged = (image_chunks + text_chunks)[:k]

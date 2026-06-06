@@ -3,6 +3,7 @@
 import asyncio
 import json
 from pathlib import Path
+import re
 
 from config import client, LLM_SUMM_MODEL
 
@@ -119,19 +120,22 @@ async def _update_state(chat_id: str, sliding_messages: list[dict]) -> None:
                     {"role": "system", "content": _UPDATE_SYSTEM_PROMPT},
                     {"role": "user",   "content": user_prompt},
                 ],
+                stream=False
             )
             raw = response.choices[0].message.content.strip()
 
             # Strip markdown fences if the model adds them anyway
-            if raw.startswith("```"):
-                raw = raw.split("```")[1]
-                if raw.startswith("json"):
-                    raw = raw[4:]
-                raw = raw.strip()
+            json_match = re.search(r"(\{.*\})", raw, re.DOTALL)
+            raw_json = json_match.group(1) if json_match else raw
 
-            new_state = json.loads(raw)
-            _save(chat_id, new_state)
-            print(f"[SessionState] Updated state for chat '{chat_id}': {new_state}")
+            try:
+                new_state = json.loads(raw_json)
+                _save(chat_id, new_state)
+                print(f"[SessionState] Updated state for chat '{chat_id}': {new_state}")
+            except json.JSONDecodeError as e:
+                print(f"[SessionState] LLM returned invalid JSON for chat '{chat_id}': {e}")
+            except Exception as e:
+                print(f"[SessionState] State update failed for chat '{chat_id}': {e}")
 
         except json.JSONDecodeError as e:
             print(f"[SessionState] LLM returned invalid JSON for chat '{chat_id}': {e}")

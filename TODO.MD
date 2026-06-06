@@ -13,7 +13,7 @@ uv run main.py
 
 
 uv run -m tests.test_router
-uv run -m tests.test_router highllm huggingface/deepseek-ai/DeepSeek-V4-Pro
+uv run -m tests.test_router large huggingface/deepseek-ai/DeepSeek-V4-Pro
 
 make admin : npm run make-admin user@example.com
 

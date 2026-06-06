@@ -258,7 +258,7 @@ router.post('/signup', async (req: Request, res: Response) => {
       action: 'SIGNUP',
       status: 'failed',
       method: 'POST',
-      path: '/api/login/signup',
+      path: '/api/signup',
       ipAddress: req.ip || req.socket.remoteAddress,
       userAgent: req.headers['user-agent'],
       details: { email, error: 'Invalid or expired OTP', attemptsLeft: Math.max(0, MAX_OTP_ATTEMPTS - attempts) }
@@ -277,7 +277,7 @@ router.post('/signup', async (req: Request, res: Response) => {
         action: 'SIGNUP',
         status: 'failed',
         method: 'POST',
-        path: '/api/login/signup',
+        path: '/api/signup',
         ipAddress: req.ip || req.socket.remoteAddress,
         userAgent: req.headers['user-agent'],
         details: { email, error: 'Email already in use' }
@@ -305,7 +305,7 @@ router.post('/signup', async (req: Request, res: Response) => {
       action: 'SIGNUP',
       status: 'success',
       method: 'POST',
-      path: '/api/login/signup',
+      path: '/api/signup',
       ipAddress: req.ip || req.socket.remoteAddress,
       userAgent: req.headers['user-agent'],
       details: { email }
@@ -319,7 +319,7 @@ router.post('/signup', async (req: Request, res: Response) => {
         name: user.name, 
         email: user.email, 
         role: (user as any).role || 'user',
-        tier: userTier // 🌟 Expose tier here
+        tier: userTier 
       },
     })
   } catch (err) {
@@ -328,7 +328,7 @@ router.post('/signup', async (req: Request, res: Response) => {
       action: 'SIGNUP',
       status: 'failed',
       method: 'POST',
-      path: '/api/login/signup',
+      path: '/api/signup',
       ipAddress: req.ip || req.socket.remoteAddress,
       userAgent: req.headers['user-agent'],
       details: { email, error: err instanceof Error ? err.message : String(err) }
@@ -360,7 +360,7 @@ router.post('/login', async (req: Request, res: Response) => {
         action: 'LOGIN',
         status: 'failed',
         method: 'POST',
-        path: '/api/login/login',
+        path: '/api/login',
         ipAddress: req.ip || req.socket.remoteAddress,
         userAgent: req.headers['user-agent'],
         details: { email, error: 'Invalid credentials or googleAuth account' }
@@ -377,7 +377,7 @@ router.post('/login', async (req: Request, res: Response) => {
         action: 'LOGIN',
         status: 'failed',
         method: 'POST',
-        path: '/api/login/login',
+        path: '/api/login',
         ipAddress: req.ip || req.socket.remoteAddress,
         userAgent: req.headers['user-agent'],
         details: { email, error: 'Invalid credentials', attemptsLeft: Math.max(0, MAX_LOGIN_ATTEMPTS - attempts) }
@@ -410,7 +410,7 @@ router.post('/login', async (req: Request, res: Response) => {
       action: 'LOGIN',
       status: 'success',
       method: 'POST',
-      path: '/api/login/login',
+      path: '/api/login',
       ipAddress: req.ip || req.socket.remoteAddress,
       userAgent: req.headers['user-agent'],
       details: { email }
@@ -433,7 +433,7 @@ router.post('/login', async (req: Request, res: Response) => {
       action: 'LOGIN',
       status: 'failed',
       method: 'POST',
-      path: '/api/login/login',
+      path: '/api/login',
       ipAddress: req.ip || req.socket.remoteAddress,
       userAgent: req.headers['user-agent'],
       details: { email, error: err instanceof Error ? err.message : String(err) }

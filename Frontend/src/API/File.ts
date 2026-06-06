@@ -9,7 +9,7 @@ export const uploadFile = async (file: File, chatId: string, signal?: AbortSigna
   return response.data
 }
 
-export const deleteFileFromRAG = async (filename: string) => {
-  const response = await api.post(`/files/delete`, { filename })
+export const deleteFileFromRAG = async (filename: string, chatId: string) => {
+  const response = await api.post(`/files/delete`, { filename, chatId })
   return response.data
 }

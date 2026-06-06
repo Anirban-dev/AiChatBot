@@ -14,6 +14,8 @@ from litellm_models import LITELLM_ROUTER_MODELS
 
 router = Router(**LITELLM_ROUTER_MODELS)
 
+# litellm.set_verbose = True
+
 async def test_single_model(tier: str, model_string: str):
     print(f"Pinging Tier [{tier}] -> Endpoint: {model_string}... ", end="", flush=True)
     start_time = time.time()

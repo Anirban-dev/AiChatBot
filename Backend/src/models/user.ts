@@ -27,6 +27,14 @@ const userSchema = new mongoose.Schema({
     type: String,
     enum: ['free', 'premium', 'enterprise'],
     default: 'free', // New users start here automatically
+  },
+  tpm: {
+    type: Number,
+    default: 15000,
+  },
+  rpm: {
+    type: Number,
+    default: 10,
   }
 }, {
   timestamps: true,

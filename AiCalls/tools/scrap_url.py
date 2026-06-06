@@ -150,12 +150,9 @@ async def _youtube(client: httpx.AsyncClient, url: str) -> str | None:
         # 🌟 3. Wrap blocking call using any native async wrapper loop context, or use standard safe thread executors
         import asyncio
         loop = asyncio.get_event_loop()
-        
-        # Runs the blocking transcript fetch safely in a thread pool executor
-        transcript_list = await loop.run_in_executor(
-            None, 
-            lambda: YouTubeTranscriptApi.get_transcript(vid)
-        )
+
+        # Cleanly targets thread-pool offloading without legacy loop accessor side-effects        
+        transcript_list = await asyncio.to_thread(YouTubeTranscriptApi.get_transcript, vid)
         
         transcript = " ".join(t["text"] for t in transcript_list)
 

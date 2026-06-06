@@ -56,10 +56,11 @@ async def describe_image(image_bytes: bytes, media_type: str = "image/png") -> s
                             "detail": "small"  # High detail ensures better OCR accuracy
                         }
                     },
-                ]
+                ],
             }],
+            stream=False,
             max_tokens=1500,
-            temperature=0.2 # Lower temperature for more accurate text extraction
+            temperature=0.2
         )
 
         result = response.choices[0].message.content or ""\

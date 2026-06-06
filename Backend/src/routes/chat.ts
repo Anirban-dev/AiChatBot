@@ -79,7 +79,7 @@ router.put('/:id', midLimiter, async (req: AuthRequest, res: Response) => {
     const chat = await Chat.findOneAndUpdate(
       { _id: id, userId: req.userId },
       { title: title.trim() },
-      { new: true }
+      { returnDocument: 'after' }
     )
 
     if (!chat) return res.status(404).json({ error: 'Chat not found' })

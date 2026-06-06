@@ -47,7 +47,6 @@ async def get_llm_status():
             "prompt_tokens": doc["prompt_tokens"],
             "completion_tokens": doc["completion_tokens"],
             "cooling_down": False,
-            "streaming_requests": 0,
             "provider_limits": {
                 "remaining_tokens": None,
                 "reset_requests_sec": None,
@@ -73,7 +72,6 @@ async def get_llm_status():
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
                 "cooling_down": False,
-                "streaming_requests": 0,
                 "provider_limits": {
                     "remaining_tokens": None,
                     "reset_requests_sec": None,

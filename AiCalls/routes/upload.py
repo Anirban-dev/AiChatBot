@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import tempfile
 from config import CONCURRENT_UPLOADS
@@ -25,6 +26,7 @@ async def index_document(
         )
 
     if index_semaphore._value <= 0:
+        logging.warning("Uploading failed. Server is currently busy.")
         raise HTTPException(
             status_code=503,
             detail="Server is currently busy processing other documents. Try again in a moment."

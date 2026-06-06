@@ -74,7 +74,7 @@ router.get('/metrics', midLimiter, async (req: AdminRequest, res: Response) => {
 })
 
 // DELETE /api/admin/logs/:id - Delete a single activity log
-router.delete('/:id', midLimiter, async (req: AdminRequest, res: Response) => {
+router.delete('/:id', midLimiter, async (req: AdminRequest<{ id: string }>, res: Response) => {
   try {
     const { id } = req.params
     const result = await Log.findByIdAndDelete(id)

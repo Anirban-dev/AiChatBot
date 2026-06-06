@@ -9,6 +9,10 @@ import { writeLog } from '../utils/logger'
 const router = Router()
 const upload = multer({ storage: multer.memoryStorage() })
 
+// 5-minute timeout for heavy RAG indexing — use AbortSignal.timeout() per-request
+// (avoids the undici Agent constructor option mismatch that caused UND_ERR_INVALID_ARG)
+const AI_UPLOAD_TIMEOUT_MS = 300_000
+
 router.use(authMiddleware)
 
 router.post('/upload', uploadLimiter, upload.single('file'), async (req: AuthRequest, res: Response) => {
@@ -32,11 +36,11 @@ router.post('/upload', uploadLimiter, upload.single('file'), async (req: AuthReq
 
     const response = await fetch(`${AI_API}/upload`, {
       method: 'POST',
-      body: formData
+      body: formData,
+      signal: AbortSignal.timeout(AI_UPLOAD_TIMEOUT_MS)
     })
 
     if (!response.ok) {
-      // Read the real error for logging only — never forward to frontend
       const rawText = await response.text()
       let pythonDetail = rawText
       try {
@@ -60,11 +64,10 @@ router.post('/upload', uploadLimiter, upload.single('file'), async (req: AuthReq
           mimeType: req.file.mimetype,
           stage: 'python_api_error',
           httpStatus: response.status,
-          pythonMessage: pythonDetail,  // admin only
+          pythonMessage: pythonDetail,
         }
       })
 
-      // Generic message to frontend — no Python internals
       return res.status(502).json({ error: 'File could not be processed by AI service' })
     }
 
@@ -119,11 +122,10 @@ router.post('/upload', uploadLimiter, upload.single('file'), async (req: AuthReq
         chatId,
         filename: req.file.originalname,
         stage: 'middleware_exception',
-        error: err instanceof Error ? err.message : String(err),  // admin only
+        error: err instanceof Error ? err.message : String(err),
       }
     })
 
-    // Generic message to frontend
     res.status(500).json({ error: 'File upload failed' })
   }
 })
@@ -147,11 +149,11 @@ router.post('/delete', uploadLimiter, async (req: AuthRequest, res: Response) =>
     const response = await fetch(`${AI_API}/delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename, chat_id: chatId })
+      body: JSON.stringify({ filename, chat_id: chatId }),
+      signal: AbortSignal.timeout(30_000)
     })
 
     if (!response.ok) {
-      // Read Python error for logging only
       const rawText = await response.text()
       let pythonDetail = rawText
       try {
@@ -173,7 +175,7 @@ router.post('/delete', uploadLimiter, async (req: AuthRequest, res: Response) =>
           filename,
           stage: 'python_api_error',
           httpStatus: response.status,
-          pythonMessage: pythonDetail,  // admin only
+          pythonMessage: pythonDetail,
         }
       })
 
@@ -209,7 +211,7 @@ router.post('/delete', uploadLimiter, async (req: AuthRequest, res: Response) =>
         chatId,
         filename,
         stage: 'middleware_exception',
-        error: err instanceof Error ? err.message : String(err),  // admin only
+        error: err instanceof Error ? err.message : String(err),
       }
     })
 

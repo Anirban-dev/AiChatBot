@@ -16,6 +16,7 @@ interface MsgChatInputProps {
   activeTool: string | null
   clearStaging: () => void
   handleSendAction: () => void
+  stopGeneration: () => void // FIXED: Added missing prop definition
   handleKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void
   handlePaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void
@@ -39,6 +40,7 @@ export const MsgChatInput = ({
   pendingCode,
   clearStaging,
   handleSendAction,
+  stopGeneration, // FIXED: Destructured here
   handleKeyDown,
   handlePaste,
   onFileSelect,
@@ -95,7 +97,7 @@ export const MsgChatInput = ({
         {/* File Attachment Upload Preview Box */}
         {previewUrl && (
           <div className="flex items-center gap-3 mb-2.5 p-2 bg-gray-50 dark:bg-gray-800/60 rounded-xl border border-gray-200 dark:border-gray-700/60 w-fit relative group animate-in fade-in slide-in-from-bottom-2 duration-150">
-            <div className="relative h-14 w-14 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 shrink-0 shadow-xs">
+            <div className="relative h-14 w-14 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 shrink-0 shadow-sm">
               {pendingFile?.type.startsWith('image/') ? (
                 <img src={previewUrl} alt="Preview" className="h-full w-full object-cover" />
               ) : (
@@ -146,7 +148,7 @@ export const MsgChatInput = ({
 
         {/* Structured Network Error Alert Header */}
         {errorMessage && (
-          <div className="flex items-center justify-between gap-3 mb-2.5 p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 text-red-700 dark:text-red-400 text-xs rounded-xl shadow-xs animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <div className="flex items-center justify-between gap-3 mb-2.5 p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 text-red-700 dark:text-red-400 text-xs rounded-xl shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-150">
             <div className="flex items-center gap-2">
               <AlertTriangle size={14} className="text-red-500 shrink-0" />
               <p className="font-medium leading-relaxed">{errorMessage}</p>
@@ -231,7 +233,7 @@ export const MsgChatInput = ({
               value={selectedModel || 'small'} 
               onChange={(e) => setSelectedModel?.(e.target.value as 'small' | 'large' | 'thinking' | 'critiq')}
               disabled={loading || uploading}
-              className="text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 px-2.5 py-1.5 rounded-xl text-gray-600 dark:text-gray-300 outline-none focus:border-gray-300 dark:focus:border-gray-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed font-semibold transition-all hover:bg-gray-100 dark:hover:bg-gray-600 shadow-2xs"
+              className="text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 px-2.5 py-1.5 rounded-xl text-gray-600 dark:text-gray-300 outline-none focus:border-gray-300 dark:focus:border-gray-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed font-semibold transition-all hover:bg-gray-100 dark:hover:bg-gray-600 shadow-xs"
             >
               <option value="small">✦ Chat (Small)</option>
               <option value="large">⚡ Tools (Large)</option>
@@ -239,14 +241,15 @@ export const MsgChatInput = ({
               <option value="critiq">🧐 Critique (Review)</option>
             </select>
 
+            {/* FIXED: The onClick below now routes to stopGeneration when active */}
             {loading || uploading ? (
-              <button onClick={handleSendAction} className="p-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white transition-colors cursor-pointer" title={uploading ? 'Cancel upload' : 'Stop generation'}>
+              <button onClick={stopGeneration} className="p-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white transition-colors cursor-pointer" title={uploading ? 'Cancel upload' : 'Stop generation'}>
                 <Square size={15} fill="white" />
               </button>
             ) : (
               <button 
                 onClick={handleSendAction} 
-                disabled={(!input.trim() && !pendingFile) || !!errorMessage} 
+                disabled={(!input.trim() && !pendingFile && !pendingCode) || !!errorMessage}
                 className="p-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 dark:disabled:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors cursor-pointer"
               >
                 <Send size={15} />

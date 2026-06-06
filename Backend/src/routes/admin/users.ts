@@ -27,14 +27,15 @@ async function getEffectiveLimits(
   userId: string,
   tier: string
 ): Promise<{ tpm: number; rpm: number; isOverridden: boolean }> {
-  const raw = await redis.get(`user_limits:${userId}`)
-  if (raw) {
-    try {
-      const override = JSON.parse(raw)
-      return { ...override, isOverridden: true }
-    } catch { /* fall through to tier defaults */ }
+  const user = await User.findById(userId).select('tpm rpm tier')
+  const defaults = TIER_DEFAULTS[tier] ?? TIER_DEFAULTS.free
+  if (user) {
+    const tpm = (user as any).tpm !== undefined ? (user as any).tpm : defaults.tpm
+    const rpm = (user as any).rpm !== undefined ? (user as any).rpm : defaults.rpm
+    const isOverridden = (tpm !== defaults.tpm || rpm !== defaults.rpm)
+    return { tpm, rpm, isOverridden }
   }
-  return { ...(TIER_DEFAULTS[tier] ?? TIER_DEFAULTS.free), isOverridden: false }
+  return { ...defaults, isOverridden: false }
 }
 
 async function getCurrentUsage(userId: string): Promise<{ tpmUsed: number; rpmUsed: number }> {
@@ -141,8 +142,9 @@ router.get('/:userId/limits', midLimiter, async (req: AdminRequest & { params: {
     const usage           = await getCurrentUsage(userId)
 
     // Reconstruct override separately for the detailed view
-    const overrideRaw = await redis.get(`user_limits:${userId}`)
-    const override    = overrideRaw ? JSON.parse(overrideRaw) : null
+    const isOverridden = (user as any).tpm !== undefined && (user as any).rpm !== undefined &&
+      ((user as any).tpm !== tierDefaults.tpm || (user as any).rpm !== tierDefaults.rpm)
+    const override = isOverridden ? { tpm: (user as any).tpm, rpm: (user as any).rpm } : null
 
     res.json({
       userId,
@@ -178,6 +180,11 @@ router.put('/:userId/limits', midLimiter, async (req: AdminRequest & { params: {
 
     // ── Clear override → revert to tier defaults ───────────────────────────
     if (clear === true) {
+      const defaults = TIER_DEFAULTS[(user as any).tier] ?? TIER_DEFAULTS.free
+      await User.findByIdAndUpdate(userId, {
+        tpm: defaults.tpm,
+        rpm: defaults.rpm
+      })
       await redis.del(`user_limits:${userId}`)
 
       await writeLog({
@@ -204,18 +211,17 @@ router.put('/:userId/limits', midLimiter, async (req: AdminRequest & { params: {
       return res.status(400).json({ error: 'Provide at least one of: tpm, rpm, or clear: true' })
     }
 
-    // ── Merge with existing override so you can patch just one field ───────
-    const existing = await redis.get(`user_limits:${userId}`)
-    const base     = existing
-      ? JSON.parse(existing)
-      : (TIER_DEFAULTS[(user as any).tier] ?? TIER_DEFAULTS.free)
-
+    // ── Merge with existing limits in DB ───────────────────────────────────
     const updated = {
-      tpm: tpm ?? base.tpm,
-      rpm: rpm ?? base.rpm,
+      tpm: tpm ?? (user as any).tpm ?? (TIER_DEFAULTS[(user as any).tier] ?? TIER_DEFAULTS.free).tpm,
+      rpm: rpm ?? (user as any).rpm ?? (TIER_DEFAULTS[(user as any).tier] ?? TIER_DEFAULTS.free).rpm,
     }
 
-    await redis.set(`user_limits:${userId}`, JSON.stringify(updated))
+    await User.findByIdAndUpdate(userId, {
+      tpm: updated.tpm,
+      rpm: updated.rpm
+    })
+    await redis.del(`user_limits:${userId}`)
 
     await writeLog({
       action: 'UPDATE_USER_LIMITS',
@@ -252,15 +258,15 @@ router.put('/:userId/tier', midLimiter, async (req: AdminRequest & { params: { u
       return res.status(400).json({ error: 'Invalid tier. Must be free, premium, or enterprise.' })
     }
 
-    const updatedUser = await User.findByIdAndUpdate(userId, { tier }, { new: true })
+    const defaults = TIER_DEFAULTS[tier] ?? TIER_DEFAULTS.free
+    const updatedUser = await User.findByIdAndUpdate(userId, { 
+      tier,
+      tpm: defaults.tpm,
+      rpm: defaults.rpm
+    }, { returnDocument: 'after' })
     if (!updatedUser) return res.status(404).json({ error: 'User not found' })
 
-    // Clear any manual limit override so new tier defaults apply cleanly
-    // Also invalidate the stored refresh token so the next token refresh
-    // re-reads the DB and issues a token with the correct new tier.
-    // The user's next API call will get a 401 on the old access token
-    // (15 min TTL), then the refresh will fail → they re-login with new tier.
-    // If you want instant effect, delete the refresh token here:
+    // Clear manual limit override and refresh tokens
     await Promise.all([
       redis.del(`user_limits:${userId}`),
       redis.del(`refresh:${userId}`),       // forces re-login with new tier in token
@@ -304,7 +310,7 @@ router.put('/:userId/role', midLimiter, async (req: AdminRequest & { params: { u
       return res.status(403).json({ error: 'Security constraint: You cannot revoke your own admin rights.' })
     }
 
-    const updatedUser = await User.findByIdAndUpdate(userId, { role }, { new: true })
+    const updatedUser = await User.findByIdAndUpdate(userId, { role }, { returnDocument: 'after' })
     if (!updatedUser) return res.status(404).json({ error: 'User not found' })
 
     // Invalidate refresh token so the role change is reflected on next login

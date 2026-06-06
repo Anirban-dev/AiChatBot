@@ -242,6 +242,7 @@ export const Msg = ({ chatId }: { chatId: string }) => {
         activeTool={sendHook.activeTool}
         clearStaging={sendHook.clearStaging}
         handleSendAction={sendHook.handleSendAction}
+        stopGeneration={sendHook.stopGeneration}
         handleKeyDown={sendHook.handleKeyDown}
         handlePaste={sendHook.handlePaste}
         onFileSelect={sendHook.onFileSelect}
