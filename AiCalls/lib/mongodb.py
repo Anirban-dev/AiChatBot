@@ -7,14 +7,15 @@ MONGO_URI = os.getenv("MONGO_URI")
 
 # Parse the database name from MONGO_URI, default to AiAssistant
 try:
-    parsed = urlparse(MONGO_URI)
+    parsed  = urlparse(MONGO_URI)
     db_name = parsed.path.lstrip("/") or "AiAssistant"
 except Exception:
     db_name = "AiAssistant"
 
-# Create a shared MongoDB client
+# Shared MongoDB client
 client = AsyncIOMotorClient(MONGO_URI)
-db = client[db_name]
+db     = client[db_name]
 
-# Helper collections
-llm_logs = db["llmlogs"]
+# ── Collections ───────────────────────────────────────────────────────────────
+llm_logs   = db["llmlogs"]    # per-model LLM call events (success/failure/retry)
+chat_logs  = db["chatlogs"]   # per-chat-request lifecycle events

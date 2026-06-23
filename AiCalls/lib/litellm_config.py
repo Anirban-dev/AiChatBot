@@ -1,159 +1,225 @@
 # litellm_config.py
 """
 LiteLLM Router integration with standard completions routing.
+Rich structured logging for every request, retry, success and failure.
 """
 
 import os
 import asyncio
+import logging
 from zoneinfo import ZoneInfo
 from datetime import datetime, timezone
 import litellm
 from litellm import Router
 from lib.mongodb import llm_logs
 
-os.environ['LITELLM_LOG'] = 'DEBUG'
+os.environ['LITELLM_LOG'] = 'ERROR'   # suppress litellm internal spam; we do our own logging
 
+# ── Structured LLM Logger ─────────────────────────────────────────────────────
+_llm_log = logging.getLogger("llm")
+if not _llm_log.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter(
+        "[%(asctime)s] %(levelname)s %(name)s | %(message)s",
+        datefmt="%H:%M:%S"
+    ))
+    _llm_log.addHandler(_h)
+    _llm_log.setLevel(logging.DEBUG)
+    _llm_log.propagate = False
+
+# ── Redis / Routing config ────────────────────────────────────────────────────
 REDIS_URL = os.environ.get("REDIS_URL")
 if REDIS_URL:
     try:
         from urllib.parse import urlparse
-        parsed = urlparse(REDIS_URL)
+        parsed    = urlparse(REDIS_URL)
         REDIS_HOST = parsed.hostname or "localhost"
         REDIS_PORT = parsed.port or 6379
         REDIS_PASSWORD = parsed.password
     except Exception:
-        REDIS_HOST = "localhost"
-        REDIS_PORT = 6379
-        REDIS_PASSWORD = None
+        REDIS_HOST, REDIS_PORT, REDIS_PASSWORD = "localhost", 6379, None
 else:
-    REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
-    REDIS_PORT = int(os.environ.get("REDIS_PORT", 6379))
+    REDIS_HOST     = os.environ.get("REDIS_HOST", "localhost")
+    REDIS_PORT     = int(os.environ.get("REDIS_PORT", 6379))
     REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD")
 
-# ── IST timezone constant ──────────────────────────────────────────────────────
 _IST = ZoneInfo("Asia/Kolkata")
 
+# Timeouts
+_CONNECT_TIMEOUT  = 20.0   # seconds: initial connection to model API
+_CHUNK_TIMEOUT    = 45.0   # seconds: max silence between consecutive stream chunks
+_TOTAL_TIMEOUT    = 120.0  # seconds: absolute max for the full stream
 
+
+# ── MongoDB log writer ────────────────────────────────────────────────────────
 async def log_llm_completion(
     type: str,
     virtual_model: str,
     model: str,
     latency_ms: int,
-    prompt_tokens: int = 0,
+    prompt_tokens: int  = 0,
     completion_tokens: int = 0,
-    cost: float = 0.0,
-    error: str = None,
-    error_details: dict = None
+    cost: float         = 0.0,
+    error: str          = None,
+    error_details: dict = None,
+    user_id: str        = None,
+    chat_id: str        = None,
+    mode: str           = None,
+    ttft_ms: int        = None,
+    total_chunks: int   = None,
 ):
+    """Write a structured LLM event to MongoDB. Always awaited — never fire-and-forget."""
     try:
         doc = {
-            "type": type,
-            "model": model,
-            "virtual_model": virtual_model,
-            "latency_ms": latency_ms,
-            "prompt_tokens": prompt_tokens,
+            "type":              type,
+            "model":             model,
+            "virtual_model":     virtual_model,
+            "latency_ms":        latency_ms,
+            "prompt_tokens":     prompt_tokens,
             "completion_tokens": completion_tokens,
-            "cost": cost,
-            "error": error,
-            "error_details": error_details,
-            "timestamp": datetime.now(_IST),
+            "cost":              cost,
+            "error":             error,
+            "error_details":     error_details,
+            "user_id":           user_id,
+            "chat_id":           chat_id,
+            "mode":              mode,
+            "ttft_ms":           ttft_ms,
+            "total_chunks":      total_chunks,
+            "timestamp":         datetime.now(_IST),
         }
+        # Remove None values to keep documents clean
+        doc = {k: v for k, v in doc.items() if v is not None}
         await llm_logs.insert_one(doc)
-    except Exception:
-        pass
+    except Exception as exc:
+        _llm_log.error(f"[MongoDB] Failed to write log: {exc}")
 
 
-# AiCalls/lib/litellm_config.py
+def _schedule_log(**kwargs):
+    """Safe fire-and-forget log: catches event-loop edge cases."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(log_llm_completion(**kwargs))
+        else:
+            loop.run_until_complete(log_llm_completion(**kwargs))
+    except Exception as exc:
+        _llm_log.error(f"[LogSchedule] {exc}")
 
+
+# ── Router factory ────────────────────────────────────────────────────────────
 def _make_router():
     from litellm_models import LITELLM_ROUTER_MODELS
     import copy
-    import os
 
-    # 1. Temporarily pop Redis variables to force LiteLLM to stay strictly in-memory
-    redis_url_backup = os.environ.pop("REDIS_URL", None)
+    redis_url_backup  = os.environ.pop("REDIS_URL",  None)
     redis_host_backup = os.environ.pop("REDIS_HOST", None)
     redis_port_backup = os.environ.pop("REDIS_PORT", None)
-
     try:
         config = copy.deepcopy(LITELLM_ROUTER_MODELS)
         config["routing_strategy"] = "simple-shuffle"
-
-        # 2. Return a pure, stateless in-memory router
-        return Router(
-            **config,
-            enable_health_check_routing=False,
-        )
+        return Router(**config, enable_health_check_routing=False)
     finally:
-        # 3. Restore them immediately so other parts of your app stack aren't affected
-        if redis_url_backup is not None:
-            os.environ["REDIS_URL"] = redis_url_backup
-        if redis_host_backup is not None:
-            os.environ["REDIS_HOST"] = redis_host_backup
-        if redis_port_backup is not None:
-            os.environ["REDIS_PORT"] = redis_port_backup
+        if redis_url_backup  is not None: os.environ["REDIS_URL"]  = redis_url_backup
+        if redis_host_backup is not None: os.environ["REDIS_HOST"] = redis_host_backup
+        if redis_port_backup is not None: os.environ["REDIS_PORT"] = redis_port_backup
 
 
 router = _make_router()
 
 
-def _log_failure(tier_name, latency_ms, e):
-    status_code = getattr(e, "status_code", None)
-    err_details = {"status_code": status_code} if status_code else None
-    asyncio.create_task(log_llm_completion(
+# ── Shared failure logger ─────────────────────────────────────────────────────
+def _log_failure_sync(tier_name, latency_ms, e, user_id=None, chat_id=None, mode=None):
+    status_code  = getattr(e, "status_code", None)
+    err_details  = {"status_code": status_code} if status_code else None
+    short_error  = str(e).split('\n')[0][:200]
+    _llm_log.error(
+        f"FAILURE tier={tier_name} latency={latency_ms}ms "
+        f"error={short_error!r} user={user_id} chat={chat_id}"
+    )
+    _schedule_log(
         type="failure",
         virtual_model=tier_name,
         model=tier_name,
         latency_ms=latency_ms,
-        error=str(e).split('\n')[0][:100],
+        error=short_error,
         error_details=err_details,
-    ))
+        user_id=user_id,
+        chat_id=chat_id,
+        mode=mode,
+    )
 
 
+# ── Core async completion ─────────────────────────────────────────────────────
 async def async_chat_completion(
     tier_name: str,
-    messages: list,
+    messages:  list,
+    user_id:   str  = None,
+    chat_id:   str  = None,
+    mode:      str  = None,
     **kwargs,
-) -> dict:
+):
     start_time = datetime.now(timezone.utc)
+    ctx = f"tier={tier_name} user={user_id} chat={chat_id}"
+
     if kwargs.get("stream"):
+        # ── STREAMING PATH ────────────────────────────────────────────────────
+        _llm_log.info(f"REQUEST (stream) {ctx}")
+
         try:
             if "timeout" not in kwargs:
-                kwargs["timeout"] = 30.0
+                kwargs["timeout"] = _CONNECT_TIMEOUT
             raw_stream = await router.acompletion(
                 model=tier_name,
                 messages=messages,
                 **kwargs,
             )
         except Exception as e:
-            end_time = datetime.now(timezone.utc)
-            latency_ms = int((end_time - start_time).total_seconds() * 1000)
-            _log_failure(tier_name, latency_ms, e)
-            raise e
+            elapsed = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
+            _log_failure_sync(tier_name, elapsed, e, user_id, chat_id, mode)
+            raise
 
         async def stream_wrapper():
-            model_name = ""
-            prompt_tokens = 0
+            model_name        = ""
+            prompt_tokens     = 0
             completion_tokens = 0
-            tokens_generated = 0
+            tokens_generated  = 0
+            ttft_ms           = None
+            chunk_count       = 0
+            stream_start      = datetime.now(timezone.utc)
+            error_flag        = False
+
             try:
                 async for chunk in raw_stream:
+                    chunk_count += 1
+
                     if hasattr(chunk, "model") and chunk.model:
                         model_name = chunk.model
+
                     if hasattr(chunk, "usage") and chunk.usage:
-                        prompt_tokens = chunk.usage.prompt_tokens
-                        completion_tokens = chunk.usage.completion_tokens
+                        if getattr(chunk.usage, "prompt_tokens", None):
+                            prompt_tokens = chunk.usage.prompt_tokens
+                        if getattr(chunk.usage, "completion_tokens", None):
+                            completion_tokens = chunk.usage.completion_tokens
 
                     delta = chunk.choices[0].delta if chunk.choices else None
-                    if delta and getattr(delta, "content", None):
+                    has_content = delta and (
+                        getattr(delta, "content", None) or
+                        getattr(delta, "reasoning_content", None)
+                    )
+                    if has_content:
                         tokens_generated += 1
+                        if ttft_ms is None:
+                            ttft_ms = int((datetime.now(timezone.utc) - stream_start).total_seconds() * 1000)
+                            _llm_log.info(f"TTFT {ctx} model={model_name!r} ttft={ttft_ms}ms")
+
                     yield chunk
 
-                end_time = datetime.now(timezone.utc)
-                latency_ms = int((end_time - start_time).total_seconds() * 1000)
+                # ── Stream finished cleanly ──────────────────────────────────
+                end_time   = datetime.now(timezone.utc)
+                latency_ms = int((end_time - stream_start).total_seconds() * 1000)
 
                 if not prompt_tokens:
-                    prompt_len = sum(len(m.get("content", "")) for m in messages if isinstance(m.get("content"), str))
+                    prompt_len    = sum(len(m.get("content", "")) for m in messages if isinstance(m.get("content"), str))
                     prompt_tokens = max(1, prompt_len // 4)
                     completion_tokens = max(1, tokens_generated)
 
@@ -162,44 +228,61 @@ async def async_chat_completion(
                     cost = litellm.completion_cost(
                         model=model_name or tier_name,
                         prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens
+                        completion_tokens=completion_tokens,
                     )
                 except Exception:
                     pass
 
-                asyncio.create_task(log_llm_completion(
+                _llm_log.info(
+                    f"SUCCESS (stream) {ctx} model={model_name!r} "
+                    f"latency={latency_ms}ms ttft={ttft_ms}ms "
+                    f"chunks={chunk_count} ptok={prompt_tokens} ctok={completion_tokens} "
+                    f"cost=${cost:.6f}"
+                )
+                _schedule_log(
                     type="success",
                     virtual_model=tier_name,
                     model=model_name or tier_name,
                     latency_ms=latency_ms,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
-                    cost=cost
-                ))
-            except Exception as e:
-                end_time = datetime.now(timezone.utc)
-                latency_ms = int((end_time - start_time).total_seconds() * 1000)
-                _log_failure(tier_name, latency_ms, e)
-                raise e
+                    cost=cost,
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    mode=mode,
+                    ttft_ms=ttft_ms,
+                    total_chunks=chunk_count,
+                )
+
+            except asyncio.CancelledError:
+                _llm_log.warning(f"CANCELLED (stream) {ctx}")
+                raise
+
+            except Exception as exc:
+                if not error_flag:
+                    error_flag = True
+                    elapsed = int((datetime.now(timezone.utc) - stream_start).total_seconds() * 1000)
+                    _log_failure_sync(tier_name, elapsed, exc, user_id, chat_id, mode)
+                raise  # re-raise so the consumer (chat.py) catches it
+
         gen = stream_wrapper()
         gen._raw_stream = raw_stream
         return gen
+
     else:
+        # ── NON-STREAMING PATH ────────────────────────────────────────────────
+        _llm_log.info(f"REQUEST (non-stream) {ctx}")
         try:
             if "timeout" not in kwargs:
-                kwargs["timeout"] = 30.0
-            response = await router.acompletion(
-                model=tier_name,
-                messages=messages,
-                **kwargs,
-            )
-            end_time = datetime.now(timezone.utc)
+                kwargs["timeout"] = _CONNECT_TIMEOUT
+            response   = await router.acompletion(model=tier_name, messages=messages, **kwargs)
+            end_time   = datetime.now(timezone.utc)
             latency_ms = int((end_time - start_time).total_seconds() * 1000)
 
-            usage_data = response.get("usage", {})
-            prompt_tokens = usage_data.get("prompt_tokens", 0)
+            usage_data        = response.get("usage", {})
+            prompt_tokens     = usage_data.get("prompt_tokens", 0)
             completion_tokens = usage_data.get("completion_tokens", 0)
-            model_name = response.get("model", "")
+            model_name        = response.get("model", "")
 
             cost = 0.0
             try:
@@ -207,43 +290,55 @@ async def async_chat_completion(
             except Exception:
                 pass
 
-            asyncio.create_task(log_llm_completion(
+            _llm_log.info(
+                f"SUCCESS (non-stream) {ctx} model={model_name!r} "
+                f"latency={latency_ms}ms ptok={prompt_tokens} ctok={completion_tokens} "
+                f"cost=${cost:.6f}"
+            )
+            _schedule_log(
                 type="success",
                 virtual_model=tier_name,
                 model=model_name or tier_name,
                 latency_ms=latency_ms,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
-                cost=cost
-            ))
+                cost=cost,
+                user_id=user_id,
+                chat_id=chat_id,
+                mode=mode,
+            )
             return response
+
         except Exception as e:
-            end_time = datetime.now(timezone.utc)
-            latency_ms = int((end_time - start_time).total_seconds() * 1000)
-            _log_failure(tier_name, latency_ms, e)
-            raise e
+            elapsed = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
+            _log_failure_sync(tier_name, elapsed, e, user_id, chat_id, mode)
+            raise
 
 
+# ── Embedding call ────────────────────────────────────────────────────────────
 async def async_embedding_call(text_list: list) -> list:
     try:
         response = await router.aembedding(model="free-embed", input=text_list)
         return [item["embedding"] for item in response.data]
     except Exception as e:
-        print(f"Async embedding error: {e}")
+        _llm_log.error(f"[Embedding] Error: {e}")
         return []
 
 
+# ── OpenAI-compatible client wrapper ─────────────────────────────────────────
 class CompatibilityClient:
     class Chat:
         class Completions:
-            async def create(self, model, messages, **kwargs):
+            async def create(self, model, messages, user_id=None, chat_id=None, mode=None, **kwargs):
                 kwargs.pop("client_id", None)
-                result = await async_chat_completion(
+                return await async_chat_completion(
                     tier_name=model,
                     messages=messages,
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    mode=mode,
                     **kwargs,
                 )
-                return result
 
         def __init__(self):
             self.completions = self.Completions()

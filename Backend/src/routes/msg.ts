@@ -115,10 +115,16 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       .sort({ createdAt: 1 })
       .limit(10)
 
-    // 4. Call the Python AI service
+    // 4. Call the Python AI service — pass user context so Python can attribute logs
+    const aiCallStart = Date.now()
     const response = await fetch(`${process.env.AI_API}/chat`, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'Connection': 'keep-alive' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Connection':   'keep-alive',
+        'X-User-Id':    userId,
+        'X-Chat-Id':    chatId,
+      },
       body: JSON.stringify({
         message:   content,
         chat_id:   chatId,
@@ -182,11 +188,12 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     const reader  = response.body.getReader()
     const decoder = new TextDecoder()
 
-    let fullContent    = ''
-    let buffer         = ''
+    let fullContent     = ''
+    let buffer          = ''
     let activeToolCalls: Record<string, unknown>[] = []
     let hasSeenActivity = false
-    let isAborted = false
+    let isAborted       = false
+    let ttftMs: number | null = null
 
     req.on('close', () => {
       if (!hasSeenActivity || !fullContent.trim()) {
@@ -339,6 +346,10 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
 
         if (data) {
           hasSeenActivity = true
+          // Track time-to-first-token
+          if (ttftMs === null) {
+            ttftMs = Date.now() - aiCallStart
+          }
           let token = data
           try {
             const parsed = JSON.parse(data)
@@ -393,6 +404,22 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     res.write(`event: done\ndata: ${JSON.stringify(assistantMessage)}\n\n`)
     res.end()
 
+    const finalLatency = Date.now() - startTime
+
+    // Write a full-lifecycle LlmLog entry from the Node.js side
+    LlmLog.create({
+      type:          'success',
+      userId:        new (require('mongoose').Types.ObjectId)(userId),
+      chatId:        new (require('mongoose').Types.ObjectId)(chatId),
+      virtual_model: targetTier,
+      mode:          targetTier,
+      latency_ms:    finalLatency,
+      ttft_ms:       ttftMs ?? undefined,
+      prompt_tokens:  Math.ceil(content.length / 4),
+      completion_tokens: Math.ceil(fullContent.length / 4),
+      timestamp:     new Date(),
+    }).catch((e: any) => console.error('[LlmLog] Failed to write lifecycle log:', e))
+
     await writeLog({
       userId,
       action:    'AI_CHAT',
@@ -401,9 +428,11 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       path:      `/api/chats/${chatId}/msgs`,
       ipAddress: req.ip ?? req.socket.remoteAddress,
       userAgent: req.headers['user-agent'],
-      latency:   Date.now() - startTime,
+      latency:   finalLatency,
       details:   {
         chatId,
+        targetTier,
+        ttft_ms:        ttftMs,
         promptLength:   content.length,
         responseLength: fullContent.length,
         toolCallCount:  activeToolCalls.length,
