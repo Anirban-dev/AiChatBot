@@ -11,7 +11,7 @@ import litellm
 from litellm import Router
 from lib.mongodb import llm_logs
 
-os.environ['LITELLM_LOG'] = 'CRITICAL'
+os.environ['LITELLM_LOG'] = 'DEBUG'
 
 REDIS_URL = os.environ.get("REDIS_URL")
 if REDIS_URL:
@@ -63,20 +63,35 @@ async def log_llm_completion(
         pass
 
 
+# AiCalls/lib/litellm_config.py
+
 def _make_router():
     from litellm_models import LITELLM_ROUTER_MODELS
     import copy
+    import os
 
-    config = copy.deepcopy(LITELLM_ROUTER_MODELS)
-    config["routing_strategy"] = "simple-shuffle"
+    # 1. Temporarily pop Redis variables to force LiteLLM to stay strictly in-memory
+    redis_url_backup = os.environ.pop("REDIS_URL", None)
+    redis_host_backup = os.environ.pop("REDIS_HOST", None)
+    redis_port_backup = os.environ.pop("REDIS_PORT", None)
 
-    return Router(
-        **config,
-        redis_host=REDIS_HOST,
-        redis_port=REDIS_PORT,
-        redis_password=REDIS_PASSWORD,
-        enable_health_check_routing=False,
-    )
+    try:
+        config = copy.deepcopy(LITELLM_ROUTER_MODELS)
+        config["routing_strategy"] = "simple-shuffle"
+
+        # 2. Return a pure, stateless in-memory router
+        return Router(
+            **config,
+            enable_health_check_routing=False,
+        )
+    finally:
+        # 3. Restore them immediately so other parts of your app stack aren't affected
+        if redis_url_backup is not None:
+            os.environ["REDIS_URL"] = redis_url_backup
+        if redis_host_backup is not None:
+            os.environ["REDIS_HOST"] = redis_host_backup
+        if redis_port_backup is not None:
+            os.environ["REDIS_PORT"] = redis_port_backup
 
 
 router = _make_router()

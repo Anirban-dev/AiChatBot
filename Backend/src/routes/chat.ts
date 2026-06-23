@@ -12,8 +12,9 @@ router.use(authMiddleware)
 // Create chat
 router.post('/', strictLimiter, async (req: AuthRequest, res: Response) => {
   try {
+    const { title } = req.body as { title?: string }
     const chat = await Chat.create({
-      title: `New Chat`,
+      title: title?.trim() || `New Chat`,
       userId: req.userId
     })
 

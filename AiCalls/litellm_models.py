@@ -12,8 +12,7 @@ LITELLM_ROUTER_MODELS = {
             "model": "ai/qwen3-vl:2B-UD-Q4_K_XL", 
             "custom_llm_provider": "openai", 
             "api_base": DOCKER_RUNNER_BASE,
-            "api_key": "not-needed",
-            "timeout": 500
+            "api_key": "not-needed"
         }},
         # --- Lightning Cloud (OpenAI-compatible) ---
         {"model_name": "small", "litellm_params": {
@@ -22,8 +21,8 @@ LITELLM_ROUTER_MODELS = {
             "api_key": os.getenv("LIGHTNING_API_KEY"),
         }},
         # --- Groq (current valid IDs as of 2025) ---
-        # {"model_name": "small", "litellm_params": {"model": "groq/llama-3.1-8b-instant",     "api_key": os.getenv("GROQ_API_KEY")}},
-        # {"model_name": "small", "litellm_params": {"model": "groq/qwen/qwen3-32b",            "api_key": os.getenv("GROQ_API_KEY")}},
+        {"model_name": "small", "litellm_params": {"model": "groq/llama-3.1-8b-instant",     "api_key": os.getenv("GROQ_API_KEY")}},
+        {"model_name": "small", "litellm_params": {"model": "groq/qwen/qwen3-32b",            "api_key": os.getenv("GROQ_API_KEY")}},
         # # --- OpenRouter smart free router (auto-picks a working free model) ---
         # {"model_name": "small", "litellm_params": {"model": "openrouter/openrouter/free",     "api_key": os.getenv("OPENROUTER_API_KEY")}},
         # # --- OpenRouter specific free models (confirmed available June 2025) ---
@@ -70,13 +69,13 @@ LITELLM_ROUTER_MODELS = {
         # ----------------------------------------------------------------------
         # 6. VISION LLM
         # ----------------------------------------------------------------------
+        {"model_name": "visionllm", "litellm_params": {"model": "groq/meta-llama/llama-4-scout-17b-16e-instruct",  "api_key": os.getenv("GROQ_API_KEY")}},
         # --- Local Docker Model Runner (your confirmed working model) ---
         {"model_name": "visionllm", "litellm_params": {
             "model": "ai/qwen3-vl:2B-UD-Q4_K_XL", 
             "custom_llm_provider": "openai", 
             "api_base": DOCKER_RUNNER_BASE,
-            "api_key": "not-needed",
-            "timeout": 500
+            "api_key": "not-needed"
         }},
         # --- Lightning Cloud fallback ---
         {"model_name": "visionllm", "litellm_params": {
@@ -85,7 +84,6 @@ LITELLM_ROUTER_MODELS = {
             "api_key": os.getenv("LIGHTNING_API_KEY"),
         }},
         # --- Groq (vision-capable, correct full model ID) ---
-        # {"model_name": "visionllm", "litellm_params": {"model": "groq/meta-llama/llama-4-scout-17b-16e-instruct",  "api_key": os.getenv("GROQ_API_KEY")}},
         # --- OpenRouter (vision-capable free model, confirmed June 2025) ---
         # {"model_name": "visionllm", "litellm_params": {"model": "openrouter/google/gemma-4-31b-it:free", "api_key": os.getenv("OPENROUTER_API_KEY")}},
 

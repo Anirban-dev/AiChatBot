@@ -15,7 +15,7 @@ async function initPyodide() {
   await pyodide.loadPackage(["micropip", "numpy", "pandas"]);
 
   // 3. Setup micropip for any extra AI-requested installs
-  const micropip = pyodide.pyimport("micropip");
+  pyodide.pyimport("micropip");
 
   self.postMessage({ type: "READY" });
   return pyodide;

@@ -10,7 +10,8 @@ const getRedisClient = (): RedisClient => {
 
   const client = new Redis(process.env.REDIS_URL, {
     maxRetriesPerRequest: 3,
-    enableOfflineQueue: true
+    enableOfflineQueue: true,
+    commandTimeout: 1500
   })
 
   return client

@@ -46,7 +46,11 @@ function Chat() {
   }, [dark])
 
   useEffect(() => {
-    if (!chatId) return
+    if (!chatId) {
+      setChat(null)
+      setLoading(false)
+      return
+    }
     const fetchChat = async () => {
       try {
         const data = await getChat(chatId)

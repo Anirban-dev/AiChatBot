@@ -8,26 +8,27 @@ import { CodeRagModal } from './CodeRag'
 import { MsgChatInput } from './MsgChatInput'
 
 // Changed to a named export to match your Chat.tsx import statement
-export const Msg = ({ chatId }: { chatId: string }) => {
+export const Msg = ({ chatId }: { chatId?: string }) => {
+  const activeChatId = chatId || 'new'
   const { getMessages, setMessages } = useChatStore()
-  const messages = getMessages(chatId)
+  const messages = getMessages(activeChatId)
   
   const bottomRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   
   // Track structural room switches to block smooth layouts on first frame arrivals
-  const lastChatIdRef = useRef<string>(chatId)
+  const lastChatIdRef = useRef<string>(activeChatId)
   const shouldSnapInstantRef = useRef<boolean>(true)
 
   const [isCameraActive, setIsCameraActive] = useState(false)
   const [isCodeModalOpen, setIsCodeModalOpen] = useState(false)
   const [stream, setStream] = useState<MediaStream | null>(null)
 
-  const sendHook = useSendMessage(chatId)
+  const sendHook = useSendMessage(activeChatId)
 
   // Track if room/URL context shifted underneath the component lifecycle
-  if (lastChatIdRef.current !== chatId) {
-    lastChatIdRef.current = chatId
+  if (lastChatIdRef.current !== activeChatId) {
+    lastChatIdRef.current = activeChatId
     shouldSnapInstantRef.current = true
   }
 
@@ -47,7 +48,7 @@ export const Msg = ({ chatId }: { chatId: string }) => {
 
   // Fetch histories when room is empty
   useEffect(() => {
-    if (!chatId) return
+    if (!chatId || chatId === 'new') return
     if (getMessages(chatId).length > 0) return
     const fetchMsgs = async () => {
       try {

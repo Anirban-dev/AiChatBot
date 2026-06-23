@@ -5,8 +5,8 @@ export const getChat = async (chatId: string) => {
   return res.data
 }
 
-export const createChat = async () => {
-  const res = await api.post(`/chats`)
+export const createChat = async (title?: string) => {
+  const res = await api.post(`/chats`, { title })
   return res.data
 }
 

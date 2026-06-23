@@ -2,14 +2,15 @@
 import os
 import logging
 from pathlib import Path
-import torch  # type: ignore
 from dotenv import load_dotenv  # type: ignore
-from langchain_text_splitters import RecursiveCharacterTextSplitter  # type: ignore
-from lib.litellm_config import CompatibilityClient
 
 # ── Load Environment Variables ────────────────────────────────────────────────
 env_path = Path(__file__).resolve().parent.parent / '.env'
-load_dotenv(dotenv_path=env_path)    
+load_dotenv(dotenv_path=env_path)
+
+import torch  # type: ignore
+from langchain_text_splitters import RecursiveCharacterTextSplitter  # type: ignore
+from lib.litellm_config import CompatibilityClient    
     
 # ── Security & Stream Gateways ────────────────────────────────────────────────
 CONCURRENT_STREAMS = 50
