@@ -13,7 +13,7 @@ import litellm
 from litellm import Router
 from lib.mongodb import llm_logs
 
-os.environ['LITELLM_LOG'] = 'ERROR'   # suppress litellm internal spam; we do our own logging
+os.environ['LITELLM_LOG'] = 'ERROR'
 
 # ── Structured LLM Logger ─────────────────────────────────────────────────────
 _llm_log = logging.getLogger("llm")
@@ -27,28 +27,10 @@ if not _llm_log.handlers:
     _llm_log.setLevel(logging.DEBUG)
     _llm_log.propagate = False
 
-# ── Redis / Routing config ────────────────────────────────────────────────────
-REDIS_URL = os.environ.get("REDIS_URL")
-if REDIS_URL:
-    try:
-        from urllib.parse import urlparse
-        parsed    = urlparse(REDIS_URL)
-        REDIS_HOST = parsed.hostname or "localhost"
-        REDIS_PORT = parsed.port or 6379
-        REDIS_PASSWORD = parsed.password
-    except Exception:
-        REDIS_HOST, REDIS_PORT, REDIS_PASSWORD = "localhost", 6379, None
-else:
-    REDIS_HOST     = os.environ.get("REDIS_HOST", "localhost")
-    REDIS_PORT     = int(os.environ.get("REDIS_PORT", 6379))
-    REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD")
+# ── Timeouts ──────────────────────────────────────────────────────────────────
+_CONNECT_TIMEOUT = 20.0
 
 _IST = ZoneInfo("Asia/Kolkata")
-
-# Timeouts
-_CONNECT_TIMEOUT  = 20.0   # seconds: initial connection to model API
-_CHUNK_TIMEOUT    = 45.0   # seconds: max silence between consecutive stream chunks
-_TOTAL_TIMEOUT    = 120.0  # seconds: absolute max for the full stream
 
 
 # ── MongoDB log writer ────────────────────────────────────────────────────────
@@ -57,18 +39,17 @@ async def log_llm_completion(
     virtual_model: str,
     model: str,
     latency_ms: int,
-    prompt_tokens: int  = 0,
+    prompt_tokens: int   = 0,
     completion_tokens: int = 0,
-    cost: float         = 0.0,
-    error: str          = None,
-    error_details: dict = None,
-    user_id: str        = None,
-    chat_id: str        = None,
-    mode: str           = None,
-    ttft_ms: int        = None,
-    total_chunks: int   = None,
+    cost: float          = 0.0,
+    error: str           = None,
+    error_details: dict  = None,
+    user_id: str         = None,
+    chat_id: str         = None,
+    mode: str            = None,
+    ttft_ms: int         = None,
+    total_chunks: int    = None,
 ):
-    """Write a structured LLM event to MongoDB. Always awaited — never fire-and-forget."""
     try:
         doc = {
             "type":              type,
@@ -87,7 +68,6 @@ async def log_llm_completion(
             "total_chunks":      total_chunks,
             "timestamp":         datetime.now(_IST),
         }
-        # Remove None values to keep documents clean
         doc = {k: v for k, v in doc.items() if v is not None}
         await llm_logs.insert_one(doc)
     except Exception as exc:
@@ -95,7 +75,6 @@ async def log_llm_completion(
 
 
 def _schedule_log(**kwargs):
-    """Safe fire-and-forget log: catches event-loop edge cases."""
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
@@ -110,7 +89,7 @@ def _schedule_log(**kwargs):
 def _make_router():
     from litellm_models import LITELLM_ROUTER_MODELS
     import copy
-
+    # Strip REDIS env vars so litellm Router doesn't try to connect to Redis
     redis_url_backup  = os.environ.pop("REDIS_URL",  None)
     redis_host_backup = os.environ.pop("REDIS_HOST", None)
     redis_port_backup = os.environ.pop("REDIS_PORT", None)
@@ -129,9 +108,9 @@ router = _make_router()
 
 # ── Shared failure logger ─────────────────────────────────────────────────────
 def _log_failure_sync(tier_name, latency_ms, e, user_id=None, chat_id=None, mode=None):
-    status_code  = getattr(e, "status_code", None)
-    err_details  = {"status_code": status_code} if status_code else None
-    short_error  = str(e).split('\n')[0][:200]
+    status_code = getattr(e, "status_code", None)
+    err_details = {"status_code": status_code} if status_code else None
+    short_error = str(e).split('\n')[0][:200]
     _llm_log.error(
         f"FAILURE tier={tier_name} latency={latency_ms}ms "
         f"error={short_error!r} user={user_id} chat={chat_id}"
@@ -147,6 +126,28 @@ def _log_failure_sync(tier_name, latency_ms, e, user_id=None, chat_id=None, mode
         chat_id=chat_id,
         mode=mode,
     )
+
+
+# ── StreamWrapper class ───────────────────────────────────────────────────────
+# FIX: async generators don't support attribute assignment (gen._raw_stream = x crashes).
+# Wrap the generator in a class that IS iterable AND supports attributes.
+class StreamWrapper:
+    """
+    Wraps an async generator so we can attach arbitrary attributes (like _raw_stream)
+    while still being async-iterable with `async for chunk in stream`.
+    """
+    def __init__(self, gen, raw_stream):
+        self._gen        = gen
+        self._raw_stream = raw_stream   # now safely stored as a class attribute
+
+    def __aiter__(self):
+        return self._gen.__aiter__()
+
+    async def __anext__(self):
+        return await self._gen.__anext__()
+
+    async def aclose(self):
+        await self._gen.aclose()
 
 
 # ── Core async completion ─────────────────────────────────────────────────────
@@ -178,7 +179,7 @@ async def async_chat_completion(
             _log_failure_sync(tier_name, elapsed, e, user_id, chat_id, mode)
             raise
 
-        async def stream_wrapper():
+        async def stream_generator():
             model_name        = ""
             prompt_tokens     = 0
             completion_tokens = 0
@@ -219,8 +220,8 @@ async def async_chat_completion(
                 latency_ms = int((end_time - stream_start).total_seconds() * 1000)
 
                 if not prompt_tokens:
-                    prompt_len    = sum(len(m.get("content", "")) for m in messages if isinstance(m.get("content"), str))
-                    prompt_tokens = max(1, prompt_len // 4)
+                    prompt_len        = sum(len(m.get("content", "")) for m in messages if isinstance(m.get("content"), str))
+                    prompt_tokens     = max(1, prompt_len // 4)
                     completion_tokens = max(1, tokens_generated)
 
                 cost = 0.0
@@ -263,11 +264,10 @@ async def async_chat_completion(
                     error_flag = True
                     elapsed = int((datetime.now(timezone.utc) - stream_start).total_seconds() * 1000)
                     _log_failure_sync(tier_name, elapsed, exc, user_id, chat_id, mode)
-                raise  # re-raise so the consumer (chat.py) catches it
+                raise
 
-        gen = stream_wrapper()
-        gen._raw_stream = raw_stream
-        return gen
+        # FIX: return a StreamWrapper instead of trying to set _raw_stream on the generator
+        return StreamWrapper(stream_generator(), raw_stream)
 
     else:
         # ── NON-STREAMING PATH ────────────────────────────────────────────────
