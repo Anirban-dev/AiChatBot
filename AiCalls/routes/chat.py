@@ -164,11 +164,11 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                                 _log.info(f"[TTFT] chat={chat_id} ttft={ttft_ms}ms tier={target_model}")
                                 ttft_logged = True
                             total_tokens += 1
-                            yield val
+                            yield f"data: {json.dumps({'token': val})}\n\n"
                             await asyncio.sleep(0)
                 except RateLimitError:
                     _log.warning(f"[RateLimit] Mid-stream hit: tier={target_model} chat={chat_id}")
-                    yield "\n\n[Rate limit hit — please wait a moment and try again.]"
+                    yield f"event: error\ndata: {json.dumps({'message': 'Rate limit hit — please wait a moment and try again.'})}\n\n"
                 return
 
             # ── ALL OTHER MODES: streaming with tool-call accumulation ─────────
@@ -242,7 +242,7 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                             ttft_logged = True
                         text_content_buffer.append(val)
                         total_tokens += 1
-                        yield val          # raw text — no SSE wrapping
+                        yield f"data: {json.dumps({'token': val})}\n\n"
                         await asyncio.sleep(0)
 
                 # Stream finished for this iteration
@@ -256,7 +256,21 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                 tool_calls_count += len(tool_calls)
                 tool_names = [tc["function"]["name"] for tc in tool_calls]
                 _log.info(f"[Tools] Executing: {tool_names} chat={chat_id}")
-                yield f"\n\n[Action: Calling tool(s): {', '.join(tool_names)}...]\n\n"
+
+                # 1. Output visual text to the user
+                notice = f"\n\n[Action: Calling tool(s): {', '.join(tool_names)}...]\n\n"
+                yield f"data: {json.dumps({'token': notice})}\n\n"
+
+                # 2. Inform Node.js that tools are running (Triggers MongoDB log)
+                for tc in tool_calls:
+                    tool_payload = {
+                        "tool_call": {
+                            "id": tc["id"],
+                            "name": tc["function"]["name"]
+                        },
+                        "status": "running"
+                    }
+                    yield f"data: {json.dumps(tool_payload)}\n\n"
 
                 messages.append({
                     "role":       "assistant",
@@ -278,6 +292,20 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                 results = await asyncio.gather(*[_run(tc) for tc in tool_calls])
 
                 for tc, result in zip(tool_calls, results):
+                    # 1. Tell Node.js the tool finished (Updates MongoDB)
+                    is_error = str(result).startswith("Tool error:")
+                    tool_payload = {
+                        "tool_call": {
+                            "id": tc["id"],
+                            "name": tc["function"]["name"]
+                        },
+                        "status": "failed" if is_error else "completed",
+                        "result": result if not is_error else "",
+                        "error": result if is_error else ""
+                    }
+                    yield f"data: {json.dumps(tool_payload)}\n\n"
+
+                    # 2. Append to Python's internal history
                     messages.append({
                         "role":         "tool",
                         "tool_call_id": tc["id"],
@@ -286,15 +314,17 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                     })
 
             else:
-                yield "\n\n[Agent hit the maximum iteration limit without a final answer.]"
+                fallback_notice = "\n\n[Agent hit the maximum iteration limit without a final answer.]"
+                yield f"data: {json.dumps({'token': fallback_notice})}\n\n"
 
         except RateLimitError:
             _log.warning(f"[RateLimit] Quota hit: chat={chat_id} user={user_id}")
-            yield "\n\n[Rate limit hit — please wait a moment and try again.]"
+            # Use standard SSE error event
+            yield f"event: error\ndata: {json.dumps({'message': 'Rate limit hit — please wait a moment and try again.'})}\n\n"
 
         except Exception as e:
             _log.error(f"[Generate] Pipeline error: chat={chat_id} user={user_id} error={e}", exc_info=True)
-            yield f"\n\n[Error: {e}]"
+            yield f"event: error\ndata: {json.dumps({'message': f'Engine Error: {str(e)}'})}\n\n"
 
         finally:
             elapsed = int((time.monotonic() - gen_start) * 1000)

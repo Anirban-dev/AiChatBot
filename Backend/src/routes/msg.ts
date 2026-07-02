@@ -37,6 +37,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
   const userTier  = (req as any).userTier ?? 'free'
   const userId    = req.userId!
   const startTime = Date.now()
+  let isFinished = false
 
   try {
     const chat = await Chat.findOne({ _id: chatId, userId })
@@ -99,21 +100,23 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     }
     // ──────────────────────────────────────────────────────────────────────────
 
-    // 1. Save user message
+    // 1. Fetch recent context (retrieve last 10 messages in reverse chronological order)
+    const previousMessages = await Message.find({ chatId })
+      .sort({ createdAt: -1 })
+      .limit(10)
+    // Reverse them to restore correct chronological order for the LLM context
+    previousMessages.reverse()
+
+    // 2. Save user message
     const userMessage = await Message.create({ chatId, role: 'user', content })
 
-    // 2. Set streaming headers
+    // 3. Set streaming headers
     res.setHeader('Content-Type',  'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection',    'keep-alive')
     if (res.flushHeaders) res.flushHeaders()
 
     res.write(`event: userMessage\ndata: ${JSON.stringify(userMessage)}\n\n`)
-
-    // 3. Fetch recent context
-    const previousMessages = await Message.find({ chatId })
-      .sort({ createdAt: 1 })
-      .limit(10)
 
     // 4. Call the Python AI service — pass user context so Python can attribute logs
     const aiCallStart = Date.now()
@@ -154,6 +157,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
         details:   { chatId, stage: 'quota_exhausted', userTier, targetTier },
       })
 
+      isFinished = true
       res.write(`event: error\ndata: ${JSON.stringify({ type: 'QUOTA_EXHAUSTED', message: quotaMessage })}\n\n`)
       return res.end()
     }
@@ -178,6 +182,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
         details:   { chatId, stage: 'python_api_error', httpStatus: response.status, pythonMessage: pythonError },
       })
 
+      isFinished = true
       res.write(`event: error\ndata: ${JSON.stringify({ message: 'AI service currently unavailable' })}\n\n`)
       return res.end()
     }
@@ -195,8 +200,8 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     let isAborted       = false
     let ttftMs: number | null = null
 
-    req.on('close', () => {
-      if (!hasSeenActivity || !fullContent.trim()) {
+    res.on('close', () => {
+      if (!isFinished) {
         isAborted = true
         // Call Python stop API to cancel LLM generation thread
         fetch(`${process.env.AI_API}/stop`, {
@@ -225,7 +230,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     }
 
     while (true) {
-      if (isAborted || req.destroyed || req.closed) {
+      if (isAborted || res.destroyed) {
         try {
           await reader.cancel()
         } catch {}
@@ -362,12 +367,14 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       }
     }
 
-    if (isAborted || req.destroyed || req.closed) {
+    if (isAborted || res.destroyed) {
+      isFinished = true
       return res.end()
     }
 
     // 6. Persist completed response
     if (!hasSeenActivity && !fullContent.trim()) {
+      isFinished = true
       res.write(`event: error\ndata: ${JSON.stringify({
         type:    'EMPTY_RESPONSE',
         message: 'The AI returned an empty response. Please try again.',
@@ -401,6 +408,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       .exec()
     // ──────────────────────────────────────────────────────────────────────────
 
+    isFinished = true
     res.write(`event: done\ndata: ${JSON.stringify(assistantMessage)}\n\n`)
     res.end()
 
@@ -461,6 +469,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       },
     })
 
+    isFinished = true
     if (!res.headersSent) {
       return res.status(500).json({ error: 'Internal Server Error' })
     }
