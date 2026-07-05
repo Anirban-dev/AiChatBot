@@ -13,6 +13,7 @@ export const useSendMessage = (chatId: string) => {
   const {
     appendMessage,
     appendToken,
+    appendReasoningToken,
     updateMessage,
     removeMessage,
     updateToolCall,
@@ -208,7 +209,12 @@ export const useSendMessage = (chatId: string) => {
           setLoading(chatId, false)
         },
 
-        messageAbortControllerRef.current.signal
+        messageAbortControllerRef.current.signal,
+
+        (reasoningToken: string) => {
+          setActiveTool(null)
+          appendReasoningToken(targetChatId, streamingId, reasoningToken)
+        }
       )
     } catch (err: any) {
       if (err.name !== 'AbortError') {

@@ -157,14 +157,18 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                         if not active_streams.get(chat_id, StreamState()).active:
                             break
                         delta = chunk.choices[0].delta if chunk.choices else None
-                        val   = getattr(delta, "content", None) or getattr(delta, "reasoning_content", None)
-                        if val is not None:
-                            if not ttft_logged:
-                                ttft_ms = int((time.monotonic() - gen_start) * 1000)
-                                _log.info(f"[TTFT] chat={chat_id} ttft={ttft_ms}ms tier={target_model}")
-                                ttft_logged = True
-                            total_tokens += 1
-                            yield f"data: {json.dumps({'token': val})}\n\n"
+                        if delta:
+                            reasoning = getattr(delta, "reasoning_content", None)
+                            content = getattr(delta, "content", None)
+                            if reasoning:
+                                yield f"data: {json.dumps({'reasoning_token': reasoning})}\n\n"
+                            if content:
+                                if not ttft_logged:
+                                    ttft_ms = int((time.monotonic() - gen_start) * 1000)
+                                    _log.info(f"[TTFT] chat={chat_id} ttft={ttft_ms}ms tier={target_model}")
+                                    ttft_logged = True
+                                total_tokens += 1
+                                yield f"data: {json.dumps({'token': content})}\n\n"
                             await asyncio.sleep(0)
                 except RateLimitError:
                     _log.warning(f"[RateLimit] Mid-stream hit: tier={target_model} chat={chat_id}")
@@ -230,20 +234,23 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                             if tc.function and tc.function.arguments:
                                 tool_calls_buffer[idx]["function"]["arguments"] += tc.function.arguments
 
-                    # B. Regular text / reasoning — yield directly as raw text
                     elif (
                         getattr(delta, "content", None) is not None or
                         getattr(delta, "reasoning_content", None) is not None
                     ):
-                        val = getattr(delta, "content", None) or getattr(delta, "reasoning_content", None)
-                        if not ttft_logged:
-                            ttft_ms = int((time.monotonic() - gen_start) * 1000)
-                            _log.info(f"[TTFT] chat={chat_id} ttft={ttft_ms}ms iter={iteration+1} tier={target_model}")
-                            ttft_logged = True
-                        text_content_buffer.append(val)
-                        total_tokens += 1
-                        yield f"data: {json.dumps({'token': val})}\n\n"
-                        await asyncio.sleep(0)
+                        reasoning = getattr(delta, "reasoning_content", None)
+                        content = getattr(delta, "content", None)
+                        if reasoning:
+                            yield f"data: {json.dumps({'reasoning_token': reasoning})}\n\n"
+                        if content:
+                            if not ttft_logged:
+                                ttft_ms = int((time.monotonic() - gen_start) * 1000)
+                                _log.info(f"[TTFT] chat={chat_id} ttft={ttft_ms}ms iter={iteration+1} tier={target_model}")
+                                ttft_logged = True
+                            text_content_buffer.append(content)
+                            total_tokens += 1
+                            yield f"data: {json.dumps({'token': content})}\n\n"
+                            await asyncio.sleep(0)
 
                 # Stream finished for this iteration
                 if not is_tool_call:

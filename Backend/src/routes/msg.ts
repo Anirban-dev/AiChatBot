@@ -194,6 +194,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     const decoder = new TextDecoder()
 
     let fullContent     = ''
+    let reasoningContent = ''
     let buffer          = ''
     let activeToolCalls: Record<string, unknown>[] = []
     let hasSeenActivity = false
@@ -355,14 +356,22 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
           if (ttftMs === null) {
             ttftMs = Date.now() - aiCallStart
           }
-          let token = data
           try {
             const parsed = JSON.parse(data)
-            if (typeof parsed?.token === 'string') token = parsed.token
-          } catch { /* raw text */ }
-
-          fullContent += token
-          res.write(`event: token\ndata: ${JSON.stringify({ token })}\n\n`)
+            if (typeof parsed?.reasoning_token === 'string') {
+              reasoningContent += parsed.reasoning_token
+              res.write(`event: reasoning\ndata: ${JSON.stringify({ token: parsed.reasoning_token })}\n\n`)
+            } else if (typeof parsed?.token === 'string') {
+              fullContent += parsed.token
+              res.write(`event: token\ndata: ${JSON.stringify({ token: parsed.token })}\n\n`)
+            } else {
+              fullContent += data
+              res.write(`event: token\ndata: ${JSON.stringify({ token: data })}\n\n`)
+            }
+          } catch {
+            fullContent += data
+            res.write(`event: token\ndata: ${JSON.stringify({ token: data })}\n\n`)
+          }
         }
       }
     }
@@ -390,6 +399,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       chatId: req.params.chatId,
       role:    'assistant',
       content: cleanContent, // 🚀 Uses the sanitized, non-empty variable
+      reasoning: reasoningContent || undefined,
       toolCalls: activeToolCalls,
     });
 

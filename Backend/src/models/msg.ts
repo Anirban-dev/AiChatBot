@@ -16,6 +16,9 @@ const messageSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  reasoning: {
+    type: String,
+  },
   fileInfo: {
     name: String,
     size: Number,

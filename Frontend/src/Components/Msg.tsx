@@ -169,6 +169,27 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
                 </div>
               )}
 
+              {/* Thinking block — shown only for assistant messages with reasoning */}
+              {msg.role === 'assistant' && msg.reasoning && (
+                <details open className="w-full group/think border border-gray-200/60 dark:border-gray-700/60 rounded-2xl bg-gray-50/50 dark:bg-gray-800/10 mb-1.5 overflow-hidden transition-all duration-300">
+                  <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none text-xs font-semibold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                    <span className="text-violet-500 animate-pulse">🧠</span>
+                    <span>Thought process</span>
+                    <svg
+                      className="w-3.5 h-3.5 ml-auto transition-transform duration-300 group-open/think:rotate-180"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </summary>
+                  <div className="px-4 pb-3 pt-1 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-150 dark:border-gray-700/40 font-serif leading-relaxed whitespace-pre-wrap">
+                    {msg.reasoning}
+                  </div>
+                </details>
+              )}
+
               <div className={`px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
                 msg.role === 'user' ? 'bg-blue-600 text-white rounded-2xl rounded-br-sm shadow-xs' : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 rounded-2xl rounded-bl-sm border border-gray-100 dark:border-gray-700 shadow-xs'
               }`}>

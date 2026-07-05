@@ -18,7 +18,8 @@ export const sendMsg = async (
   onToolCall: (payload: { tool: string; status: string }) => void,
   onDone: (assistantMsg: any) => void,
   onError: (errData: { type?: string; message: string }) => void,
-  signal: AbortSignal
+  signal: AbortSignal,
+  onReasoning?: (reasoning: string) => void
 ) => {
   const res = await fetchWithRefresh(`${BASE_URL}/chats/${chatId}/msgs`, {
     method: 'POST',
@@ -85,6 +86,11 @@ export const sendMsg = async (
               break
             case 'token':
               onToken(parsed.token)
+              break
+            case 'reasoning':
+              if (onReasoning) {
+                onReasoning(parsed.token)
+              }
               break
             case 'tool':
               onToolCall(parsed)

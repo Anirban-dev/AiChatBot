@@ -20,6 +20,7 @@ export interface Message {
   _id: string
   role: 'user' | 'assistant'
   content: string
+  reasoning?: string
   fileInfo?: FileMetadata
   toolCalls?: ToolCall[]
   createdAt: string
@@ -32,6 +33,7 @@ interface ChatContextType {
   updateMessage: (chatId: string, msgId: string, update: Partial<Message>) => void
   removeMessage: (chatId: string, msgId: string) => void
   appendToken: (chatId: string, msgId: string, token: string) => void
+  appendReasoningToken: (chatId: string, msgId: string, token: string) => void
   updateToolCall: (chatId: string, msgId: string, toolCall: ToolCall) => void
   setLoading: (chatId: string, val: boolean) => void
   isLoading: (chatId: string) => boolean
@@ -104,6 +106,32 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
     })
   }
 
+  const appendReasoningToken = (chatId: string, msgId: string, token: string) => {
+    setStore(prev => {
+      const msgs = prev[chatId] || []
+      const exists = msgs.find(m => m._id === msgId)
+      if (exists) {
+        return {
+          ...prev,
+          [chatId]: msgs.map(m =>
+            m._id === msgId ? { ...m, reasoning: (m.reasoning || '') + token } : m
+          )
+        }
+      } else {
+        return {
+          ...prev,
+          [chatId]: [...msgs, {
+            _id: msgId,
+            role: 'assistant',
+            content: '',
+            reasoning: token,
+            createdAt: new Date().toISOString(),
+          }]
+        }
+      }
+    })
+  }
+
   const updateToolCall = (chatId: string, msgId: string, toolCall: ToolCall) => {
     setStore(prev => {
       const msgs = prev[chatId] || []
@@ -125,7 +153,7 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
   return (
     <ChatContext.Provider value={{
       getMessages, setMessages, appendMessage,
-      updateMessage, removeMessage, appendToken, updateToolCall, setLoading, isLoading
+      updateMessage, removeMessage, appendToken, appendReasoningToken, updateToolCall, setLoading, isLoading
     }}>
       {children}
     </ChatContext.Provider>
