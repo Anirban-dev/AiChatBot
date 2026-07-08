@@ -7,14 +7,18 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  // Add this block right here:
+  worker: {
+    format: 'es'
+  },
   envDir: '../',
   server: {
     allowedHosts: [
-      '.trycloudflare.com' // Allows any subdomain from Cloudflare Tunnels
+      '.trycloudflare.com' 
     ],
     proxy: {
       '/api': {
-        target: 'http://localhost:3000', // Put your exact local backend URL/port here
+        target: 'http://localhost:3000', 
         changeOrigin: true,
         secure: false,
       }

@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import { adminAuthMiddleware, AdminRequest } from '../../middleware/auth'
 import { midLimiter } from '../../utils/ratelimitHelper'
 import { LlmLog } from '../../models/llmLog'
+import { PipelineStage } from 'mongoose';
 
 const router = Router()
 router.use(adminAuthMiddleware)
@@ -190,7 +191,7 @@ router.get('/user-logs', midLimiter, async (req: AdminRequest, res: Response) =>
     const since      = new Date(Date.now() - sinceHours * 3_600_000)
     const limit      = parseInt(req.query.limit as string) || 50
 
-    const pipeline = [
+    const pipeline: PipelineStage[] = [
       { $match: { timestamp: { $gte: since }, userId: { $exists: true, $ne: null } } },
       {
         $group: {
@@ -210,7 +211,7 @@ router.get('/user-logs', midLimiter, async (req: AdminRequest, res: Response) =>
       { $sort: { total_requests: -1 } },
       { $limit: limit },
       { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'user' } },
-      { $unwind: { path: '$user', preserveNullAndEmpty: true } },
+      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
     ]
 
     const stats = await LlmLog.aggregate(pipeline)

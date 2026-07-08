@@ -136,7 +136,7 @@ router.get('/metrics', midLimiter, async (req: AdminRequest, res: Response) => {
         { $sort: { total: -1 } },
         { $limit: 10 },
         { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'user' } },
-        { $unwind: { path: '$user', preserveNullAndEmpty: true } },
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
       ]),
     ])
 
