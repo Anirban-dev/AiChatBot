@@ -1,6 +1,7 @@
 .venv
 .env
 __pycache__/
+dump/
 *.pyc
 .git
 faiss_index

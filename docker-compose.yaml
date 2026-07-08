@@ -1,11 +1,15 @@
 name: chatai
 
 services:
-  # === YOUR THREE APPLICATION SERVICES ===
   frontend:
     build:
       context: ./Frontend
       dockerfile: Dockerfile
+      args:
+        # Bakes variables into Vite during the build phase
+        - VITE_BASE_URL=${VITE_BASE_URL}
+        - VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}
+        - VITE_ADMIN_TOKEN=${VITE_ADMIN_TOKEN}
     ports:
       - "5173:80"
     restart: on-failure
@@ -21,12 +25,22 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - MONGO_URI=mongodb://mongodb:27017/chatai
-      - REDIS_URL=redis://redis:6379
+      # Automatically falls back to internal container paths if not defined on host
+      - MONGO_URI=${MONGO_URI:-mongodb://mongodb:27017/AiAssistant}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - AI_API=${AI_API:-http://aicalls:8000/agent}
+      - EMAIL_USER=${EMAIL_USER}
+      - EMAIL_PASS=${EMAIL_PASS}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
     restart: on-failure
     depends_on:
-      - mongodb
-      - redis
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - backend_net
 
@@ -37,9 +51,24 @@ services:
     ports:
       - "8005:8000"
     environment:
-      - REDIS_URL=redis://redis:6379
+      - PYTHONUTF8=${PYTHONUTF8:-1}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - QDRANT_COLLECTION_PREFIX=${QDRANT_COLLECTION_PREFIX:-chat}
+      - SEARXNG_URL=${SEARXNG_URL:-http://searxng:8080}
+      - FIRECRAWL_URL=${FIRECRAWL_URL:-http://firecrawl-api:3002}
+      # --- LLM API Keys ---
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - TOGETHER_API_KEY=${TOGETHER_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - HF_TOKEN=${HF_TOKEN}
+      - SAMBANOVA_API_KEY=${SAMBANOVA_API_KEY}
+      - DEEPINFRA_API_KEY=${DEEPINFRA_API_KEY}
+      - CLOUDFLARE_API_KEY=${CLOUDFLARE_API_KEY}
+      - LIGHTNING_API_KEY=${LIGHTNING_API_KEY}
     restart: on-failure
     depends_on:
       - redis
@@ -47,10 +76,8 @@ services:
     networks:
       - backend_net
 
-  # === YOUR INFRASTRUCTURE STACK ===
   searxng:
     image: searxng/searxng:latest
-    platform: linux/arm64
     ports:
       - "8888:8080"
     volumes:
@@ -63,7 +90,6 @@ services:
 
   tor-proxy:
     image: leplusorg/tor:latest
-    platform: linux/arm64
     restart: unless-stopped
     environment:
       - SOCKS_HOSTNAME=0.0.0.0
@@ -72,10 +98,8 @@ services:
     networks:
       - backend_net
 
-  # Firecrawl stack translated to amd64 emulation for ARM system stability
   firecrawl-api:
     image: trieve/firecrawl:v0.0.46
-    platform: linux/amd64
     environment:
       - PORT=3002
       - HOST=0.0.0.0
@@ -97,7 +121,6 @@ services:
 
   firecrawl-worker:
     image: trieve/firecrawl:v0.0.46
-    platform: linux/amd64
     environment:
       - REDIS_URL=redis://redis:6379
       - PLAYWRIGHT_MICROSERVICE_URL=http://playwright-service:3000
@@ -115,7 +138,6 @@ services:
 
   playwright-service:
     image: trieve/puppeteer-service-ts:v0.0.6
-    platform: linux/amd64
     environment:
       - PORT=3000
     networks:
@@ -123,7 +145,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    platform: linux/arm64
     restart: on-failure
     ports:
       - "6379:6379"
@@ -133,7 +154,6 @@ services:
 
   qdrant:
     image: qdrant/qdrant:latest
-    platform: linux/arm64
     ports:
       - "6333:6333"
     volumes:
@@ -144,12 +164,17 @@ services:
 
   mongodb:
     image: mongo:7
-    platform: linux/arm64
     ports:
       - "27017:27017"
     volumes:
       - ./dump/mongo_data:/data/db
     restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping')\""]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     networks:
       - backend_net
 

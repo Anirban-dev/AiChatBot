@@ -44,5 +44,5 @@ export const googleLogin = async (code: string): Promise<AuthResponse> => {
 
 export const logout = () => {
   clearSession()
-  window.location.href = '/login/login'
+  window.location.href = '/login'
 }
