@@ -1,7 +1,7 @@
 name: chatai
 
 services:
-  # === YOUR THREE APPLICATION SERVICES (Automatically builds as ARM64) ===
+  # === YOUR THREE APPLICATION SERVICES ===
   frontend:
     build:
       context: ./Frontend
@@ -11,6 +11,8 @@ services:
     restart: on-failure
     depends_on:
       - backend
+    networks:
+      - backend_net
 
   backend:
     build:
@@ -45,7 +47,7 @@ services:
     networks:
       - backend_net
 
-  # === YOUR INFRASTRUCTURE STACK (Forced to ARM64 Native) ===
+  # === YOUR INFRASTRUCTURE STACK ===
   searxng:
     image: searxng/searxng:latest
     platform: linux/arm64
@@ -60,16 +62,20 @@ services:
       - tor-proxy
 
   tor-proxy:
-    image: peterdavehello/tor-socks-proxy:latest
+    image: leplusorg/tor:latest
     platform: linux/arm64
-    restart: on-failure
+    restart: unless-stopped
+    environment:
+      - SOCKS_HOSTNAME=0.0.0.0
+    ports:
+      - "9150:9050"
     networks:
       - backend_net
 
-  # Firecrawl multi-platform images can be unstable on ARM; using stable native tags if needed
+  # Firecrawl stack translated to amd64 emulation for ARM system stability
   firecrawl-api:
     image: trieve/firecrawl:v0.0.46
-    platform: linux/arm64
+    platform: linux/amd64
     environment:
       - PORT=3002
       - HOST=0.0.0.0
@@ -91,7 +97,7 @@ services:
 
   firecrawl-worker:
     image: trieve/firecrawl:v0.0.46
-    platform: linux/arm64
+    platform: linux/amd64
     environment:
       - REDIS_URL=redis://redis:6379
       - PLAYWRIGHT_MICROSERVICE_URL=http://playwright-service:3000
@@ -109,18 +115,19 @@ services:
 
   playwright-service:
     image: trieve/puppeteer-service-ts:v0.0.6
-    platform: linux/arm64
+    platform: linux/amd64
     environment:
       - PORT=3000
     networks:
       - backend_net
 
   redis:
-    image: redis:7-alpine # Upgraded to v7 alpine for seamless native ARM64 support
+    image: redis:7-alpine
     platform: linux/arm64
     restart: on-failure
     ports:
       - "6379:6379"
+    command: ["redis-server", "--ignore-warnings", "ARM64-COW-BUG"]
     networks:
       - backend_net
 
@@ -137,7 +144,7 @@ services:
 
   mongodb:
     image: mongo:7
-    platform: linux/arm64 # MongoDB 7 has excellent native ARM64 optimizations
+    platform: linux/arm64
     ports:
       - "27017:27017"
     volumes:
