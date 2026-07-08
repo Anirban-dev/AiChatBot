@@ -100,8 +100,7 @@ services:
 
   firecrawl-api:
     build:
-      context: git+https://github.com/devflowinc/firecrawl-simple.git#main?submodules=true
-      dockerfile: apps/api/Dockerfile
+      image: ghcr.io/mendableai/firecrawl:latest
     environment:
       - PORT=3002
       - HOST=0.0.0.0
@@ -122,8 +121,7 @@ services:
       - backend_net
 
   firecrawl-worker:
-    context: git+https://github.com/devflowinc/firecrawl-simple.git#main?submodules=true
-    dockerfile: apps/api/Dockerfile
+    image: ghcr.io/mendableai/firecrawl:latest
     environment:
       - REDIS_URL=redis://redis:6379
       - PLAYWRIGHT_MICROSERVICE_URL=http://playwright-service:3000
@@ -140,8 +138,7 @@ services:
       - backend_net
 
   playwright-service:
-    context: git+https://github.com/devflowinc/firecrawl-simple.git#main?submodules=true
-    dockerfile: apps/puppeteer-service-ts/Dockerfile
+    image: ghcr.io/mendableai/playwright-service:latest
     environment:
       - PORT=3000
     networks:
