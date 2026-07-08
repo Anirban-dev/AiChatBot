@@ -99,8 +99,7 @@ services:
       - backend_net
 
   firecrawl-api:
-    build:
-      image: ghcr.io/mendableai/firecrawl:latest
+    image: ghcr.io/mendableai/firecrawl:latest
     environment:
       - PORT=3002
       - HOST=0.0.0.0
