@@ -35,7 +35,7 @@ services:
       context: ./AiCalls
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8005:8000"
     environment:
       - REDIS_URL=redis://redis:6379
       - QDRANT_HOST=qdrant
