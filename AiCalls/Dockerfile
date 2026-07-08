@@ -1,11 +1,11 @@
-FROM python:3.12-slim AS builder
+FROM python:3.13-slim AS builder
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR /app
 ENV UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock ./
 RUN uv sync --no-install-project --no-dev
 
-FROM python:3.12-slim
+FROM python:3.13-slim
 WORKDIR /app
 COPY . .
 COPY --from=builder /app/.venv /app/.venv
