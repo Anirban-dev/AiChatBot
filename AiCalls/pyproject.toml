@@ -46,3 +46,6 @@ torchaudio = { index = "pytorch-cpu" }
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
+
+[tool.uv]
+index-strategy = "unsafe-best-match"
