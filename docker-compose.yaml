@@ -98,50 +98,54 @@ services:
     networks:
       - backend_net
 
-  firecrawl-api:
-    image: ghcr.io/mendableai/firecrawl:latest
-    environment:
-      - PORT=3002
-      - HOST=0.0.0.0
-      - REDIS_URL=redis://redis:6379
-      - REDIS_RATE_LIMIT_URL=redis://redis:6379
-      - PLAYWRIGHT_MICROSERVICE_URL=http://playwright-service:3000
-      - DATABASE_URL=mongodb://mongodb:27017/firecrawl
-      - ORIGIN_URL=http://localhost:3002
-      - LLM_ENABLED=false
-      - COREPACK_ENABLE_STRICT=0
-      - COREPACK_INTEGRITY_KEYS=0
-    command: ["pnpm", "run", "start:production"]
-    depends_on:
-      - redis
-      - playwright-service
-      - mongodb
-    networks:
-      - backend_net
+  # firecrawl-api:
+  #   build:
+  #     context: https://github.com/devflowinc/firecrawl-simple.git#main
+  #     dockerfile: apps/api/Dockerfile
+  #   environment:
+  #     - PORT=3002
+  #     - HOST=0.0.0.0
+  #     - REDIS_URL=redis://redis:6379
+  #     - REDIS_RATE_LIMIT_URL=redis://redis:6379
+  #     - PLAYWRIGHT_MICROSERVICE_URL=http://playwright-service:3000
+  #     - DATABASE_URL=mongodb://mongodb:27017/firecrawl
+  #     - ORIGIN_URL=http://localhost:3002
+  #     - LLM_ENABLED=false
+  #     - COREPACK_ENABLE_STRICT=0
+  #     - COREPACK_INTEGRITY_KEYS=0
+  #   command: ["pnpm", "run", "start:production"]
+  #   depends_on:
+  #     - redis
+  #     - playwright-service
+  #     - mongodb
+  #   networks:
+  #     - backend_net
 
-  firecrawl-worker:
-    image: ghcr.io/mendableai/firecrawl:latest
-    environment:
-      - REDIS_URL=redis://redis:6379
-      - PLAYWRIGHT_MICROSERVICE_URL=http://playwright-service:3000
-      - DATABASE_URL=mongodb://mongodb:27017/firecrawl
-      - COREPACK_ENABLE_STRICT=0
-      - COREPACK_INTEGRITY_KEYS=0
-    command: ["pnpm", "run", "workers"]
-    depends_on:
-      - redis
-      - playwright-service
-      - mongodb
-      - firecrawl-api
-    networks:
-      - backend_net
+  # firecrawl-worker:
+  #   image: ghcr.io/mendableai/firecrawl:latest
+  #   environment:
+  #     - REDIS_URL=redis://redis:6379
+  #     - PLAYWRIGHT_MICROSERVICE_URL=http://playwright-service:3000
+  #     - DATABASE_URL=mongodb://mongodb:27017/firecrawl
+  #     - COREPACK_ENABLE_STRICT=0
+  #     - COREPACK_INTEGRITY_KEYS=0
+  #   command: ["pnpm", "run", "workers"]
+  #   depends_on:
+  #     - redis
+  #     - playwright-service
+  #     - mongodb
+  #     - firecrawl-api
+  #   networks:
+  #     - backend_net
 
-  playwright-service:
-    image: ghcr.io/mendableai/playwright-service:latest
-    environment:
-      - PORT=3000
-    networks:
-      - backend_net
+  # playwright-service:
+  #   build:
+  #     context: https://github.com/devflowinc/firecrawl-simple.git#main
+  #     dockerfile: apps/puppeteer-service-ts/Dockerfile
+  #   environment:
+  #     - PORT=3000
+  #   networks:
+  #     - backend_net
 
   redis:
     image: redis:7-alpine
