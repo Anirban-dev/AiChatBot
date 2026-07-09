@@ -34,3 +34,15 @@ dependencies = [
     "uvicorn>=0.46.0",
     "youtube-transcript-api>=1.2.4",
 ]
+
+# --- ADD EVERYTHING BELOW THIS LINE ---
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+torchaudio = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
