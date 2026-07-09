@@ -6,12 +6,13 @@ let pyodide: PyodideInterface | null = null;
 async function initPyodide() {
   if (pyodide) return pyodide;
 
-  // 1. Load the core engine from your public folder
+  // 1. Point the indexURL to the CDN instead of your local public folder
+  // IMPORTANT: The version here must match the version in your package.json!
   pyodide = await loadPyodide({
-    indexURL: "/pyodide/",
+    indexURL: "https://cdn.jsdelivr.net/pyodide/v0.29.4/full/", 
   });
 
-  // 2. Load essential packages
+  // 2. Load essential packages (these will now automatically download from the CDN)
   await pyodide.loadPackage(["micropip", "numpy", "pandas"]);
 
   // 3. Setup micropip for any extra AI-requested installs
