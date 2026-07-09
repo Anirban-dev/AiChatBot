@@ -33,9 +33,10 @@ dependencies = [
     "tabulate>=0.10.0",
     "uvicorn>=0.46.0",
     "youtube-transcript-api>=1.2.4",
+    "torch",
+    "torchvision",
+    "torchaudio"
 ]
-
-# --- ADD EVERYTHING BELOW THIS LINE ---
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
