@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "docling>=2.93.0",
+    "docling==2.111.0",
     "fastapi>=0.136.1",
     "fastmcp>=3.2.4",
     "httpx>=0.28.1",
