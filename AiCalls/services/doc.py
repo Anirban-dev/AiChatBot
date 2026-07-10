@@ -11,7 +11,6 @@ from docling.datamodel.document import (  # type: ignore
     SectionHeaderItem,
     TableItem,
     PictureItem,
-    Figure,
 )
 
 # ── DOCLING SETUP ─────────────────────────────────────────────────────────────
@@ -71,7 +70,7 @@ async def load_structured_doc(path: str, filename: str) -> list[Document]:
 
     # ── 2. Embedded Images (Vision AI descriptions) ───────────────────────────
     for element, _level in result.document.iterate_items():
-        if isinstance(element, (PictureItem, Figure)):
+        if isinstance(element, PictureItem):
             try:
                 pil_img = getattr(element.image, "pil_image", element.image)
                 if pil_img is None:

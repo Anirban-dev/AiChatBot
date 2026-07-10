@@ -74,7 +74,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "docling", specifier = ">=2.93.0" },
+    { name = "docling", specifier = "==2.111.0" },
     { name = "fastapi", specifier = ">=0.136.1" },
     { name = "fastmcp", specifier = ">=3.2.4" },
     { name = "httpx", specifier = ">=0.28.1" },
