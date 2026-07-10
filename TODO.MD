@@ -17,6 +17,8 @@ uv run -m tests.test_router large huggingface/deepseek-ai/DeepSeek-V4-Pro
 
 make admin : npm run make-admin user@example.com
 
+docker compose -f docker-compose-util.yml up -d
+
 
 LIGHTENING AI
 export OLLAMA_HOST=0.0.0.0
