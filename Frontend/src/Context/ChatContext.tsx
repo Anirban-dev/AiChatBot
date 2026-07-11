@@ -22,6 +22,7 @@ export interface Message {
   content: string
   reasoning?: string
   fileInfo?: FileMetadata
+  text?: string
   toolCalls?: ToolCall[]
   createdAt: string
 }

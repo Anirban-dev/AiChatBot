@@ -61,10 +61,23 @@ async def analyze_page_images(client: httpx.AsyncClient, image_urls: list[str]) 
 
 
 async def firecrawl_scrape(client: httpx.AsyncClient, url: str) -> str:
+    base_url = FIRECRAWL_URL.rstrip("/")
+    
+    # Add a dummy Authorization header. Some local Firecrawl versions reject requests without it.
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer dummy_key_for_local"
+    }
+    
     res = await client.post(
-        f"{FIRECRAWL_URL}/v1/scrape",
+        f"{base_url}/v1/scrape",
+        headers=headers,
         json={"url": url, "formats": ["markdown"]}
     )
-    res.raise_for_status()
+    
+    if res.status_code != 200:
+        # Raise the actual text so our deep_research try/catch can print the REAL error
+        raise Exception(f"HTTP {res.status_code}: {res.text[:250]}")
+        
     content = res.json().get("data", {}).get("markdown", "")
     return content[:MAX_CONTENT_CHARS] or "No content found."

@@ -89,26 +89,29 @@ async def _reddit(client: httpx.AsyncClient, url: str) -> str | None:
 
 
 async def _wikipedia(client: httpx.AsyncClient, url: str) -> str | None:
-    if "wikipedia.org" not in url:
-        return None
+    if "wikipedia.org" not in url: return None
     try:
-        # extract article title from url
         title = url.rstrip("/").split("/wiki/")[-1]
-        lang = urlparse(url).hostname.split(".")[0]  # e.g. "en", "fr"
+        lang = urlparse(url).hostname.split(".")[0]
+        
+        # Wikipedia requires a descriptive User-Agent
+        headers = {"User-Agent": "ResearchAgent/1.0 (contact@example.com)"}
 
         summary_res = await client.get(
-            f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{title}"
+            f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{title}",
+            headers=headers
         )
         summary_res.raise_for_status()
         summary = summary_res.json()
 
         sections_res = await client.get(
-            f"https://{lang}.wikipedia.org/api/rest_v1/page/mobile-sections/{title}"
+            f"https://{lang}.wikipedia.org/api/rest_v1/page/mobile-sections/{title}",
+            headers=headers
         )
         body_text = ""
         if sections_res.status_code == 200:
             sections = sections_res.json().get("remaining", {}).get("sections", [])
-            for section in sections[:5]:  # first 5 sections
+            for section in sections[:5]:
                 heading = section.get("line", "")
                 text = re.sub(r'<[^>]+>', '', section.get("text", ""))[:500]
                 body_text += f"\n## {heading}\n{text}"
@@ -119,9 +122,10 @@ async def _wikipedia(client: httpx.AsyncClient, url: str) -> str | None:
             f"Summary:\n{summary.get('extract', '')}\n"
             f"{body_text[:MAX_CONTENT_CHARS]}"
         )
-    except Exception:
+    except Exception as e:
+        print(f"[Wikipedia Scrape Error]: {e}")
         return None
-
+    
 
 async def _youtube(client: httpx.AsyncClient, url: str) -> str | None:
     if "youtube.com" not in url and "youtu.be" not in url:

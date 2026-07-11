@@ -10,25 +10,33 @@ from config import SEARXNG_URL
 @tool
 async def deep_research(query: str) -> str:
     """Search the web and scrape top results for a query. Use for open-ended research questions."""
+    
+    base_url = SEARXNG_URL.rstrip("/")
+    
+    async with httpx.AsyncClient(timeout=httpx.Timeout(20.0)) as client:
+        try:
+            search_res = await client.get(
+                f"{base_url}/search",
+                params={"q": query, "format": "json"}
+            )
+            search_res.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            return f"Search engine error: {e.response.status_code}. Did you enable JSON format in SearXNG settings.yml?"
+        except Exception as e:
+            return f"Failed to connect to SearXNG at {base_url}. Error: {e}"
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
-
-        search_res = await client.get(
-            f"{ SEARXNG_URL}/search",
-            params={"q": query, "format": "json"}
-        )
-        search_res.raise_for_status()
-        results = search_res.json().get("results", [])[:3]
+        try:
+            results = search_res.json().get("results", [])[:3]
+        except ValueError:
+            return f"SearXNG did not return JSON. It returned: {search_res.text[:200]}"
 
         research_data = []
 
         for item in results:
             url = item.get("url", "")
-            if not url:
-                continue
+            if not url: continue
 
             volatile = is_volatile(url)
-
             if not volatile:
                 cached = await cache.get(url)
                 if cached:
@@ -36,6 +44,7 @@ async def deep_research(query: str) -> str:
                     continue
 
             try:
+                # Fallback to firecrawl directly if it's just general research
                 content = await firecrawl_scrape(client, url)
             except Exception as e:
                 research_data.append(f"Source: {url}\nContent: Failed to scrape: {e}")

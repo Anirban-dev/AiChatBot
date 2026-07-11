@@ -250,6 +250,11 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
                       getFileIcon={sendHook.getFileIcon}
                       formatFileSize={sendHook.formatFileSize}
                     />
+                    {msg.text && (
+                    <div className="border-t border-white/20 dark:border-gray-700/60 pt-2 mt-1">
+                      <MarkdownRenderer content={msg.text} isUser={msg.role === 'user'} runCode={sendHook.runCode} />
+                    </div>
+                  )}
                   </div>
                 ) : (
                   <MarkdownRenderer content={msg.content} isUser={msg.role === 'user'} runCode={sendHook.runCode} />

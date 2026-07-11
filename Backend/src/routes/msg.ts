@@ -112,6 +112,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       chatId,
       role: 'user',
       content: fileContent || content,
+      text: fileContent ? content : undefined,
       fileInfo: fileInfo
     })
 
