@@ -1,7 +1,6 @@
 import { Router, Response } from 'express'
 import multer from 'multer'
 import authMiddleware, { AuthRequest } from '../middleware/auth'
-import { Message } from '../models/msg'
 import path from 'path'
 import { uploadLimiter } from '../utils/ratelimitHelper'
 import { writeLog } from '../utils/logger'
@@ -71,17 +70,23 @@ router.post('/upload', uploadLimiter, upload.single('file'), async (req: AuthReq
       return res.status(502).json({ error: 'File could not be processed by AI service' })
     }
 
-    const fileMsg = await Message.create({
-      chatId,
-      role: 'user',
-      content: `Uploaded file: ${req.file.originalname}`,
-      fileInfo: {
-        name: req.file.originalname,
-        size: req.file.size,
-        mimeType: req.file.mimetype,
-        extension: path.extname(req.file.originalname).toLowerCase()
-      }
-    })
+    const ext = path.extname(req.file.originalname).toLowerCase()
+    const isTextOrCode = ['.txt', '.md', '.json', '.js', '.ts', '.py', '.cpp', '.c', '.h', '.html', '.css', '.csv'].includes(ext)
+    const isImage = req.file.mimetype.startsWith('image/')
+    
+    let content = `Uploaded file: ${req.file.originalname}`
+    if (isTextOrCode) {
+      content = req.file.buffer.toString('utf8')
+    } else if (isImage) {
+      content = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`
+    }
+
+    const fileInfo = {
+      name: req.file.originalname,
+      size: req.file.size,
+      mimeType: req.file.mimetype,
+      extension: ext
+    }
 
     await writeLog({
       userId: req.userId,
@@ -104,7 +109,8 @@ router.post('/upload', uploadLimiter, upload.single('file'), async (req: AuthReq
     res.json({
       success: true,
       message: 'File uploaded and indexed successfully',
-      data: fileMsg
+      fileInfo,
+      content
     })
   } catch (err) {
     console.error('File Upload Proxy Error:', err)

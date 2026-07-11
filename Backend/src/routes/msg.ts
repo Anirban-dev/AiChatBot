@@ -26,10 +26,10 @@ router.get('/', midLimiter, async (req: Request<{ chatId: string }>, res: Respon
 
 // ─── POST / — send a message and stream the AI response ──────────────────────
 router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: Response) => {
-  const { content, model = 'small' } = req.body
+  const { content, model = 'small', fileInfo, fileContent } = req.body
   const { chatId } = req.params
 
-  if (!content) return res.status(400).json({ error: 'Content is required' })
+  if (!content && !fileContent) return res.status(400).json({ error: 'Content is required' })
 
   const validTiers = ['small', 'large', 'thinking', 'critiq']
   const targetTier = validTiers.includes(model) ? model : 'small'
@@ -108,7 +108,12 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     previousMessages.reverse()
 
     // 2. Save user message
-    const userMessage = await Message.create({ chatId, role: 'user', content })
+    const userMessage = await Message.create({
+      chatId,
+      role: 'user',
+      content: fileContent || content,
+      fileInfo: fileInfo
+    })
 
     // 3. Set streaming headers
     res.setHeader('Content-Type',  'text/event-stream')
@@ -129,10 +134,17 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
         'X-Chat-Id':    chatId,
       },
       body: JSON.stringify({
-        message:   content,
+        message:   fileContent || content,
+        text:      fileContent ? content : undefined,
+        fileInfo:  fileInfo,
         chat_id:   chatId,
         mode:      targetTier,
-        history:   previousMessages.map(m => ({ role: m.role, content: m.content })),
+        history:   previousMessages.map(m => ({
+          role: m.role,
+          content: m.content,
+          text: (m as any).text,
+          fileInfo: m.fileInfo
+        })),
       }),
     })
 
@@ -181,6 +193,18 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
         latency:   Date.now() - startTime,
         details:   { chatId, stage: 'python_api_error', httpStatus: response.status, pythonMessage: pythonError },
       })
+
+      const failMsg = `FAILURE tier=${targetTier} user=${userId} chat=${chatId} stage=python_api_error error=${pythonError}`
+      LlmLog.create({
+        type:          'failure',
+        userId:        new (require('mongoose').Types.ObjectId)(userId),
+        chatId:        new (require('mongoose').Types.ObjectId)(chatId),
+        virtual_model: targetTier,
+        mode:          targetTier,
+        latency_ms:    Date.now() - startTime,
+        error:         failMsg,
+        timestamp:     new Date(),
+      }).catch((e: any) => console.error('[LlmLog] Failed to write lifecycle failure log:', e))
 
       isFinished = true
       res.write(`event: error\ndata: ${JSON.stringify({ message: 'AI service currently unavailable' })}\n\n`)
@@ -424,6 +448,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
 
     const finalLatency = Date.now() - startTime
 
+    const successMsg = `SUCCESS tier=${targetTier} user=${userId} chat=${chatId} latency=${finalLatency}ms ttft=${ttftMs ?? '—'}ms tools=${activeToolCalls.length}`
     // Write a full-lifecycle LlmLog entry from the Node.js side
     LlmLog.create({
       type:          'success',
@@ -435,6 +460,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       ttft_ms:       ttftMs ?? undefined,
       prompt_tokens:  Math.ceil(content.length / 4),
       completion_tokens: Math.ceil(fullContent.length / 4),
+      error:         successMsg,
       timestamp:     new Date(),
     }).catch((e: any) => console.error('[LlmLog] Failed to write lifecycle log:', e))
 

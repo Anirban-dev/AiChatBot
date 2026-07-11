@@ -52,6 +52,7 @@ services:
     environment:
       - PYTHONUTF8=${PYTHONUTF8:-1}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - MONGO_URI=${MONGO_URI:-mongodb://mongodb:27017/AiAssistant}
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
@@ -61,11 +62,8 @@ services:
       - FIRECRAWL_URL=${FIRECRAWL_URL:-http://firecrawl-api:3002}
       # --- LLM API Keys ---
       - GROQ_API_KEY=${GROQ_API_KEY}
-      - TOGETHER_API_KEY=${TOGETHER_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - HF_TOKEN=${HF_TOKEN}
-      - SAMBANOVA_API_KEY=${SAMBANOVA_API_KEY}
-      - DEEPINFRA_API_KEY=${DEEPINFRA_API_KEY}
       - CLOUDFLARE_API_KEY=${CLOUDFLARE_API_KEY}
       - LIGHTNING_API_KEY=${LIGHTNING_API_KEY}
     restart: on-failure

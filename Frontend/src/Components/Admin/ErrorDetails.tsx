@@ -31,9 +31,11 @@ export const ErrorDetailsModal = ({ isOpen, onClose, event }: ErrorDetailsModalP
       <div className="relative w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl overflow-hidden animate-scale-up">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/10">
           <div className="flex items-center gap-2">
-            <ShieldAlert size={16} className="text-rose-500" />
+            <ShieldAlert size={16} className={event.type === 'failure' ? 'text-rose-500' : 'text-emerald-500'} />
             <div>
-              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">Trace Exception Diagnostics</h3>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                {event.type === 'success' ? 'Execution Trace Log' : 'Trace Exception Diagnostics'}
+              </h3>
               <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">Model: {event.model}</p>
             </div>
           </div>
@@ -67,9 +69,12 @@ export const ErrorDetailsModal = ({ isOpen, onClose, event }: ErrorDetailsModalP
               )}
             </button>
             
-            {/* Standardized break-words token to secure layouts against unspaced string expansions */}
-            <div className="w-full max-h-60 overflow-y-auto rounded-xl bg-slate-950 p-4 font-mono text-xs text-rose-400 dark:text-rose-400/90 leading-relaxed border border-slate-900 shadow-inner wrap-break-word whitespace-pre-wrap">
-              {event.error || 'System reported a dynamic operational abort routine without string logging outputs.'}
+            <div className={`w-full max-h-60 overflow-y-auto rounded-xl p-4 font-mono text-xs leading-relaxed border shadow-inner wrap-break-word whitespace-pre-wrap ${
+              event.type === 'failure'
+                ? 'bg-slate-950 text-rose-400 dark:text-rose-400/90 border-slate-900'
+                : 'bg-slate-950 text-emerald-400 dark:text-emerald-400/90 border-slate-900'
+            }`}>
+              {event.error || 'No trace payload captured for this event.'}
             </div>
           </div>
         </div>

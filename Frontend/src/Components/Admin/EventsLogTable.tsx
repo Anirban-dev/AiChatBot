@@ -207,7 +207,13 @@ export const EventsLogTable = ({
                             {e.status_code}
                           </span>
                         ) : null}
-                        <span className={`truncate ${e.error ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-slate-500 dark:text-slate-400'}`}>
+                        <span className={`truncate ${
+                          e.type === 'failure'
+                            ? 'text-rose-600 dark:text-rose-400 font-semibold'
+                            : e.type === 'success'
+                            ? 'text-emerald-600 dark:text-emerald-400 font-medium'
+                            : 'text-slate-500 dark:text-slate-400'
+                        }`}>
                           {e.error || 'Execution metadata parsed successfully'}
                         </span>
                       </div>

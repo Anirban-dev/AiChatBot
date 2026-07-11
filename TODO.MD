@@ -17,7 +17,7 @@ uv run -m tests.test_router large huggingface/deepseek-ai/DeepSeek-V4-Pro
 
 make admin : npm run make-admin user@example.com
 
-docker compose -f docker-compose-util.yml up -d
+docker compose -f docker-compose-utils.yaml up -d
 
 
 LIGHTENING AI

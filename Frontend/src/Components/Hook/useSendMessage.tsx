@@ -125,8 +125,9 @@ export const useSendMessage = (chatId: string) => {
 
     try {
       const res = await uploadFile(file, targetChatId, uploadAbortControllerRef.current.signal)
-      if (res.data) {
-        onUploaded(res.data)
+      // uploadFile returns response.data directly, so res IS the data object
+      if (res) {
+        onUploaded(res)
       }
     } catch (err: any) {
       if (err.name !== 'AbortError' && err.name !== 'CanceledError') {
@@ -140,9 +141,16 @@ export const useSendMessage = (chatId: string) => {
     }
   }
 
-  const sendMessage = async (forcedContent?: string, passedChatId?: string) => {
+  const sendMessage = async (
+    forcedContent?: string,
+    passedChatId?: string,
+    uploadedFileInfo?: any,
+    uploadedFileContent?: string,
+    optimisticMsgId?: string
+  ) => {
     const content = forcedContent ?? input.trim()
-    if (!content) return
+    // Allow empty text if there's a file
+    if (!content && !uploadedFileInfo) return
 
     if (!forcedContent) setInput('')
     const targetChatId = passedChatId || chatId
@@ -165,12 +173,21 @@ export const useSendMessage = (chatId: string) => {
         },
 
         (userMsg: any) => {
-          appendMessage(targetChatId, {
+          // If there was an optimistic message, replace it with the confirmed server message.
+          // Otherwise (text-only), append the new message.
+          const confirmedMsg = {
             _id: userMsg._id || crypto.randomUUID(),
-            role: 'user',
-            content: userMsg.content || content,
+            role: 'user' as const,
+            content: userMsg.content || uploadedFileContent || content,
+            text: userMsg.text,
+            fileInfo: userMsg.fileInfo,
             createdAt: userMsg.createdAt || new Date().toISOString()
-          })
+          }
+          if (optimisticMsgId) {
+            updateMessage(targetChatId, optimisticMsgId, confirmedMsg)
+          } else {
+            appendMessage(targetChatId, confirmedMsg)
+          }
         },
 
         (toolPayload: any) => {
@@ -204,6 +221,8 @@ export const useSendMessage = (chatId: string) => {
         (errData: { type?: string; message: string }) => {
           setActiveTool(null)
           removeMessage(targetChatId, streamingId)
+          // Also remove the optimistic user message on error
+          if (optimisticMsgId) removeMessage(targetChatId, optimisticMsgId)
           setErrorMessage(errData.message || 'A streaming worker pipeline exception occurred.')
           setLoading(targetChatId, false)
           setLoading(chatId, false)
@@ -214,7 +233,10 @@ export const useSendMessage = (chatId: string) => {
         (reasoningToken: string) => {
           setActiveTool(null)
           appendReasoningToken(targetChatId, streamingId, reasoningToken)
-        }
+        },
+
+        uploadedFileInfo,
+        uploadedFileContent
       )
     } catch (err: any) {
       if (err.name !== 'AbortError') {
@@ -222,19 +244,24 @@ export const useSendMessage = (chatId: string) => {
         setErrorMessage(err.message || 'An unexpected engine execution fault occurred.')
       }
       setActiveTool(null)
+      if (optimisticMsgId) removeMessage(targetChatId, optimisticMsgId)
       setLoading(targetChatId, false)
       setLoading(chatId, false)
     }
   }
 
-  // FIX #2, #4, #5, #6: Rewritten pipeline manager
+  // Rewritten pipeline manager with optimistic UI rendering
   const handleSendAction = async () => {
     const cachedInput = input.trim()
-    const fileToUpload = pendingFile
+    let fileToUpload = pendingFile
 
-    // FIX #5: Guard — if already loading or uploading, do nothing (same
-    // condition the send button uses, so Enter and button are now in sync).
+    // Guard — if already loading or uploading, do nothing
     if (loading || uploadingRef.current) return
+
+    // Convert pendingCode snippet to a virtual File if no other file is selected
+    if (!fileToUpload && pendingCode) {
+      fileToUpload = new File([pendingCode.content], pendingCode.name, { type: 'text/plain' })
+    }
 
     if (!fileToUpload && !cachedInput) return
 
@@ -246,7 +273,6 @@ export const useSendMessage = (chatId: string) => {
       try {
         const newChat = await createChat(title)
         targetChatId = newChat.id
-        // Navigate to the new chat page
         navigate(`/${targetChatId}`, { replace: true })
       } catch (err) {
         console.error('Failed to create new chat:', err)
@@ -256,50 +282,77 @@ export const useSendMessage = (chatId: string) => {
     }
 
     if (fileToUpload) {
-      // Snapshot the object URL BEFORE clearStaging() so the upload callback
-      // can still reference it. FIX #4.
+      // Snapshot the object URL BEFORE clearStaging() so the optimistic message
+      // can display the preview while uploading.
       const snapshotPreviewUrl = previewUrlRef.current
+      const capturedFile = fileToUpload
 
-      // Clear UI staging immediately for snappy feedback
+      // ── Optimistic render: immediately show the message in the chat ──
+      const optimisticId = crypto.randomUUID()
+      const ext = '.' + (capturedFile.name.split('.').pop() || '').toLowerCase()
+      const isImage = capturedFile.type.startsWith('image/')
+
+      // For images: show local object URL immediately so the thumbnail renders.
+      // For text/code/doc: use a placeholder so the file chip renders correctly;
+      // actual file content will be set when the server responds.
+      const optimisticContent = isImage
+        ? (snapshotPreviewUrl || '')
+        : `[Uploading: ${capturedFile.name}]`
+
+      appendMessage(targetChatId, {
+        _id: optimisticId,
+        role: 'user',
+        content: optimisticContent,
+        text: cachedInput || undefined,
+        fileInfo: {
+          name: capturedFile.name,
+          size: capturedFile.size,
+          mimeType: capturedFile.type,
+          extension: ext
+        },
+        createdAt: new Date().toISOString()
+      } as any)
+
+      // Clear staging and input immediately after showing optimistic message
       clearStaging()
       setInput('')
-
-      // FIX #2: Set a single loading gate so the whole sequence is treated
-      // as one atomic operation from the UI's perspective.
       setLoading(targetChatId, true)
 
-      await handleFileUpload(fileToUpload, targetChatId, (data) => {
-        const structuredFileMsg = {
-          _id: data._id || data.id || crypto.randomUUID(),
-          role: 'user' as const,
-          content: data.content || `[Uploaded File] ${fileToUpload.name}`,
-          createdAt: data.createdAt || new Date().toISOString(),
-          fileInfo: data.fileInfo || {
-            name: fileToUpload.name,
-            size: fileToUpload.size,
-            type: fileToUpload.type,
-            // FIX #4: Use the snapshot — not the state var — so the URL is
-            // still valid even though clearStaging() already ran.
-            url: data.url || snapshotPreviewUrl || null
-          }
-        }
-        appendMessage(targetChatId, structuredFileMsg)
+      // Upload the file to get the server-side content
+      let uploadedFileInfo: any = null
+      let uploadedFileContent: string | undefined = undefined
 
-        // Safe to revoke now that appendMessage has consumed the URL
+      await handleFileUpload(capturedFile, targetChatId, (data) => {
+        uploadedFileInfo = data.fileInfo
+        uploadedFileContent = data.content
+
+        // Safe to revoke the object URL now that we have server content
         if (snapshotPreviewUrl) URL.revokeObjectURL(snapshotPreviewUrl)
         previewUrlRef.current = null
       })
 
-      // FIX #2: Only release the loading gate here if there's no follow-up
-      // text message. If there IS text, sendMessage manages loading itself.
-      if (cachedInput) {
-        await sendMessage(cachedInput, targetChatId)
-      } else {
+      // If upload failed, keep the optimistic message visible so the user
+      // can see what they tried to send. The error banner explains the failure.
+      if (!uploadedFileInfo) {
         setLoading(targetChatId, false)
+        return
       }
+
+      // Send to the LLM. The onUserMessage callback will replace the optimistic
+      // message with the confirmed server message (with real DB id + content).
+      await sendMessage(cachedInput, targetChatId, uploadedFileInfo, uploadedFileContent, optimisticId)
+
     } else {
-      // Text-only path
-      await sendMessage(undefined, targetChatId)
+      // Text-only path — append optimistic message immediately
+      const optimisticId = crypto.randomUUID()
+      appendMessage(targetChatId, {
+        _id: optimisticId,
+        role: 'user',
+        content: cachedInput,
+        createdAt: new Date().toISOString()
+      })
+      setInput('')
+      await sendMessage(cachedInput, targetChatId, undefined, undefined, optimisticId)
     }
   }
 
@@ -311,8 +364,8 @@ export const useSendMessage = (chatId: string) => {
       e.preventDefault()
       // Block Enter under the same conditions the send button is disabled
       if (loading || uploading || errorMessage) return
-      // FIX #6: Allow Enter to send even if only a file is staged (no text)
-      if (!input.trim() && !pendingFile) return
+      // FIX #6: Allow Enter to send even if only a file or code snippet is staged
+      if (!input.trim() && !pendingFile && !pendingCode) return
       handleSendAction()
     }
   }

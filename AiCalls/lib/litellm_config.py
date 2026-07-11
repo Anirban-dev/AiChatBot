@@ -111,16 +111,17 @@ def _log_failure_sync(tier_name, latency_ms, e, user_id=None, chat_id=None, mode
     status_code = getattr(e, "status_code", None)
     err_details = {"status_code": status_code} if status_code else None
     short_error = str(e).split('\n')[0][:200]
-    _llm_log.error(
+    log_msg = (
         f"FAILURE tier={tier_name} latency={latency_ms}ms "
         f"error={short_error!r} user={user_id} chat={chat_id}"
     )
+    _llm_log.error(log_msg)
     _schedule_log(
         type="failure",
         virtual_model=tier_name,
         model=tier_name,
         latency_ms=latency_ms,
-        error=short_error,
+        error=log_msg,
         error_details=err_details,
         user_id=user_id,
         chat_id=chat_id,
@@ -234,12 +235,13 @@ async def async_chat_completion(
                 except Exception:
                     pass
 
-                _llm_log.info(
+                log_msg = (
                     f"SUCCESS (stream) {ctx} model={model_name!r} "
                     f"latency={latency_ms}ms ttft={ttft_ms}ms "
                     f"chunks={chunk_count} ptok={prompt_tokens} ctok={completion_tokens} "
                     f"cost=${cost:.6f}"
                 )
+                _llm_log.info(log_msg)
                 _schedule_log(
                     type="success",
                     virtual_model=tier_name,
@@ -248,6 +250,7 @@ async def async_chat_completion(
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     cost=cost,
+                    error=log_msg,
                     user_id=user_id,
                     chat_id=chat_id,
                     mode=mode,
@@ -290,11 +293,12 @@ async def async_chat_completion(
             except Exception:
                 pass
 
-            _llm_log.info(
+            log_msg = (
                 f"SUCCESS (non-stream) {ctx} model={model_name!r} "
                 f"latency={latency_ms}ms ptok={prompt_tokens} ctok={completion_tokens} "
                 f"cost=${cost:.6f}"
             )
+            _llm_log.info(log_msg)
             _schedule_log(
                 type="success",
                 virtual_model=tier_name,
@@ -303,6 +307,7 @@ async def async_chat_completion(
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 cost=cost,
+                error=log_msg,
                 user_id=user_id,
                 chat_id=chat_id,
                 mode=mode,

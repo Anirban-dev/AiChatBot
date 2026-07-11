@@ -19,12 +19,14 @@ export const sendMsg = async (
   onDone: (assistantMsg: any) => void,
   onError: (errData: { type?: string; message: string }) => void,
   signal: AbortSignal,
-  onReasoning?: (reasoning: string) => void
+  onReasoning?: (reasoning: string) => void,
+  fileInfo?: any,
+  fileContent?: string
 ) => {
   const res = await fetchWithRefresh(`${BASE_URL}/chats/${chatId}/msgs`, {
     method: 'POST',
     headers: authHeader(),
-    body: JSON.stringify({ content, model }),
+    body: JSON.stringify({ content, model, fileInfo, fileContent }),
     signal,
   })
 

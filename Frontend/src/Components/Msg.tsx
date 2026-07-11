@@ -7,6 +7,54 @@ import MarkdownRenderer from './BashComponent'
 import { CodeRagModal } from './CodeRag'
 import { MsgChatInput } from './MsgChatInput'
 
+// ─── File Attachment Preview Component ────────────────────────────────────────
+interface FileInfo { name: string; size: number; mimeType?: string; extension: string }
+
+const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'])
+
+const FileAttachmentPreview = ({
+  fileInfo,
+  content,
+  getFileColor,
+  getFileIcon,
+  formatFileSize,
+}: {
+  fileInfo: FileInfo
+  content: string
+  getFileColor: (ext: string) => string
+  getFileIcon: (ext: string) => React.ReactNode
+  formatFileSize: (size: number) => string
+}) => {
+  const ext = fileInfo.extension?.toLowerCase() || ''
+  const isImage   = IMAGE_EXTS.has(ext) && content.startsWith('data:')
+
+  return (
+    <div className="flex flex-col gap-2 min-w-0">
+      {/* File info chip */}
+      <div className={`flex items-center gap-3 p-2.5 rounded-xl border ${getFileColor(ext)}`}>
+        <div className="p-2 bg-white dark:bg-gray-900 rounded-lg shadow-sm shrink-0">
+          {getFileIcon(ext)}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-medium truncate text-sm">{fileInfo.name}</p>
+          <p className="text-xs opacity-60 mt-0.5">
+            {formatFileSize(fileInfo.size)} · {ext.toUpperCase().replace('.', '')}
+          </p>
+        </div>
+      </div>
+
+      {/* Image preview */}
+      {isImage && (
+        <img
+          src={content}
+          alt={fileInfo.name}
+          className="rounded-xl max-h-72 w-auto object-contain border border-gray-200/60 dark:border-gray-700/40 shadow-sm"
+        />
+      )}
+    </div>
+  )
+}
+
 // Changed to a named export to match your Chat.tsx import statement
 export const Msg = ({ chatId }: { chatId?: string }) => {
   const activeChatId = chatId || 'new'
@@ -190,20 +238,18 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
                 </details>
               )}
 
-              <div className={`px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+              <div className={`px-4 py-2.5 text-sm leading-relaxed ${
                 msg.role === 'user' ? 'bg-blue-600 text-white rounded-2xl rounded-br-sm shadow-xs' : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 rounded-2xl rounded-bl-sm border border-gray-100 dark:border-gray-700 shadow-xs'
               }`}>
                 {msg.fileInfo ? (
-                  <div className={`flex items-center gap-3 p-2.5 rounded-xl border ${sendHook.getFileColor(msg.fileInfo.extension)}`}>
-                    <div className="p-2 bg-white dark:bg-gray-900 rounded-lg shadow-sm shrink-0">
-                      {sendHook.getFileIcon(msg.fileInfo.extension)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate text-sm">{msg.fileInfo.name}</p>
-                      <p className="text-xs opacity-60 mt-0.5">
-                        {sendHook.formatFileSize(msg.fileInfo.size)} · {msg.fileInfo.extension.toUpperCase().replace('.', '')}
-                      </p>
-                    </div>
+                  <div className="flex flex-col gap-2">
+                    <FileAttachmentPreview
+                      fileInfo={msg.fileInfo}
+                      content={msg.content}
+                      getFileColor={sendHook.getFileColor}
+                      getFileIcon={sendHook.getFileIcon}
+                      formatFileSize={sendHook.formatFileSize}
+                    />
                   </div>
                 ) : (
                   <MarkdownRenderer content={msg.content} isUser={msg.role === 'user'} runCode={sendHook.runCode} />

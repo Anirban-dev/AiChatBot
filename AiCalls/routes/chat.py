@@ -72,6 +72,9 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
         enable_thinking = body.get("enable_thinking", False)
         mode            = body.get("mode", "small")
 
+        user_text       = body.get("text", "")
+        file_info       = body.get("fileInfo")
+
         _log.info(
             f"[Request] chat={chat_id} user={user_id} mode={mode} "
             f"history_len={len(history)} prompt_len={len(user_prompt)}"
@@ -97,11 +100,61 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                 "- Use your native thinking capabilities to break down logic step-by-step.\n"
             )
 
+        def format_message_content(role: str, content: str, text: str = None, file_info: dict = None):
+            is_image = False
+            if file_info:
+                ext = file_info.get("extension", "").lower()
+                mime = file_info.get("mimeType", "").lower()
+                if ext in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff"} or mime.startswith("image/"):
+                    is_image = True
+            elif content and content.startswith("data:image/"):
+                is_image = True
+
+            if is_image:
+                content_list = [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": content
+                        }
+                    }
+                ]
+                if text:
+                    content_list.append({
+                        "type": "text",
+                        "text": text
+                    })
+                return content_list
+            elif file_info:
+                filename = file_info.get("name", "Unknown File")
+                val = f"[Uploaded File: {filename}]\n{content}"
+                if text:
+                    val += f"\n\nUser Message:\n{text}"
+                return val
+            else:
+                return content
+
         # ── 4. BUILD MESSAGE HISTORY ──────────────────────────────────────────
         messages = [{"role": "system", "content": system}]
         for msg in history:
-            messages.append({"role": msg["role"], "content": msg["content"]})
-        messages.append({"role": "user", "content": user_prompt})
+            messages.append({
+                "role": msg["role"],
+                "content": format_message_content(
+                    msg["role"],
+                    msg.get("content", ""),
+                    msg.get("text"),
+                    msg.get("fileInfo")
+                )
+            })
+        messages.append({
+            "role": "user",
+            "content": format_message_content(
+                "user",
+                user_prompt,
+                user_text,
+                file_info
+            )
+        })
 
         # ── 5. SLIDING WINDOW STATE UPDATE ───────────────────────────────────
         if len(history) >= _WINDOW_SIZE and len(history) % _WINDOW_SIZE == 0:
