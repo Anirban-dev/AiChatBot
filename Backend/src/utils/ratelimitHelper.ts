@@ -40,14 +40,6 @@ export const strictLimiter = createRateLimiter({
   keyFn:     userOrIp,
 })
 
-/** Uploads: 20 per day per user */
-export const uploadLimiter = createRateLimiter({
-  keyPrefix: 'upload',
-  windowSec: 60 * 60 * 24,
-  max:       20,
-  keyFn:     userOrIp,
-})
-
 /** Google Login: IP-based, user is not authenticated yet */
 export const googleLoginLimiter = createRateLimiter({
   keyPrefix: 'google_login',

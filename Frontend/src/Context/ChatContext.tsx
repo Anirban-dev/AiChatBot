@@ -22,7 +22,7 @@ export interface Message {
   content: string
   reasoning?: string
   fileInfo?: FileMetadata
-  text?: string
+  file?: string | undefined
   toolCalls?: ToolCall[]
   createdAt: string
 }

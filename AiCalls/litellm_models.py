@@ -59,7 +59,7 @@ LITELLM_ROUTER_MODELS = {
         {"model_name": "visionllm", "litellm_params": {"model": "groq/meta-llama/llama-4-scout-17b-16e-instruct",  "api_key": os.getenv("GROQ_API_KEY")}},
         # --- Lightning Cloud fallback ---
         {"model_name": "visionllm", "litellm_params": {
-            "model": "openai/gemma3:12b",
+            "model": "openai/gemma4:latest",
             "api_base": "https://11434-01kj2f7bpvc2nx7szdgh908j3d.cloudspaces.litng.ai/v1",
             "api_key": os.getenv("LIGHTNING_API_KEY"),
         }},

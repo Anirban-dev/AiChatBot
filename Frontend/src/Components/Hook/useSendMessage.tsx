@@ -25,8 +25,6 @@ export const useSendMessage = (chatId: string) => {
   const messageAbortControllerRef = useRef<AbortController | null>(null)
   const uploadAbortControllerRef = useRef<AbortController | null>(null)
 
-  // FIX #1 & #3: Track uploading in a ref AS WELL as state so stopGeneration
-  // never reads a stale closure value. State drives UI; ref drives logic.
   const [uploading, setUploading] = useState(false)
   const uploadingRef = useRef(false)
 
@@ -47,9 +45,6 @@ export const useSendMessage = (chatId: string) => {
 
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-
-  // FIX #4: Keep a ref copy of previewUrl so the upload callback closure
-  // always has the live value even after clearStaging() has run.
   const previewUrlRef = useRef<string | null>(null)
 
   const setPreviewUrlSync = (url: string | null) => {
@@ -66,19 +61,13 @@ export const useSendMessage = (chatId: string) => {
   const clearStaging = () => {
     setPendingFile(null)
     setPendingCode(null)
-    // FIX #4: Do NOT revoke the object URL here — the upload callback still
-    // needs it to pass into appendMessage. Revocation is handled either in
-    // the cleanup effect above or explicitly after appendMessage fires.
     setPreviewUrl(null)
-    // Note: previewUrlRef.current intentionally NOT cleared here
   }
 
   const setCodeContext = (name: string, content: string) => {
     setPendingCode({ name, content })
   }
 
-  // FIX #3: stopGeneration now reads uploadingRef (always current) instead
-  // of the stale `uploading` state captured in closure.
   const stopGeneration = async () => {
     if (uploadAbortControllerRef.current) {
       uploadAbortControllerRef.current.abort()
@@ -113,33 +102,37 @@ export const useSendMessage = (chatId: string) => {
     }
   }
 
-  const handleFileUpload = async (
-    file: File,
-    targetChatId: string,
-    onUploaded: (data: any) => void
-  ) => {
-    if (!file || !targetChatId || uploadingRef.current) return
-    setUploadingSync(true)
-    currentFileName.current = file.name
-    uploadAbortControllerRef.current = new AbortController()
+  // useSendMessage.ts
+const handleFileUpload = async (
+  file: File,
+  targetChatId: string,
+  onUploaded: (data: any) => void
+) => {
+  if (!file || !targetChatId || uploadingRef.current) return
+  setUploadingSync(true)
+  currentFileName.current = file.name
+  uploadAbortControllerRef.current = new AbortController()
 
-    try {
-      const res = await uploadFile(file, targetChatId, uploadAbortControllerRef.current.signal)
-      // uploadFile returns response.data directly, so res IS the data object
-      if (res) {
-        onUploaded(res)
+  try {
+    const res = await uploadFile(file, targetChatId, uploadAbortControllerRef.current.signal)
+    if (res) {
+      if (res.indexed === false) {
+        console.warn('File saved but AI indexing failed:', res.indexWarning)
       }
-    } catch (err: any) {
-      if (err.name !== 'AbortError' && err.name !== 'CanceledError') {
-        console.error(err)
-        setErrorMessage(err.message || 'File upload encountered an error.')
-      }
-    } finally {
-      setUploadingSync(false)
-      currentFileName.current = null
-      uploadAbortControllerRef.current = null
+      onUploaded(res)
     }
+  } catch (err: any) {
+    if (err.name !== 'AbortError' && err.name !== 'CanceledError') {
+      const serverMsg = err?.response?.data?.error   // ← the friendly 429 message lives here
+      console.error(err)
+      setErrorMessage(serverMsg || err.message || 'File upload encountered an error.')
+    }
+  } finally {
+    setUploadingSync(false)
+    currentFileName.current = null
+    uploadAbortControllerRef.current = null
   }
+}
 
   const sendMessage = async (
     forcedContent?: string,
@@ -149,7 +142,6 @@ export const useSendMessage = (chatId: string) => {
     optimisticMsgId?: string
   ) => {
     const content = forcedContent ?? input.trim()
-    // Allow empty text if there's a file
     if (!content && !uploadedFileInfo) return
 
     if (!forcedContent) setInput('')
@@ -173,14 +165,13 @@ export const useSendMessage = (chatId: string) => {
         },
 
         (userMsg: any) => {
-          // If there was an optimistic message, replace it with the confirmed server message.
-          // Otherwise (text-only), append the new message.
           const confirmedMsg = {
             _id: userMsg._id || crypto.randomUUID(),
             role: 'user' as const,
             content: userMsg.content || uploadedFileContent || content,
             text: userMsg.text,
             fileInfo: userMsg.fileInfo,
+            file: userMsg.file ?? uploadedFileContent,
             createdAt: userMsg.createdAt || new Date().toISOString()
           }
           if (optimisticMsgId) {
@@ -218,10 +209,10 @@ export const useSendMessage = (chatId: string) => {
           setLoading(chatId, false)
         },
 
+
         (errData: { type?: string; message: string }) => {
           setActiveTool(null)
           removeMessage(targetChatId, streamingId)
-          // Also remove the optimistic user message on error
           if (optimisticMsgId) removeMessage(targetChatId, optimisticMsgId)
           setErrorMessage(errData.message || 'A streaming worker pipeline exception occurred.')
           setLoading(targetChatId, false)
@@ -250,15 +241,12 @@ export const useSendMessage = (chatId: string) => {
     }
   }
 
-  // Rewritten pipeline manager with optimistic UI rendering
   const handleSendAction = async () => {
     const cachedInput = input.trim()
     let fileToUpload = pendingFile
 
-    // Guard — if already loading or uploading, do nothing
     if (loading || uploadingRef.current) return
 
-    // Convert pendingCode snippet to a virtual File if no other file is selected
     if (!fileToUpload && pendingCode) {
       fileToUpload = new File([pendingCode.content], pendingCode.name, { type: 'text/plain' })
     }
@@ -282,68 +270,52 @@ export const useSendMessage = (chatId: string) => {
     }
 
     if (fileToUpload) {
-      // Snapshot the object URL BEFORE clearStaging() so the optimistic message
-      // can display the preview while uploading.
-      const snapshotPreviewUrl = previewUrlRef.current
-      const capturedFile = fileToUpload
+  const snapshotPreviewUrl = previewUrlRef.current
+  const capturedFile = fileToUpload
 
-      // ── Optimistic render: immediately show the message in the chat ──
-      const optimisticId = crypto.randomUUID()
-      const ext = '.' + (capturedFile.name.split('.').pop() || '').toLowerCase()
-      const isImage = capturedFile.type.startsWith('image/')
+  const optimisticId = crypto.randomUUID()
+  const ext = '.' + (capturedFile.name.split('.').pop() || '').toLowerCase()
+  const isImage = capturedFile.type.startsWith('image/')
 
-      // For images: show local object URL immediately so the thumbnail renders.
-      // For text/code/doc: use a placeholder so the file chip renders correctly;
-      // actual file content will be set when the server responds.
-      const optimisticContent = isImage
-        ? (snapshotPreviewUrl || '')
-        : `[Uploading: ${capturedFile.name}]`
+  appendMessage(targetChatId, {
+    _id: optimisticId,
+    role: 'user',
+    content: cachedInput || '',                       // text only, matches server shape
+    file: isImage ? (snapshotPreviewUrl || undefined) : undefined, // local blob preview
+    fileInfo: {
+      name: capturedFile.name,
+      size: capturedFile.size,
+      mimeType: capturedFile.type,
+      extension: ext
+    },
+    createdAt: new Date().toISOString()
+  } as any)
 
-      appendMessage(targetChatId, {
-        _id: optimisticId,
-        role: 'user',
-        content: optimisticContent,
-        text: cachedInput || undefined,
-        fileInfo: {
-          name: capturedFile.name,
-          size: capturedFile.size,
-          mimeType: capturedFile.type,
-          extension: ext
-        },
-        createdAt: new Date().toISOString()
-      } as any)
-
-      // Clear staging and input immediately after showing optimistic message
       clearStaging()
       setInput('')
       setLoading(targetChatId, true)
 
-      // Upload the file to get the server-side content
       let uploadedFileInfo: any = null
       let uploadedFileContent: string | undefined = undefined
 
       await handleFileUpload(capturedFile, targetChatId, (data) => {
         uploadedFileInfo = data.fileInfo
-        uploadedFileContent = data.content
+        uploadedFileContent = data.file
 
-        // Safe to revoke the object URL now that we have server content
         if (snapshotPreviewUrl) URL.revokeObjectURL(snapshotPreviewUrl)
         previewUrlRef.current = null
       })
 
-      // If upload failed, keep the optimistic message visible so the user
-      // can see what they tried to send. The error banner explains the failure.
       if (!uploadedFileInfo) {
+        removeMessage(targetChatId, optimisticId)
+        setErrorMessage('File upload failed. Please try again.')
         setLoading(targetChatId, false)
         return
       }
 
-      // Send to the LLM. The onUserMessage callback will replace the optimistic
-      // message with the confirmed server message (with real DB id + content).
       await sendMessage(cachedInput, targetChatId, uploadedFileInfo, uploadedFileContent, optimisticId)
 
     } else {
-      // Text-only path — append optimistic message immediately
       const optimisticId = crypto.randomUUID()
       appendMessage(targetChatId, {
         _id: optimisticId,
@@ -356,15 +328,10 @@ export const useSendMessage = (chatId: string) => {
     }
   }
 
-  // FIX #5 & #6: handleKeyDown now mirrors the exact same guard as the
-  // send button (loading || uploading), and file-only Enter now works
-  // because handleSendAction handles the file-only case correctly.
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      // Block Enter under the same conditions the send button is disabled
       if (loading || uploading || errorMessage) return
-      // FIX #6: Allow Enter to send even if only a file or code snippet is staged
       if (!input.trim() && !pendingFile && !pendingCode) return
       handleSendAction()
     }
@@ -413,19 +380,6 @@ export const useSendMessage = (chatId: string) => {
     return <FileIcon size={18} className="text-gray-400" />
   }
 
-  const getFileColor = (ext: string) => {
-    const e = ext.toLowerCase()
-    if (['.pdf'].includes(e))
-      return 'border-red-200 dark:border-red-500/20 bg-red-50 dark:bg-red-500/5'
-    if (['.doc', '.docx', '.txt', '.md'].includes(e))
-      return 'border-blue-200 dark:border-blue-500/20 bg-blue-50 dark:bg-blue-500/5'
-    if (['.csv', '.xlsx', '.xls'].includes(e))
-      return 'border-green-200 dark:border-green-500/20 bg-green-50 dark:bg-green-500/5'
-    if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(e))
-      return 'border-purple-200 dark:border-purple-500/20 bg-purple-50 dark:bg-purple-500/5'
-    return 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
-  }
-
   const formatTime = (date: string) =>
     new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 
@@ -438,7 +392,7 @@ export const useSendMessage = (chatId: string) => {
   return {
     input, setInput, sendMessage, stopGeneration, handleFileUpload, loading, uploading, runCode, isPythonReady,
     pendingFile, previewUrl, clearStaging, handleSendAction, handleKeyDown, pendingCode, setCodeContext,
-    handlePaste, onFileSelect, formatFileSize, getFileIcon, getFileColor, formatTime,
+    handlePaste, onFileSelect, formatFileSize, getFileIcon, formatTime,
     activeTool, setActiveTool, errorMessage, setErrorMessage, selectedModel, setSelectedModel, clearError
   }
 }

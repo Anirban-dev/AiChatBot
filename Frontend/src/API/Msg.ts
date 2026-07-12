@@ -1,4 +1,4 @@
-// src/API/Msg.ts (or wherever your sendMsg is exported)
+// src/API/Msg.ts
 import api from "../Auth/AxiosHelper"
 import { fetchWithRefresh, authHeader } from "../Auth/FetchHelper"
 
@@ -21,12 +21,12 @@ export const sendMsg = async (
   signal: AbortSignal,
   onReasoning?: (reasoning: string) => void,
   fileInfo?: any,
-  fileContent?: string
+  file?: string
 ) => {
   const res = await fetchWithRefresh(`${BASE_URL}/chats/${chatId}/msgs`, {
     method: 'POST',
     headers: authHeader(),
-    body: JSON.stringify({ content, model, fileInfo, fileContent }),
+    body: JSON.stringify({ content, model, fileInfo, file }),
     signal,
   })
 

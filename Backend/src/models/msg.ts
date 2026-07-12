@@ -16,9 +16,6 @@ const messageSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-  text: {
-    type: String,
-  },
   reasoning: {
     type: String,
   },
@@ -27,6 +24,9 @@ const messageSchema = new mongoose.Schema({
     size: Number,
     mimeType: String,
     extension: String,
+  },
+  file: { 
+    type: String,
   },
   toolCalls: [{
     id: String,
