@@ -25,6 +25,7 @@ export interface Message {
   file?: string | undefined
   toolCalls?: ToolCall[]
   createdAt: string
+  parentId?: string | null
 }
 
 interface ChatContextType {
@@ -38,12 +39,18 @@ interface ChatContextType {
   updateToolCall: (chatId: string, msgId: string, toolCall: ToolCall) => void
   setLoading: (chatId: string, val: boolean) => void
   isLoading: (chatId: string) => boolean
+  getActivePath: (chatId: string, activeNodeId: string) => Message[]
+  setActiveNodeId: (chatId: string, nodeId: string) => void
+  activeNodeId: (chatId: string) => string | null
+  getBranchInfo: (chatId: string, nodeId: string) => { branchCount: number; currentIndex: number }
+  switchBranch: (chatId: string, currentMsgId: string, direction: 'prev' | 'next') => void
 }
 
 const ChatContext = createContext<ChatContextType | null>(null)
 
 export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
   const [loadingChats, setLoadingChats] = useState<Record<string, boolean>>({})
+  const [activeNodeIds, setActiveNodeIds] = useState<Record<string, string | null>>({})
   
   const setLoading = (chatId: string, val: boolean) => {
     setLoadingChats(prev => ({ ...prev, [chatId]: val }))
@@ -57,6 +64,10 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
 
   const setMessages = (chatId: string, msgs: Message[]) => {
     setStore(prev => ({ ...prev, [chatId]: msgs }))
+    if (msgs.length > 0) {
+      const lastMsg = msgs[msgs.length - 1]
+      setActiveNodeIds(prev => ({ ...prev, [chatId]: lastMsg._id }))
+    }
   }
 
   const appendMessage = (chatId: string, msg: Message) => {
@@ -151,10 +162,85 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
     })
   }
 
+  const setActiveNodeId = (chatId: string, nodeId: string) => {
+    setActiveNodeIds(prev => ({ ...prev, [chatId]: nodeId }))
+  }
+
+  const activeNodeId = (chatId: string) => activeNodeIds[chatId] || null
+
+  const getActivePath = (chatId: string, activeNodeId: string): Message[] => {
+    const msgs = store[chatId] || []
+    if (!activeNodeId) {
+      if (msgs.length === 0) return []
+      const lastMsg = msgs[msgs.length - 1]
+      return getActivePath(chatId, lastMsg._id)
+    }
+    
+    const path: Message[] = []
+    let currentId: string | null = activeNodeId
+    
+    while (currentId) {
+      const msg = msgs.find(m => m._id === currentId)
+      if (!msg) break
+      
+      path.unshift(msg)
+      currentId = msg.parentId || null
+    }
+    
+    return path
+  }
+
+  const getBranchInfo = (chatId: string, nodeId: string): { branchCount: number; currentIndex: number } => {
+    const msgs = store[chatId] || []
+    const msg = msgs.find(m => m._id === nodeId)
+    if (!msg) return { branchCount: 0, currentIndex: 0 }
+    
+    const siblings = msgs.filter(m => m.role === msg.role && (m.parentId === msg.parentId || (!m.parentId && !msg.parentId)))
+    if (siblings.length <= 1) {
+      return { branchCount: 0, currentIndex: 0 }
+    }
+    
+    const currentIndex = siblings.findIndex(s => s._id === nodeId)
+    return {
+      branchCount: siblings.length,
+      currentIndex: currentIndex + 1
+    }
+  }
+
+  const switchBranch = (chatId: string, currentMsgId: string, direction: 'prev' | 'next') => {
+    const msgs = store[chatId] || []
+    const msg = msgs.find(m => m._id === currentMsgId)
+    if (!msg) return
+    
+    const siblings = msgs.filter(m => m.role === msg.role && (m.parentId === msg.parentId || (!m.parentId && !msg.parentId)))
+    if (siblings.length <= 1) return
+    
+    const currentIndex = siblings.findIndex(s => s._id === currentMsgId)
+    let newIndex = currentIndex
+    
+    if (direction === 'prev') {
+      newIndex = currentIndex > 0 ? currentIndex - 1 : siblings.length - 1
+    } else {
+      newIndex = currentIndex < siblings.length - 1 ? currentIndex + 1 : 0
+    }
+    
+    const targetSibling = siblings[newIndex]
+    
+    let currentId = targetSibling._id
+    while (true) {
+      const children = msgs.filter(m => m.parentId === currentId)
+      if (children.length === 0) break
+      currentId = children[children.length - 1]._id
+    }
+    
+    setActiveNodeId(chatId, currentId)
+  }
+
   return (
     <ChatContext.Provider value={{
       getMessages, setMessages, appendMessage,
-      updateMessage, removeMessage, appendToken, appendReasoningToken, updateToolCall, setLoading, isLoading
+      updateMessage, removeMessage, appendToken, appendReasoningToken, updateToolCall, setLoading, isLoading,
+      getActivePath, setActiveNodeId, activeNodeId, getBranchInfo, switchBranch
     }}>
       {children}
     </ChatContext.Provider>

@@ -55,6 +55,11 @@ export const MsgChatInput = ({
   const menuRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [editingFileInputs, setEditingFileInputs] = useState<File[]>([])
+
+  const removeEditFile = (index: number) => {
+    setEditingFileInputs(prev => prev.filter((_, i) => i !== index))
+  }
 
   // Auto-resize message text box console
   useEffect(() => {
@@ -158,6 +163,27 @@ export const MsgChatInput = ({
                 <X size={14} />
               </button>
             )}
+          </div>
+        )}
+
+        {/* Inline Editing File Attachments */}
+        {editingFileInputs.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2.5">
+            {editingFileInputs.map((file, index) => (
+              <div
+                key={index}
+                className="flex items-center gap-2 px-2 py-1 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
+              >
+                <Paperclip size={12} className="text-gray-500" />
+                <span className="text-xs text-gray-700 dark:text-gray-300 max-w-32 truncate">{file.name}</span>
+                <button
+                  onClick={() => removeEditFile(index)}
+                  className="p-0.5 hover:bg-red-100 dark:hover:bg-red-900/30 rounded text-gray-400 hover:text-red-500"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
           </div>
         )}
 

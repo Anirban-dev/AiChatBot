@@ -18,7 +18,9 @@ export const useSendMessage = (chatId: string) => {
     removeMessage,
     updateToolCall,
     isLoading,
-    setLoading
+    setLoading,
+    activeNodeId,
+    setActiveNodeId
   } = useChatStore()
   const { runCode, isReady: isPythonReady } = usePython()
 
@@ -133,13 +135,13 @@ const handleFileUpload = async (
     uploadAbortControllerRef.current = null
   }
 }
-
   const sendMessage = async (
     forcedContent?: string,
     passedChatId?: string,
     uploadedFileInfo?: any,
     uploadedFileContent?: string,
-    optimisticMsgId?: string
+    optimisticMsgId?: string,
+    customParentId?: string
   ) => {
     const content = forcedContent ?? input.trim()
     if (!content && !uploadedFileInfo) return
@@ -172,6 +174,7 @@ const handleFileUpload = async (
             text: userMsg.text,
             fileInfo: userMsg.fileInfo,
             file: userMsg.file ?? uploadedFileContent,
+            parentId: userMsg.parentId || null,
             createdAt: userMsg.createdAt || new Date().toISOString()
           }
           if (optimisticMsgId) {
@@ -179,6 +182,7 @@ const handleFileUpload = async (
           } else {
             appendMessage(targetChatId, confirmedMsg)
           }
+          setActiveNodeId(targetChatId, confirmedMsg._id)
         },
 
         (toolPayload: any) => {
@@ -205,10 +209,10 @@ const handleFileUpload = async (
         async (assistantMsg) => {
           setActiveTool(null)
           updateMessage(targetChatId, streamingId, assistantMsg)
+          setActiveNodeId(targetChatId, assistantMsg._id)
           setLoading(targetChatId, false)
           setLoading(chatId, false)
         },
-
 
         (errData: { type?: string; message: string }) => {
           setActiveTool(null)
@@ -227,7 +231,8 @@ const handleFileUpload = async (
         },
 
         uploadedFileInfo,
-        uploadedFileContent
+        uploadedFileContent,
+        customParentId
       )
     } catch (err: any) {
       if (err.name !== 'AbortError') {
@@ -269,27 +274,30 @@ const handleFileUpload = async (
       }
     }
 
+    const parentNodeId = activeNodeId(targetChatId)
+
     if (fileToUpload) {
-  const snapshotPreviewUrl = previewUrlRef.current
-  const capturedFile = fileToUpload
+      const snapshotPreviewUrl = previewUrlRef.current
+      const capturedFile = fileToUpload
 
-  const optimisticId = crypto.randomUUID()
-  const ext = '.' + (capturedFile.name.split('.').pop() || '').toLowerCase()
-  const isImage = capturedFile.type.startsWith('image/')
+      const optimisticId = crypto.randomUUID()
+      const ext = '.' + (capturedFile.name.split('.').pop() || '').toLowerCase()
+      const isImage = capturedFile.type.startsWith('image/')
 
-  appendMessage(targetChatId, {
-    _id: optimisticId,
-    role: 'user',
-    content: cachedInput || '',                       // text only, matches server shape
-    file: isImage ? (snapshotPreviewUrl || undefined) : undefined, // local blob preview
-    fileInfo: {
-      name: capturedFile.name,
-      size: capturedFile.size,
-      mimeType: capturedFile.type,
-      extension: ext
-    },
-    createdAt: new Date().toISOString()
-  } as any)
+      appendMessage(targetChatId, {
+        _id: optimisticId,
+        role: 'user',
+        content: cachedInput || '',
+        file: isImage ? (snapshotPreviewUrl || undefined) : undefined,
+        fileInfo: {
+          name: capturedFile.name,
+          size: capturedFile.size,
+          mimeType: capturedFile.type,
+          extension: ext
+        },
+        parentId: parentNodeId || null,
+        createdAt: new Date().toISOString()
+      } as any)
 
       clearStaging()
       setInput('')
@@ -313,7 +321,7 @@ const handleFileUpload = async (
         return
       }
 
-      await sendMessage(cachedInput, targetChatId, uploadedFileInfo, uploadedFileContent, optimisticId)
+      await sendMessage(cachedInput, targetChatId, uploadedFileInfo, uploadedFileContent, optimisticId, parentNodeId || undefined)
 
     } else {
       const optimisticId = crypto.randomUUID()
@@ -321,10 +329,11 @@ const handleFileUpload = async (
         _id: optimisticId,
         role: 'user',
         content: cachedInput,
+        parentId: parentNodeId || null,
         createdAt: new Date().toISOString()
       })
       setInput('')
-      await sendMessage(cachedInput, targetChatId, undefined, undefined, optimisticId)
+      await sendMessage(cachedInput, targetChatId, undefined, undefined, optimisticId, parentNodeId || undefined)
     }
   }
 

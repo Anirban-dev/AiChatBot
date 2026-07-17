@@ -13,7 +13,7 @@ LITELLM_ROUTER_MODELS = {
         # # --- OpenRouter smart free router ---
         {"model_name": "small", "litellm_params": {"model": "openrouter/openrouter/free",     "api_key": os.getenv("OPENROUTER_API_KEY")}},
         {"model_name": "small", "litellm_params": {"model": "openrouter/liquid/lfm-2.5-1.2b-instruct:free", "api_key": os.getenv("OPENROUTER_API_KEY")}},
-        {"model_name": "small", "litellm_params": {"model": "openrouter/liquid/lfm-2.5-1.2b-thinking:free", "api_key": os.getenv("OPENROUTER_API_KEY")}},
+        # {"model_name": "small", "litellm_params": {"model": "openrouter/liquid/lfm-2.5-1.2b-thinking:free", "api_key": os.getenv("OPENROUTER_API_KEY")}},
         {"model_name": "small", "litellm_params": {"model": "openrouter/tencent/hy3:free", "api_key": os.getenv("OPENROUTER_API_KEY")}},
         
         {"model_name": "small", "litellm_params": {"model": "openrouter/openai/gpt-oss-20b:free",         "api_key": os.getenv("OPENROUTER_API_KEY")}},
@@ -27,8 +27,8 @@ LITELLM_ROUTER_MODELS = {
         {"model_name": "small", "litellm_params": {"model": "openai/gemma4:26b", "api_base": "https://11434-01kj2f7bpvc2nx7szdgh908j3d.cloudspaces.litng.ai/v1", "api_key": os.getenv("LIGHTNING_API_KEY"),}},
         # --- Groq ---
         {"model_name": "large", "litellm_params": {"model": "groq/llama-3.3-70b-versatile",                          "api_key": os.getenv("GROQ_API_KEY")}},
-        {"model_name": "large", "litellm_params": {"model": "groq/meta-llama/llama-4-maverick-17b-128e-instruct",    "api_key": os.getenv("GROQ_API_KEY")}},
-        {"model_name": "large", "litellm_params": {"model": "groq/moonshotai/kimi-k2-instruct",                      "api_key": os.getenv("GROQ_API_KEY")}},
+        # {"model_name": "large", "litellm_params": {"model": "groq/meta-llama/llama-4-maverick-17b-128e-instruct",    "api_key": os.getenv("GROQ_API_KEY")}},
+        # {"model_name": "large", "litellm_params": {"model": "groq/moonshotai/kimi-k2-instruct",                      "api_key": os.getenv("GROQ_API_KEY")}},
         # --- OpenRouter (confirmed free June 2025) ---
         {"model_name": "large", "litellm_params": {"model": "openrouter/google/gemma-4-31b-it:free",  "api_key": os.getenv("OPENROUTER_API_KEY")}},
         {"model_name": "large", "litellm_params": {"model": "openrouter/openrouter/free",  "api_key": os.getenv("OPENROUTER_API_KEY")}},

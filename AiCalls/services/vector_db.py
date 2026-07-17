@@ -58,3 +58,42 @@ def instantiate_vector_store(collection_name: str) -> QdrantVectorStore:
         collection_name=collection_name,
         embedding=get_embeddings(),
     )
+
+async def search(
+    query: str,
+    chat_id: str,
+    k: int = 4,
+    active_path: list = None
+) -> list[Document]:
+    """
+    Search for relevant documents in the vector store.
+    When active_path is provided, only searches documents from messages in the active path.
+    """
+    from langchain_qdrant import QdrantVectorStore
+    
+    collection_name = get_collection_name(chat_id)
+    
+    if not collection_exists(collection_name):
+        return []
+    
+    vector_store = instantiate_vector_store(collection_name)
+    
+    # If active_path is provided, filter search to only include messages in the path
+    if active_path:
+        # Build a filter to only include messages from the active path
+        message_ids = [msg.get("_id") for msg in active_path if msg.get("_id")]
+        if message_ids:
+            # Create a filter for specific message IDs
+            must_conditions = []
+            for msg_id in message_ids:
+                must_conditions.append(FieldCondition(key="metadata.message_id", match=MatchValue(value=str(msg_id))))
+            
+            results = await vector_store.asimilarity_search(
+                query=query,
+                k=k,
+                filter=Filter(must=must_conditions) if must_conditions else None
+            )
+            return results
+    
+    # Default search without path filtering
+    return await vector_store.asimilarity_search(query=query, k=k)

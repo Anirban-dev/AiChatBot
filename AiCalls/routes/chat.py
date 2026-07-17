@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -11,6 +12,7 @@ from litellm.exceptions import RateLimitError
 
 from config import LLM_SMALL_MODEL, client, LLM_HIGH_MODEL, SYSTEM_PROMPT, CONCURRENT_STREAMS
 from services import vector_store as vs
+from services import vector_db as vdb
 from services import session_state as ss
 from state import active_streams, StreamState
 from services import tool_manager
@@ -69,11 +71,20 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
         chat_id         = body.get("chat_id", chat_id_hdr or "unknown")
         user_prompt     = body.get("message", "")
         history         = body.get("history", [])
+        active_path     = body.get("activePath", [])  # New: Active linear path
         enable_thinking = body.get("enable_thinking", False)
         mode            = body.get("mode", "small")
 
         user_text       = body.get("text", "")
         file_info       = body.get("fileInfo")
+        file_data       = body.get("file")
+
+        # Map current user content and text for LLM message format
+        current_prompt = user_prompt
+        current_text = user_text
+        if file_info and file_data:
+            current_prompt = file_data
+            current_text = user_prompt
 
         _log.info(
             f"[Request] chat={chat_id} user={user_id} mode={mode} "
@@ -81,7 +92,8 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
         )
 
         # ── 2. RAG RETRIEVAL ──────────────────────────────────────────────────
-        context_docs = await vs.search(user_prompt, chat_id, k=4)
+        # Use only active linear path for RAG search (conversation branching)
+        context_docs = await vdb.search(user_prompt, chat_id, k=4, active_path=active_path)
         context = "\n\n---\n\n".join(d.page_content for d in context_docs)
 
         # ── 3. BUILD SYSTEM PROMPT ────────────────────────────────────────────
@@ -135,14 +147,21 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                 return content
 
         # ── 4. BUILD MESSAGE HISTORY ──────────────────────────────────────────
+        # Use only active linear path for conversation branching
         messages = [{"role": "system", "content": system}]
-        for msg in history:
+        for msg in active_path:
+            msg_content = msg.get("content", "")
+            msg_text = msg.get("text")
+            if msg.get("fileInfo") and msg.get("file"):
+                msg_content = msg.get("file", "")
+                msg_text = msg.get("content", "")
+
             messages.append({
                 "role": msg["role"],
                 "content": format_message_content(
                     msg["role"],
-                    msg.get("content", ""),
-                    msg.get("text"),
+                    msg_content,
+                    msg_text,
                     msg.get("fileInfo")
                 )
             })
@@ -150,8 +169,8 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
             "role": "user",
             "content": format_message_content(
                 "user",
-                user_prompt,
-                user_text,
+                current_prompt,
+                current_text,
                 file_info
             )
         })
@@ -257,6 +276,11 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                 text_content_buffer: list = []
                 is_tool_call = False
 
+                # Inline tag streaming state
+                _think_buffer      = ""   # accumulates text seen inside <think>...</think>
+                _in_think_block    = False
+                _residual          = ""   # partial tag seen at the edge of a chunk
+
                 async for chunk in stream:
                     if not active_streams.get(chat_id, StreamState()).active:
                         if hasattr(stream, 'aclose'):
@@ -291,21 +315,116 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                         getattr(delta, "content", None) is not None or
                         getattr(delta, "reasoning_content", None) is not None
                     ):
-                        reasoning = getattr(delta, "reasoning_content", None)
+                        native_reasoning = getattr(delta, "reasoning_content", None)
                         content = getattr(delta, "content", None)
-                        if reasoning:
-                            yield f"data: {json.dumps({'reasoning_token': reasoning})}\n\n"
+
+                        # Native reasoning field → pass straight through
+                        if native_reasoning:
+                            yield f"data: {json.dumps({'reasoning_token': native_reasoning})}\n\n"
+
                         if content:
-                            if not ttft_logged:
-                                ttft_ms = int((time.monotonic() - gen_start) * 1000)
-                                _log.info(f"[TTFT] chat={chat_id} ttft={ttft_ms}ms iter={iteration+1} tier={target_model}")
-                                ttft_logged = True
-                            text_content_buffer.append(content)
-                            total_tokens += 1
-                            yield f"data: {json.dumps({'token': content})}\n\n"
-                            await asyncio.sleep(0)
+                            # Combine with any unprocessed residual from the previous chunk
+                            working = _residual + content
+                            _residual = ""
+                            out_tokens = ""
+
+                            i = 0
+                            while i < len(working):
+                                if _in_think_block:
+                                    end = working.find("</think>", i)
+                                    if end == -1:
+                                        # Haven't seen </think> yet — buffer everything
+                                        _think_buffer += working[i:]
+                                        i = len(working)
+                                    else:
+                                        # Found </think> — capture up to it
+                                        _think_buffer += working[i:end]
+                                        _in_think_block = False
+                                        i = end + len("</think>")
+                                        # Emit the full thought block as a reasoning event
+                                        if _think_buffer.strip():
+                                            yield f"data: {json.dumps({'reasoning_token': _think_buffer})}\n\n"
+                                            _think_buffer = ""
+                                else:
+                                    start = working.find("<think>", i)
+                                    if start == -1:
+                                        # No opening tag found — check for a partial tag at the tail
+                                        # so we don't accidentally yield "<thi" as a token
+                                        tail = working[i:]
+                                        OPEN_TAG = "<think>"
+                                        partial = ""
+                                        for k in range(1, len(OPEN_TAG)):
+                                            if tail.endswith(OPEN_TAG[:k]):
+                                                partial = OPEN_TAG[:k]
+                                                break
+                                        if partial:
+                                            out_tokens += tail[: len(tail) - len(partial)]
+                                            _residual = partial
+                                        else:
+                                            out_tokens += tail
+                                        i = len(working)
+                                    else:
+                                        # Yield everything before the tag, then enter think mode
+                                        out_tokens += working[i:start]
+                                        _in_think_block = True
+                                        i = start + len("<think>")
+
+                            if out_tokens:
+                                if not ttft_logged:
+                                    ttft_ms = int((time.monotonic() - gen_start) * 1000)
+                                    _log.info(f"[TTFT] chat={chat_id} ttft={ttft_ms}ms iter={iteration+1} tier={target_model}")
+                                    ttft_logged = True
+                                text_content_buffer.append(out_tokens)
+                                total_tokens += 1
+                                yield f"data: {json.dumps({'token': out_tokens})}\n\n"
+                                await asyncio.sleep(0)
+
+                # Flush any unclosed <think> block (model didn't emit </think>)
+                if _in_think_block and _think_buffer.strip():
+                    yield f"data: {json.dumps({'reasoning_token': _think_buffer})}\n\n"
+                    _think_buffer = ""
+                # Flush any partial-tag residual as normal content
+                if _residual:
+                    text_content_buffer.append(_residual)
+                    yield f"data: {json.dumps({'token': _residual})}\n\n"
+                    _residual = ""
 
                 # Stream finished for this iteration
+                full_text = "".join(text_content_buffer)
+
+                # Parse inline <function>name{args}</function> emitted by models
+                # that do not support native tool calling
+                if "<function>" in full_text and not is_tool_call:
+                    func_matches = re.findall(
+                        r"<function>(\w+)\s*(\{.*?\})?\s*(?:</function>|$)",
+                        full_text,
+                        re.DOTALL,
+                    )
+                    if func_matches:
+                        is_tool_call = True
+                        for idx, (func_name, raw_args) in enumerate(func_matches):
+                            raw_args = raw_args.strip() if raw_args else "{}"
+                            # Validate JSON — fall back to empty dict on parse failure
+                            try:
+                                json.loads(raw_args)
+                                args_str = raw_args
+                            except json.JSONDecodeError:
+                                args_str = "{}"
+                            call_id = f"call_inline_{iteration}_{idx}"
+                            tool_calls_buffer[len(tool_calls_buffer)] = {
+                                "id": call_id,
+                                "type": "function",
+                                "function": {"name": func_name, "arguments": args_str},
+                            }
+                        # Remove all <function> blocks from visible content
+                        clean_text = re.sub(
+                            r"<function>\w+\s*(?:\{.*?\})?\s*(?:</function>|$)",
+                            "",
+                            full_text,
+                            flags=re.DOTALL,
+                        ).strip()
+                        text_content_buffer = [clean_text]
+
                 if not is_tool_call:
                     # No tools called → text was already streamed → done
                     _log.info(f"[Generate] Complete: chat={chat_id} iter={iteration+1} tokens={total_tokens}")

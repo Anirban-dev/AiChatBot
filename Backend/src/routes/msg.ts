@@ -24,7 +24,7 @@ router.get('/', midLimiter, async (req: Request<{ chatId: string }>, res: Respon
 })
 
 router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: Response) => {
-  const { content, model = 'small', fileInfo, file } = req.body
+  const { content, model = 'small', fileInfo, file, parentId } = req.body
   const { chatId } = req.params
 
   if (!content && !file) return res.status(400).json({ error: 'Content is required' })
@@ -88,9 +88,21 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       return res.status(429).json({ error: 'Hourly token quota consumed. Please wait until the next hour.' })
     }
 
-    // 1. Fetch recent context
-    const previousMessages = await Message.find({ chatId }).sort({ createdAt: -1 }).limit(10)
-    previousMessages.reverse()
+    // 1. Fetch recent context along the branch parent chain
+    let currentParentId = parentId
+    if (!currentParentId) {
+      const lastMsg = await Message.findOne({ chatId }).sort({ createdAt: -1 })
+      if (lastMsg) {
+        currentParentId = lastMsg._id
+      }
+    }
+    const previousMessages: any[] = []
+    while (currentParentId && previousMessages.length < 10) {
+      const parentMsg = await Message.findById(currentParentId)
+      if (!parentMsg) break
+      previousMessages.unshift(parentMsg)
+      currentParentId = parentMsg.parentId
+    }
 
     const userMessage = await Message.create({
       chatId,
@@ -98,6 +110,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       content,
       fileInfo,
       file,
+      parentId: parentId || null,
     })
 
     res.setHeader('Content-Type', 'text/event-stream')
@@ -123,6 +136,12 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
         chat_id: chatId,
         mode: targetTier,
         history: previousMessages.map(m => ({
+          role: m.role,
+          content: m.content,
+          fileInfo: (m as any).fileInfo,
+          file: (m as any).file,
+        })),
+        activePath: previousMessages.map(m => ({
           role: m.role,
           content: m.content,
           fileInfo: (m as any).fileInfo,
@@ -397,15 +416,15 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     }
 
     const cleanContent = fullContent && fullContent.trim() !== ''
-      ? fullContent
-      : (activeToolCalls.length > 0 ? '[Executed Tool Action]' : '[Stream Disconnected]')
-
+      ? fullContent.trim()
+      : (activeToolCalls.length > 0 ? '[Executed Tool Action]' : '[Stream Disconnected]');
     const assistantMessage = await Message.create({
       chatId: req.params.chatId,
       role: 'assistant',
       content: cleanContent,
       reasoning: reasoningContent || undefined,
       toolCalls: activeToolCalls,
+      parentId: userMessage._id,
     })
 
     // ─── Redis hourly tracking commit ─────────────────────────────────────────
@@ -487,6 +506,94 @@ router.post('/stop', midLimiter, async (req: AuthRequest<{ chatId: string }>, re
   } catch (err) {
     console.error('Stop Endpoint Error:', err)
     res.status(500).json({ error: 'Internal Server Error' })
+  }
+})
+
+// Edit message endpoint (for inline editing)
+router.put('/:msgId/edit', midLimiter, async (req: AuthRequest<{ msgId: string; chatId: string }>, res: Response) => {
+  const { msgId } = req.params
+  const { content, model = 'small', fileInfo, file } = req.body
+  const chatId = req.params.chatId
+  const userId = req.userId!
+
+  if (!content && !file) return res.status(400).json({ error: 'Content is required' })
+
+  const validTiers = ['small', 'large', 'thinking', 'critiq']
+  const targetTier = validTiers.includes(model) ? model : 'small'
+
+  try {
+    const message = await Message.findById(msgId)
+    if (!message) return res.status(404).json({ error: 'Message not found' })
+
+    // Get the original message's parentId for the new branch
+    const parentMessageId = message.parentId || msgId
+
+    // Create a new user message with the same parentId (creates a new branch)
+    const newUserMessage = await Message.create({
+      chatId,
+      role: 'user',
+      content,
+      fileInfo,
+      file,
+      parentId: parentMessageId,
+    })
+
+    // Send the new message to the frontend
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    if (res.flushHeaders) res.flushHeaders()
+
+    res.write(`event: userMessage\ndata: ${JSON.stringify(newUserMessage)}\n\n`)
+
+    // Trigger AI response with the edited message
+    const aiCallStart = Date.now()
+    const response = await fetch(`${process.env.AI_API}/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Connection': 'keep-alive',
+        'X-User-Id': userId,
+        'X-Chat-Id': chatId,
+      },
+      body: JSON.stringify({
+        message: content,
+        file_info: fileInfo, // Convert to snake_case for Python
+        file: file,
+        chat_id: chatId,
+        mode: targetTier,
+        history: [], // Start fresh for the edited message
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`AI API error: ${response.status}`)
+    }
+
+    // Stream the AI response
+    if (response.body) {
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const buffer = decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n\n')
+
+        for (const line of lines) {
+          if (line.trim()) {
+            res.write(line + '\n\n')
+          }
+        }
+      }
+    }
+
+    res.end()
+  } catch (err) {
+    console.error('Edit Message Error:', err)
+    res.status(500).json({ error: 'Failed to edit message' })
   }
 })
 

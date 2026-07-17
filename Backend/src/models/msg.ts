@@ -35,6 +35,15 @@ const messageSchema = new mongoose.Schema({
     result: String,
     error: String,
   }],
+  parentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Message',
+    default: null,
+  },
+  isEdited: {
+    type: Boolean,
+    default: false,
+  },
 }, { timestamps: true })
 
 export const Message = mongoose.model('Message', messageSchema)

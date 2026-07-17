@@ -2,7 +2,7 @@ name: chatai
 
 services:
   searxng:
-    image: searxng/searxng:latest
+    image: searxng/searxng
     ports:
       - "8888:8080"
     volumes:
@@ -10,66 +10,31 @@ services:
     restart: on-failure
     networks:
       - backend
-    depends_on:
-      - tor-proxy
 
-  # --- ADDED TOR PROXY FOR ONION SEARCH (AHMIA/TORCH) ---
-  tor-proxy:
-    image: peterdavehello/tor-socks-proxy:latest
-    restart: on-failure
-    networks:
-      - backend
-
-  firecrawl-api:
-    image: trieve/firecrawl:v0.0.46
+  firecrawl:
+    image: ghcr.io/firecrawl/firecrawl:latest
+    ports:
+      - "3002:3002"
     environment:
       - PORT=3002
       - HOST=0.0.0.0
-      - REDIS_URL=redis://redis:6379
-      - REDIS_RATE_LIMIT_URL=redis://redis:6379
-      - PLAYWRIGHT_MICROSERVICE_URL=http://playwright-service:3000
-      - DATABASE_URL=mongodb://mongodb:27017/firecrawl
-      - ORIGIN_URL=http://localhost:3002
+      - REDIS_URL=${REDIS_URL}
+      - REDIS_RATE_LIMIT_URL=${REDIS_URL}
+      - DATABASE_URL=${MONGO_URI}
+      - ORIGIN_URL=${FIRECRAWL_URL:-http://localhost:3002}
       - LLM_ENABLED=false
       - COREPACK_ENABLE_STRICT=0
       - COREPACK_INTEGRITY_KEYS=0
-    command: ["pnpm", "run", "start:production"]
-    depends_on:
-      - redis
-      - playwright-service
-      - mongodb
-    networks:
-      - backend
-
-  firecrawl-worker:
-    image: trieve/firecrawl:v0.0.46
-    environment:
-      - REDIS_URL=redis://redis:6379
-      - PLAYWRIGHT_MICROSERVICE_URL=http://playwright-service:3000
-      - DATABASE_URL=mongodb://mongodb:27017/firecrawl
-      - COREPACK_ENABLE_STRICT=0
-      - COREPACK_INTEGRITY_KEYS=0
-    command: ["pnpm", "run", "workers"]
-    depends_on:
-      - redis
-      - playwright-service
-      - mongodb
-      - firecrawl-api
-    networks:
-      - backend
-
-  playwright-service:
-    image: trieve/puppeteer-service-ts:v0.0.6
-    environment:
-      - PORT=3000
+    command: ["node", "dist/src/index.js"]
     networks:
       - backend
 
   redis:
-    image: redis:6-alpine
+    image: redis:7-alpine
     restart: on-failure
     ports:
       - "6379:6379"
+    command: ["redis-server", "--ignore-warnings", "ARM64-COW-BUG"]
     networks:
       - backend
 
@@ -90,6 +55,12 @@ services:
     volumes:
       - ./dump/mongo_data:/data/db
     restart: on-failure
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - backend
 

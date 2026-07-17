@@ -2,10 +2,10 @@
 
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from tools.scrap_url import scrape_url
-from tools.deep_research import deep_research
+from tools.web_search import web_search
 
 # ── Tool registry ─────────────────────────────────────────────────────────────
-tools = [deep_research, scrape_url]
+tools = [web_search, scrape_url]
 _tool_map: dict = {t.name: t for t in tools}
 
 

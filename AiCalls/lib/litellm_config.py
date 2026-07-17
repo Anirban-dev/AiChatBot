@@ -10,6 +10,31 @@ import logging
 from zoneinfo import ZoneInfo
 from datetime import datetime, timezone
 import litellm
+import litellm.exceptions
+
+# --- Monkeypatch to fix litellm bug (ValueError: invalid literal for int() with base 10: 'tool_use_failed') ---
+_original_midstream_init = litellm.exceptions.MidStreamFallbackError.__init__
+
+def _patched_midstream_init(self, *args, **kwargs):
+    orig_exc = kwargs.get("original_exception")
+    if orig_exc is None and len(args) > 3:
+        orig_exc = args[3]
+    
+    if orig_exc is not None:
+        status_code = getattr(orig_exc, "status_code", None)
+        if status_code is not None:
+            try:
+                int(status_code)
+            except (ValueError, TypeError):
+                try:
+                    orig_exc.status_code = 400
+                except AttributeError:
+                    pass
+
+    return _original_midstream_init(self, *args, **kwargs)
+
+litellm.exceptions.MidStreamFallbackError.__init__ = _patched_midstream_init
+
 from litellm import Router
 from lib.mongodb import llm_logs
 

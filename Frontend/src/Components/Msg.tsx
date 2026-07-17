@@ -10,8 +10,9 @@ import { MessageBubble } from './MessageBubble'
 
 export const Msg = ({ chatId }: { chatId?: string }) => {
   const activeChatId = chatId || 'new'
-  const { getMessages, setMessages } = useChatStore()
-  const messages = getMessages(activeChatId)
+  const { getMessages, setMessages, getBranchInfo, getActivePath, activeNodeId, switchBranch } = useChatStore()
+  const activeNode = activeNodeId(activeChatId)
+  const messages = getActivePath(activeChatId, activeNode || '')
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -24,6 +25,10 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
   const [stream, setStream] = useState<MediaStream | null>(null)
 
   const [textPreviewMsg, setTextPreviewMsg] = useState<{ name: string; content: string } | null>(null)
+  const [isEditing, setIsEditing] = useState<string | null>(null)
+  const [editingFiles, setEditingFiles] = useState<File[]>([])
+  const [editingFileInputs, setEditingFileInputs] = useState<File[]>([])
+  const [, setCopiedText] = useState<string | null>(null)
 
   const sendHook = useSendMessage(activeChatId)
 
@@ -72,7 +77,7 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
   }
 
   const closeCamera = () => {
-    if (stream) stream.getTracks().forEach(track => track.stop())
+    if (stream) stream.getTracks().forEach((track: MediaStreamTrack) => track.stop())
     setStream(null)
     setIsCameraActive(false)
   }
@@ -100,6 +105,101 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
     closeCamera()
   }
 
+  const startEditing = (msgId: string) => {
+    const msg = messages.find(m => m._id === msgId)
+    if (!msg) return
+
+    setIsEditing(msgId)
+    if (msg.fileInfo) {
+      setEditingFiles([{
+        name: msg.fileInfo.name,
+        size: msg.fileInfo.size,
+        mimeType: msg.fileInfo.mimeType,
+        extension: msg.fileInfo.extension,
+        file: msg.file,
+        isExisting: true
+      } as any])
+    } else {
+      setEditingFiles([])
+    }
+    setEditingFileInputs([])
+  }
+
+  const cancelEditing = () => {
+    setIsEditing(null)
+    setEditingFiles([])
+    setEditingFileInputs([])
+  }
+
+  const saveAndSubmit = async (newContent: string) => {
+    const msgId = isEditing
+    if (!msgId) return
+
+    const allMsgs = getMessages(activeChatId)
+    const msg = allMsgs.find(m => m._id === msgId)
+    if (!msg) return
+
+    cancelEditing()
+
+    try {
+      if (editingFileInputs.length > 0) {
+        const fileToUpload = editingFileInputs[0]
+        let uploadedFileInfo: any = null
+        let uploadedFileContent: string | undefined = undefined
+
+        await sendHook.handleFileUpload(fileToUpload, activeChatId, (data) => {
+          uploadedFileInfo = data.fileInfo
+          uploadedFileContent = data.file
+        })
+
+        if (!uploadedFileInfo) {
+          alert('File upload failed. Please try again.')
+          return
+        }
+
+        await sendHook.sendMessage(newContent, activeChatId, uploadedFileInfo, uploadedFileContent, undefined, msg.parentId || undefined)
+      } else if (editingFiles.length > 0 && (editingFiles[0] as any).isExisting) {
+        const existing = editingFiles[0]
+        await sendHook.sendMessage(
+          newContent,
+          activeChatId,
+          {
+            name: existing.name,
+            size: existing.size,
+            mimeType: (existing as any).mimeType,
+            extension: (existing as any).extension
+          },
+          (existing as any).file,
+          undefined,
+          msg.parentId || undefined
+        )
+      } else {
+        await sendHook.sendMessage(newContent, activeChatId, undefined, undefined, undefined, msg.parentId || undefined)
+      }
+    } catch (error) {
+      console.error('Failed to save message:', error)
+      alert(error instanceof Error ? error.message : 'Failed to save message. Please try again.')
+    }
+  }
+
+  const handleEditFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setEditingFileInputs([e.target.files[0]])
+      setEditingFiles([]) // clear any existing file since we replaced it
+    }
+  }
+
+  const removeEditFile = () => {
+    setEditingFileInputs([])
+    setEditingFiles([])
+  }
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text)
+    setCopiedText(text)
+    setTimeout(() => setCopiedText(null), 2000)
+  }
+
   const lastMsg = messages[messages.length - 1]
   const isStreaming = lastMsg?.role === 'assistant' && lastMsg?.content?.length > 0
   const showTypingIndicator = (sendHook.loading || sendHook.uploading) && !isStreaming
@@ -116,17 +216,34 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
           </div>
         )}
 
-        {messages.map((msg) => (
-          <MessageBubble
-            key={msg._id}
-            msg={msg}
-            runCode={sendHook.runCode}
-            getFileIcon={sendHook.getFileIcon}
-            formatFileSize={sendHook.formatFileSize}
-            formatTime={sendHook.formatTime}
-            onOpenTextPreview={(name, content) => setTextPreviewMsg({ name, content })}
-          />
-        ))}
+        {messages.map((msg) => {
+          const isCurrentMsgEditing = isEditing === msg._id
+          const isUserMessage = msg.role === 'user'
+          const branchInfo = isCurrentMsgEditing ? undefined : getBranchInfo(activeChatId, msg._id)
+
+          return (
+            <MessageBubble
+              key={msg._id}
+              msg={{ ...msg, isUser: isUserMessage }}
+              runCode={sendHook.runCode}
+              getFileIcon={sendHook.getFileIcon}
+              formatFileSize={sendHook.formatFileSize}
+              formatTime={sendHook.formatTime}
+              onOpenTextPreview={(name, content) => setTextPreviewMsg({ name, content })}
+              isEditing={isCurrentMsgEditing}
+              onEditStart={() => isUserMessage && startEditing(msg._id)}
+              onCancelEdit={cancelEditing}
+              onSaveEdit={saveAndSubmit}
+              branchInfo={branchInfo}
+              onBranchChange={(dir) => switchBranch(activeChatId, msg._id, dir)}
+              editingFiles={editingFiles}
+              editingFileInputs={editingFileInputs}
+              onEditFileSelect={handleEditFileSelect}
+              onRemoveEditFile={removeEditFile}
+              onCopy={handleCopy}
+            />
+          )
+        })}
 
         {showTypingIndicator && (
           <div className="flex items-end gap-2.5 animate-in fade-in duration-200">
