@@ -247,11 +247,7 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                     yield f"event: error\ndata: {json.dumps({'message': 'Rate limit hit — please wait a moment and try again.'})}\n\n"
                 return
 
-            # ── ALL OTHER MODES: streaming with tool-call accumulation ─────────
-            # IMPORTANT: We ONLY use streaming here — never a non-streaming probe.
-            # Passing tools= to router.acompletion() in non-streaming mode triggers
-            # a litellm bug ("coroutine was never awaited"). Always stream and
-            # accumulate tool_call deltas from chunks instead.
+            # ── ALL OTHER MODES: ──────────────────────────────────────────────────────
             for iteration in range(MAX_ITERATIONS):
                 st = active_streams.get(chat_id)
                 if st is None or not st.active:

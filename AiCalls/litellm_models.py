@@ -56,7 +56,7 @@ LITELLM_ROUTER_MODELS = {
         # ----------------------------------------------------------------------
         # 6. VISION LLM
         # ----------------------------------------------------------------------
-        {"model_name": "visionllm", "litellm_params": {"model": "groq/meta-llama/llama-4-scout-17b-16e-instruct",  "api_key": os.getenv("GROQ_API_KEY")}},
+        # {"model_name": "visionllm", "litellm_params": {"model": "groq/meta-llama/llama-4-scout-17b-16e-instruct",  "api_key": os.getenv("GROQ_API_KEY")}},
         # --- Lightning Cloud fallback ---
         {"model_name": "visionllm", "litellm_params": {
             "model": "openai/gemma4:latest",
@@ -64,7 +64,7 @@ LITELLM_ROUTER_MODELS = {
             "api_key": os.getenv("LIGHTNING_API_KEY"),
         }},
         # --- OpenRouter (vision-capable free model, confirmed June 2025) ---
-        {"model_name": "visionllm", "litellm_params": {"model": "openrouter/google/gemma-4-31b-it:free", "api_key": os.getenv("OPENROUTER_API_KEY")}},
+        {"model_name": "large", "litellm_params": {"model": "openrouter/openrouter/free",  "api_key": os.getenv("OPENROUTER_API_KEY")}},
 
         # ----------------------------------------------------------------------
         # 7. SPEECH LLM
