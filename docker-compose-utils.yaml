@@ -11,21 +11,14 @@ services:
     networks:
       - backend
 
-  firecrawl:
-    image: ghcr.io/firecrawl/firecrawl:latest
+  crawl4ai:
+    image: unclecode/crawl4ai:latest
     ports:
-      - "3002:3002"
+      - "11235:11235"
     environment:
-      - PORT=3002
-      - HOST=0.0.0.0
-      - REDIS_URL=${REDIS_URL}
-      - REDIS_RATE_LIMIT_URL=${REDIS_URL}
-      - DATABASE_URL=${MONGO_URI}
-      - ORIGIN_URL=${FIRECRAWL_URL:-http://localhost:3002}
-      - LLM_ENABLED=false
-      - COREPACK_ENABLE_STRICT=0
-      - COREPACK_INTEGRITY_KEYS=0
-    command: ["node", "dist/src/index.js"]
+      - CRAWL4AI_API_TOKEN=your_custom_secret_password
+    shm_size: '1gb'
+    restart: on-failure
     networks:
       - backend
 

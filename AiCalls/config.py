@@ -23,7 +23,7 @@ QDRANT_COLLECTION_PREFIX = os.getenv("QDRANT_COLLECTION_PREFIX", "chat")
 
 # ── External System Tools ─────────────────────────────────────────────────────
 SEARXNG_URL = os.getenv("SEARXNG_URL", "http://localhost:8888")
-FIRECRAWL_URL = os.getenv("FIRECRAWL_URL", "http://localhost:3002")
+CRAWL4AI_URL = os.getenv("CRAWL4AI_URL", "http://localhost:11235")
 
 # ── Local Document Vector Embedding Pipeline ──────────────────────────────────
 EMBED_MODEL = "all-MiniLM-L6-v2"   # ~90MB local model footprint
