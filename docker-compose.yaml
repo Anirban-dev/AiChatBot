@@ -59,7 +59,8 @@ services:
       - QDRANT_API_KEY=${QDRANT_API_KEY}
       - QDRANT_COLLECTION_PREFIX=${QDRANT_COLLECTION_PREFIX:-chat}
       - SEARXNG_URL=${SEARXNG_URL:-http://searxng:8080}
-      - FIRECRAWL_URL=${FIRECRAWL_URL:-http://firecrawl:3002}
+      - CRAWL4AI_URL=${CRAWL4AI_URL:-http://crawl4ai:11235}
+      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-your_custom_secret_password}
       # --- LLM API Keys ---
       - GROQ_API_KEY=${GROQ_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
@@ -70,6 +71,7 @@ services:
     depends_on:
       - redis
       - qdrant
+      - crawl4ai
     networks:
       - backend_net
 
@@ -82,39 +84,15 @@ services:
     restart: on-failure
     networks:
       - backend_net
-    depends_on:
-      - tor-proxy
 
-  tor-proxy:
-    image: leplusorg/tor:latest
-    restart: unless-stopped
-    environment:
-      - SOCKS_HOSTNAME=0.0.0.0
+  crawl4ai:
+    image: unclecode/crawl4ai:latest
     ports:
-      - "9150:9050"
-    networks:
-      - backend_net
-
-  firecrawl:
-    image: ghcr.io/firecrawl/firecrawl:latest
-    ports:
-      - "3002:3002"
+      - "11235:11235"
     environment:
-      - PORT=3002
-      - HOST=0.0.0.0
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
-      - REDIS_RATE_LIMIT_URL=${REDIS_URL:-redis://redis:6379}
-      - DATABASE_URL=${MONGO_URI:-mongodb://mongodb:27017/AiAssistant}
-      - ORIGIN_URL=${FIRECRAWL_URL:-http://localhost:3002}
-      - LLM_ENABLED=false
-      - COREPACK_ENABLE_STRICT=0
-      - COREPACK_INTEGRITY_KEYS=0
-    command: ["node", "dist/src/index.js"]
+      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-your_custom_secret_password}
+    shm_size: '1gb'
     restart: on-failure
-    depends_on:
-      - redis
-      - mongodb:
-        condition: service_healthy
     networks:
       - backend_net
 
