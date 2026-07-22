@@ -72,7 +72,12 @@ async def crawl4ai_scrape(client: httpx.AsyncClient, url: str) -> str:
     }
 
     async def _extract_content(data: dict | list) -> str:
-        """Extract markdown content from various crawl4ai response shapes."""
+        """Extract markdown content from various crawl4ai response shapes.
+        
+        crawl4ai 0.9+ returns `markdown` as a MarkdownGenerationResult dict
+        (keys: raw_markdown, fit_markdown, markdown_with_citations) rather than
+        a plain string. This function handles both old and new formats.
+        """
         if isinstance(data, list) and len(data) > 0:
             data = data[0]
         if isinstance(data, dict):
@@ -81,7 +86,25 @@ async def crawl4ai_scrape(client: httpx.AsyncClient, url: str) -> str:
                 data = data["results"][0]
             elif "result" in data and isinstance(data["result"], dict):
                 data = data["result"]
-            return data.get("markdown", "") or data.get("cleaned_html", "") or ""
+
+            # crawl4ai 0.9+: markdown is a MarkdownGenerationResult dict
+            markdown = data.get("markdown", "")
+            if isinstance(markdown, dict):
+                # Prefer fit_markdown (cleaned), fall back to raw_markdown
+                markdown = (
+                    markdown.get("fit_markdown", "")
+                    or markdown.get("raw_markdown", "")
+                    or markdown.get("markdown_with_citations", "")
+                    or ""
+                )
+            if not isinstance(markdown, str):
+                markdown = ""
+
+            cleaned_html = data.get("cleaned_html", "") or ""
+            if not isinstance(cleaned_html, str):
+                cleaned_html = ""
+
+            return markdown or cleaned_html or ""
         return ""
 
     try:
@@ -226,25 +249,52 @@ async def _wikipedia(client: httpx.AsyncClient, url: str) -> str | None:
         return None
 
 async def _youtube(client: httpx.AsyncClient, url: str) -> str | None:
+    """
+    Returns content for YouTube URLs. Always returns a non-None string for any
+    YouTube URL so the crawl4ai fallback is never triggered (crawl4ai cannot
+    scrape YouTube and will error with cryptic slice exceptions).
+    """
     if "youtube.com" not in url and "youtu.be" not in url: return None
     try:
         match = re.search(r'(?:v=|\/embed\/|\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})', url)
-        if not match: return None
+        if not match:
+            return f"Could not extract a video ID from the YouTube URL: {url}"
         vid = match.group(1)
+        is_short = "/shorts/" in url
 
         video_title = "Unknown Title"
         try:
-            meta_res = await client.get(f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={vid}&format=json", timeout=5.0)
-            if meta_res.status_code == 200: video_title = meta_res.json().get("title", "Unknown Title")
-        except Exception: pass
+            meta_res = await client.get(
+                f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={vid}&format=json",
+                timeout=5.0,
+            )
+            if meta_res.status_code == 200:
+                video_title = meta_res.json().get("title", "Unknown Title")
+        except Exception:
+            pass
 
         import asyncio
-        transcript_list = await asyncio.to_thread(YouTubeTranscriptApi.get_transcript, vid)
-        transcript = " ".join(t["text"] for t in transcript_list)
-
-        return f"Title: {video_title}\nYouTube Video ID: {vid}\nURL: {url}\n\nTranscript:\n{transcript[:MAX_CONTENT_CHARS]}"
+        try:
+            transcript_list = await asyncio.to_thread(YouTubeTranscriptApi.get_transcript, vid)
+            transcript = " ".join(t["text"] for t in transcript_list)
+            return (
+                f"Title: {video_title}\n"
+                f"YouTube {'Short' if is_short else 'Video'} ID: {vid}\n"
+                f"URL: {url}\n\nTranscript:\n{transcript[:MAX_CONTENT_CHARS]}"
+            )
+        except Exception as transcript_err:
+            # Transcript unavailable (disabled captions, Shorts restriction, etc.)
+            # Still return a meaningful response so crawl4ai is NOT invoked.
+            return (
+                f"Title: {video_title}\n"
+                f"YouTube {'Short' if is_short else 'Video'} ID: {vid}\n"
+                f"URL: {url}\n\n"
+                f"Transcript unavailable: {transcript_err}\n"
+                f"This video does not have accessible captions/subtitles."
+            )
     except Exception:
-        return None
+        # Even on total failure, return a string to block crawl4ai fallback
+        return f"Could not retrieve YouTube content for: {url}"
 
 async def _arxiv(client: httpx.AsyncClient, url: str) -> str | None:
     if "arxiv.org" not in url: return None

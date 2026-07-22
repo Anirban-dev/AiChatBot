@@ -17,11 +17,20 @@ async def web_search(query: str) -> str:
 
     base_url = SEARXNG_URL.rstrip("/")
 
+    # SearXNG's botdetection middleware blocks requests that lack X-Forwarded-For
+    # or X-Real-IP headers. Direct Docker container-to-container calls never go
+    # through a proxy, so these headers must be set explicitly.
+    proxy_headers = {
+        "X-Forwarded-For": "127.0.0.1",
+        "X-Real-IP": "127.0.0.1",
+    }
+
     async with httpx.AsyncClient(timeout=httpx.Timeout(15.0), follow_redirects=True) as client:
         try:
             search_res = await client.get(
                 f"{base_url}/search",
-                params={"q": query, "format": "json"}
+                params={"q": query, "format": "json"},
+                headers=proxy_headers,
             )
             search_res.raise_for_status()
         except httpx.HTTPStatusError as e:
