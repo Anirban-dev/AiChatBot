@@ -1,0 +1,15 @@
+# SearXNG bot-detection / rate-limiter configuration
+# Disable all limits — this instance is only accessible internally via Docker.
+
+[botdetection.ip_limit]
+# Disable per-IP request rate limiting entirely
+enabled = false
+
+[botdetection.ip_lists]
+# Disable IP allow/block list enforcement
+enabled = false
+
+[real_ip]
+# Docker internal requests arrive without proxy headers.
+# Accept the real client IP directly without requiring X-Forwarded-For.
+x_for = 1

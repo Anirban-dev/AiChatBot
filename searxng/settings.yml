@@ -1,0 +1,15 @@
+use_default_settings: true
+
+server:
+  secret_key: "a_random_secret_key_change_me_12345"
+  image_proxy: true
+  limiter: true
+  public_instance: false
+
+search:
+  formats:
+    - html
+    - json
+
+redis:
+  url: redis://redis:6379/0
