@@ -113,8 +113,8 @@ router.get('/status', midLimiter, async (req: AdminRequest, res: Response) => {
     const recentEvents = recentEventsRaw.map((ev: any) => ({
       id:                String(ev._id),
       type:              ev.type,
-      model:             ev.model,
-      tier:              ev.virtual_model,
+      model:             ev.type === 'tool_call' ? ev.tool_name : ev.model,
+      tier:              ev.type === 'tool_call' ? 'tool' : ev.virtual_model,
       userId:            ev.userId ? String(ev.userId) : undefined,
       chatId:            ev.chatId ? String(ev.chatId) : undefined,
       mode:              ev.mode,
@@ -124,7 +124,7 @@ router.get('/status', midLimiter, async (req: AdminRequest, res: Response) => {
       prompt_tokens:     ev.prompt_tokens,
       completion_tokens: ev.completion_tokens,
       cost:              ev.cost,
-      error:             ev.error,
+      error:             ev.type === 'tool_call' ? (ev.tool_status === 'completed' ? `[SUCCESS] Args: ${ev.tool_args || ''} | Result: ${ev.error || ev.tool_result || ''}` : `[FAILED] Args: ${ev.tool_args || ''} | Error: ${ev.error || ev.tool_result || ''}`) : ev.error,
       error_details:     ev.error_details,
       timestamp:         ev.timestamp ? new Date(ev.timestamp).toISOString() : null,
     }))
@@ -147,11 +147,16 @@ router.get('/events', midLimiter, async (req: AdminRequest, res: Response) => {
     const limit      = parseInt(req.query.limit as string) || 100
 
     const query: any = { timestamp: { $gte: since } }
-    if (req.query.type)        query.type          = String(req.query.type)
+    if (req.query.type) {
+      query.type = String(req.query.type)
+    } else {
+      // Include success, failure, retry, and tool_call by default
+      query.type = { $in: ['success', 'failure', 'retry', 'tool_call'] }
+    }
     if (req.query.tier)        query.virtual_model  = String(req.query.tier)
     if (req.query.model) {
       const m = String(req.query.model)
-      query.$or = [{ model: m }, { virtual_model: m }]
+      query.$or = [{ model: m }, { virtual_model: m }, { tool_name: m }]
     }
     if (req.query.userId)      query.userId        = req.query.userId
     if (req.query.chatId)      query.chatId        = req.query.chatId
@@ -161,8 +166,8 @@ router.get('/events', midLimiter, async (req: AdminRequest, res: Response) => {
     const events = docs.map((doc: any) => ({
       id:                String(doc._id),
       type:              doc.type,
-      model:             doc.model,
-      tier:              doc.virtual_model,
+      model:             doc.type === 'tool_call' ? doc.tool_name : doc.model,
+      tier:              doc.type === 'tool_call' ? 'tool' : doc.virtual_model,
       userId:            doc.userId ? (typeof doc.userId === 'object' ? { id: String(doc.userId._id), name: doc.userId.name, email: doc.userId.email } : String(doc.userId)) : undefined,
       chatId:            doc.chatId ? String(doc.chatId) : undefined,
       mode:              doc.mode,
@@ -172,7 +177,7 @@ router.get('/events', midLimiter, async (req: AdminRequest, res: Response) => {
       prompt_tokens:     doc.prompt_tokens,
       completion_tokens: doc.completion_tokens,
       cost:              doc.cost,
-      error:             doc.error,
+      error:             doc.type === 'tool_call' ? (doc.tool_status === 'completed' ? `[SUCCESS] Args: ${doc.tool_args || ''} | Result: ${doc.error || doc.tool_result || ''}` : `[FAILED] Args: ${doc.tool_args || ''} | Error: ${doc.error || doc.tool_result || ''}`) : doc.error,
       error_details:     doc.error_details,
       timestamp:         doc.timestamp ? new Date(doc.timestamp).toISOString() : null,
     }))

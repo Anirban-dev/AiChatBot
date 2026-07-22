@@ -7,7 +7,7 @@ from langchain_core.tools import tool  # type: ignore
 
 from lib.redis import redis as cache
 from services.vision import describe_image
-from config import CRAWL4AI_URL
+from config import CRAWL4AI_URL, CRAWL4AI_API_TOKEN
 
 MAX_CONTENT_CHARS = 3000
 MAX_IMAGES_PER_PAGE = 2
@@ -68,35 +68,80 @@ async def crawl4ai_scrape(client: httpx.AsyncClient, url: str) -> str:
     
     headers = {
         "Content-Type": "application/json",
-        "Authorization": "Bearer your_custom_secret_password",  # Fixed colon & added Bearer
+        "Authorization": f"Bearer {CRAWL4AI_API_TOKEN}",
     }
-    payload = {"urls": [url], "priority": 10}  # Fixed: passed url in a list []
+
+    async def _extract_content(data: dict | list) -> str:
+        """Extract markdown content from various crawl4ai response shapes."""
+        if isinstance(data, list) and len(data) > 0:
+            data = data[0]
+        if isinstance(data, dict):
+            # Unwrap nested result/results fields
+            if "results" in data and isinstance(data["results"], list) and len(data["results"]) > 0:
+                data = data["results"][0]
+            elif "result" in data and isinstance(data["result"], dict):
+                data = data["result"]
+            return data.get("markdown", "") or data.get("cleaned_html", "") or ""
+        return ""
 
     try:
-        res = await client.post(f"{base_url}/crawl", headers=headers, json=payload)
-        if res.status_code != 200:
+        # ── Strategy 1: synchronous crawl endpoint ────────────────────────────
+        res = await client.post(
+            f"{base_url}/crawl/sync",
+            headers=headers,
+            json={"urls": [url], "priority": 10},
+        )
+
+        if res.status_code == 200:
+            content = await _extract_content(res.json())
+            return content[:MAX_CONTENT_CHARS] or "No readable text content extracted."
+
+        # ── Strategy 2: async /crawl with task polling ────────────────────────
+        if res.status_code in (404, 405):
             res = await client.post(
-                f"{base_url}/scrape", 
-                headers=headers, 
-                json={"url": url}
+                f"{base_url}/crawl",
+                headers=headers,
+                json={"urls": [url], "priority": 10},
             )
 
+        if res.status_code == 200:
+            data = res.json()
+            # If crawl4ai returns a task_id we need to poll for the result
+            task_id = data.get("task_id") if isinstance(data, dict) else None
+            if task_id:
+                import asyncio
+                for _ in range(20):           # poll up to 20×0.5s = 10 seconds
+                    await asyncio.sleep(0.5)
+                    poll = await client.get(
+                        f"{base_url}/task/{task_id}",
+                        headers=headers,
+                    )
+                    if poll.status_code == 200:
+                        poll_data = poll.json()
+                        status = poll_data.get("status", "")
+                        if status == "completed":
+                            content = await _extract_content(poll_data)
+                            return content[:MAX_CONTENT_CHARS] or "No readable text content extracted."
+                        if status == "failed":
+                            raise Exception(f"Crawl task failed: {poll_data.get('error', 'unknown error')}")
+                raise Exception("Crawl task timed out after 10 seconds")
+            else:
+                # Response was immediate (no task_id)
+                content = await _extract_content(data)
+                return content[:MAX_CONTENT_CHARS] or "No readable text content extracted."
+
+        # ── Strategy 3: legacy /scrape endpoint (older crawl4ai builds) ───────
+        res = await client.post(
+            f"{base_url}/scrape",
+            headers=headers,
+            json={"url": url},
+        )
         if res.status_code != 200:
             raise Exception(f"HTTP {res.status_code}: {res.text[:200]}")
 
-        data = res.json()
-        content = ""
-        if isinstance(data, dict):
-            if "results" in data and isinstance(data["results"], list) and len(data["results"]) > 0:
-                content = data["results"][0].get("markdown", "") or data["results"][0].get("cleaned_html", "")
-            elif "result" in data and isinstance(data["result"], dict):
-                content = data["result"].get("markdown", "")
-            elif "markdown" in data:
-                content = data.get("markdown", "")
-        elif isinstance(data, list) and len(data) > 0:
-            content = data[0].get("markdown", "")
-
+        content = await _extract_content(res.json())
         return content[:MAX_CONTENT_CHARS] or "No readable text content extracted."
+
     except Exception as e:
         raise Exception(f"Crawl4AI extraction error: {e}")
     

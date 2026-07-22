@@ -340,10 +340,16 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
 
             if (toolStatus !== 'running') {
               LlmLog.create({
-                type: 'tool_call', userId, chatId,
-                tool_name: toolName, tool_status: toolStatus,
+                type: 'tool_call',
+                userId,
+                chatId,
+                model: toolName,
+                virtual_model: 'tool',
+                tool_name: toolName,
+                tool_status: toolStatus,
+                tool_args: tc?.function?.arguments || '',
                 tool_result: toolStatus === 'completed' ? toolResult : undefined,
-                error: toolStatus === 'failed' ? toolError : undefined,
+                error: toolStatus === 'completed' ? toolResult : toolError,
                 timestamp: new Date(),
               }).catch(e => console.error('Failed to save tool call log:', e))
             }

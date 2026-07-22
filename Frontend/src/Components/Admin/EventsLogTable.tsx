@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCircle2, XCircle, RefreshCw, SlidersHorizontal, Eye, Trash2, ShieldAlert } from 'lucide-react'
+import { CheckCircle2, XCircle, RefreshCw, SlidersHorizontal, Eye, Trash2, ShieldAlert, Wrench } from 'lucide-react'
 import type { LLMEvent } from '../../API/Admin/AdminLlm'
 import { ErrorDetailsModal } from './ErrorDetails'
 
@@ -26,6 +26,7 @@ const TIER_COLORS: Record<string, string> = {
   lowllm:      'text-emerald-500 dark:text-emerald-400',
   summaryllm:  'text-amber-500 dark:text-amber-400',
   visionllm:   'text-pink-500 dark:text-pink-400',
+  tool:        'text-purple-500 dark:text-purple-400',
 }
 
 const fmtMs = (ms: number | null) => (ms == null ? '—' : ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms}ms`)
@@ -87,8 +88,8 @@ export const EventsLogTable = ({
           />
 
           {[
-            { value: typeFilter, onChange: onTypeChange, options: [['', 'All Types'], ['success', 'Success'], ['failure', 'Failure'], ['retry', 'Retry']] },
-            { value: tierFilter, onChange: onTierChange, options: [['', 'All Tiers'], ...allTiers.filter(Boolean).map(t => [t, t.toUpperCase()])] },
+            { value: typeFilter, onChange: onTypeChange, options: [['', 'All Types'], ['success', 'Success'], ['failure', 'Failure'], ['retry', 'Retry'], ['tool_call', 'Tool Call']] },
+            { value: tierFilter, onChange: onTierChange, options: [['', 'All Tiers'], ['tool', 'TOOL'], ...allTiers.filter(t => t && t !== 'tool').map(t => [t, t.toUpperCase()])] },
             { value: hoursFilter, onChange: onHoursChange, options: [['1', 'Last 1h'], ['6', 'Last 6h'], ['24', 'Last 24h'], ['168', 'Last 7d']] },
           ].map((f, idx) => (
             <select
@@ -168,12 +169,16 @@ export const EventsLogTable = ({
                           ? 'bg-emerald-50 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
                           : e.type === 'failure'
                           ? 'bg-rose-50 dark:bg-rose-500/15 text-rose-600 dark:text-rose-400'
+                          : e.type === 'tool_call'
+                          ? 'bg-purple-50 dark:bg-purple-500/15 text-purple-600 dark:text-purple-400'
                           : 'bg-amber-50 dark:bg-amber-500/15 text-amber-600 dark:text-amber-400'
                       }`}>
                         {e.type === 'success' ? (
                           <CheckCircle2 size={10} />
                         ) : e.type === 'failure' ? (
                           <XCircle size={10} />
+                        ) : e.type === 'tool_call' ? (
+                          <Wrench size={10} />
                         ) : (
                           <RefreshCw size={10} />
                         )}
@@ -212,6 +217,8 @@ export const EventsLogTable = ({
                             ? 'text-rose-600 dark:text-rose-400 font-semibold'
                             : e.type === 'success'
                             ? 'text-emerald-600 dark:text-emerald-400 font-medium'
+                            : e.type === 'tool_call'
+                            ? 'text-purple-600 dark:text-purple-400 font-medium'
                             : 'text-slate-500 dark:text-slate-400'
                         }`}>
                           {e.error || 'Execution metadata parsed successfully'}

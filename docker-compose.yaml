@@ -60,6 +60,7 @@ services:
       - QDRANT_COLLECTION_PREFIX=${QDRANT_COLLECTION_PREFIX:-chat}
       - SEARXNG_URL=${SEARXNG_URL:-http://searxng:8080}
       - CRAWL4AI_URL=${CRAWL4AI_URL:-http://crawl4ai:11235}
+      # Pass the same token that the crawl4ai container uses
       - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-your_custom_secret_password}
       # --- LLM API Keys ---
       - GROQ_API_KEY=${GROQ_API_KEY}
@@ -90,7 +91,11 @@ services:
     ports:
       - "11235:11235"
     environment:
-      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-your_custom_secret_password}
+      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN}
+      # Disable the internal egress-pinning proxy — it causes ERR_CONNECTION_CLOSED
+      # on Docker bridge networks because the proxy binds to 127.0.0.1 inside the
+      # container and is designed for cloud egress control, not Docker networking.
+      - CRAWL4AI_EGRESS_NO_PROXY=true
     shm_size: '1gb'
     restart: on-failure
     networks:

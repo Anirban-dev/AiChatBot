@@ -23,8 +23,9 @@ QDRANT_API_KEY           = os.getenv("QDRANT_API_KEY")
 QDRANT_COLLECTION_PREFIX = os.getenv("QDRANT_COLLECTION_PREFIX", "chat")
 
 # ── External System Tools ─────────────────────────────────────────────────────
-SEARXNG_URL = os.getenv("SEARXNG_URL", "http://localhost:8888")
-CRAWL4AI_URL = os.getenv("CRAWL4AI_URL", "http://localhost:11235")
+SEARXNG_URL       = os.getenv("SEARXNG_URL")
+CRAWL4AI_URL      = os.getenv("CRAWL4AI_URL")
+CRAWL4AI_API_TOKEN = os.getenv("CRAWL4AI_API_TOKEN")
 
 # ── Local Document Vector Embedding Pipeline ──────────────────────────────────
 EMBED_MODEL = "all-MiniLM-L6-v2"   # ~90MB local model footprint

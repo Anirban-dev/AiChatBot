@@ -21,8 +21,7 @@ async def web_search(query: str) -> str:
         try:
             search_res = await client.get(
                 f"{base_url}/search",
-                params={"q": query, "format": "json"},
-                auth=("admin", "ce4r3fcq34cqvnfq33quf")
+                params={"q": query, "format": "json"}
             )
             search_res.raise_for_status()
         except httpx.HTTPStatusError as e:

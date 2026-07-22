@@ -16,7 +16,10 @@ services:
     ports:
       - "11235:11235"
     environment:
-      - CRAWL4AI_API_TOKEN=your_custom_secret_password
+      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN}
+      # Disable the internal egress-pinning proxy — it causes ERR_CONNECTION_CLOSED
+      # on Docker bridge networks (the proxy binds to 127.0.0.1 inside the container).
+      - CRAWL4AI_EGRESS_NO_PROXY=true
     shm_size: '1gb'
     restart: on-failure
     networks:
