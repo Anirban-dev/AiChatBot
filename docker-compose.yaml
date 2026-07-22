@@ -6,7 +6,6 @@ services:
       context: ./Frontend
       dockerfile: Dockerfile
       args:
-        # Bakes variables into Vite during the build phase
         - VITE_BASE_URL=${VITE_BASE_URL}
         - VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}
     ports:
@@ -24,7 +23,6 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # Automatically falls back to internal container paths if not defined on host
       - MONGO_URI=${MONGO_URI:-mongodb://mongodb:27017/AiAssistant}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - JWT_SECRET=${JWT_SECRET}
@@ -39,7 +37,7 @@ services:
       mongodb:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     networks:
       - backend_net
 
@@ -60,9 +58,7 @@ services:
       - QDRANT_COLLECTION_PREFIX=${QDRANT_COLLECTION_PREFIX:-chat}
       - SEARXNG_URL=${SEARXNG_URL:-http://searxng:8080}
       - CRAWL4AI_URL=${CRAWL4AI_URL:-http://crawl4ai:11235}
-      # Pass the same token that the crawl4ai container uses
       - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-your_custom_secret_password}
-      # --- LLM API Keys ---
       - GROQ_API_KEY=${GROQ_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - HF_TOKEN=${HF_TOKEN}
@@ -73,6 +69,7 @@ services:
       - redis
       - qdrant
       - crawl4ai
+      - searxng
     networks:
       - backend_net
 
@@ -82,11 +79,10 @@ services:
       - "8888:8080"
     environment:
       - SEARXNG_REDIS_URL=redis://redis:6379/0
-      - SEARXNG_SECRET=a_random_secret_key_change_me_12345
-      - SEARXNG_BASE_URL=http://localhost:8888/
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-a_random_secret_key_change_me_12345}
+      - SEARXNG_BASE_URL=http://searxng:8888/
     volumes:
-      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
-      - ./searxng/limiter.toml:/etc/searxng/limiter.toml:ro
+      - ./searxng:/etc/searxng:rw
     depends_on:
       redis:
         condition: service_healthy
@@ -99,10 +95,7 @@ services:
     ports:
       - "11235:11235"
     environment:
-      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN}
-      # Disable the internal egress-pinning proxy — it causes ERR_CONNECTION_CLOSED
-      # on Docker bridge networks because the proxy binds to 127.0.0.1 inside the
-      # container and is designed for cloud egress control, not Docker networking.
+      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-your_custom_secret_password}
       - CRAWL4AI_EGRESS_NO_PROXY=true
     shm_size: '1gb'
     restart: on-failure
