@@ -192,9 +192,12 @@ interface MessageBubbleProps {
   onRemoveEditFile?: (index: number) => void
   onCopy?: (content: string) => void
   threadReplyCount?: number
+  threadCount?: number
+  threadIndex?: number
+  onThreadNavigate?: (direction: 'prev' | 'next') => void
   isNewThread?: boolean
   onOpenNewThread?: (msgId: string) => void
-  onOpenThread?: (msgId: string) => void
+  onOpenExistingThread?: (msgId: string) => void
   isActiveThread?: boolean
   isCurrentChatEmpty?: boolean
 }
@@ -218,9 +221,12 @@ export const MessageBubble = ({
   onRemoveEditFile,
   onCopy,
   threadReplyCount = 0,
+  threadCount = 0,
+  threadIndex = 0,
+  onThreadNavigate,
   isNewThread = false,
   onOpenNewThread,
-  onOpenThread,
+  onOpenExistingThread,
   isActiveThread = false,
   isCurrentChatEmpty = false,
   isUser = false,
@@ -375,7 +381,21 @@ export const MessageBubble = ({
   }
 
   return (
-    <div className={`flex items-end gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+    <div className={`relative flex items-end gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+      {/* Thread connector line on main timeline */}
+      {isActiveThread && (
+        <div
+          className="absolute right-0 top-0 bottom-0 w-1 rounded-full bg-amber-400/80 dark:bg-amber-500/70 -mr-1 z-10"
+          style={{ boxShadow: '0 0 8px rgba(251, 191, 36, 0.5)' }}
+          title="Thread open"
+        />
+      )}
+      {isActiveThread && (
+        <div className="absolute -right-2 top-1/2 -translate-y-1/2 hidden md:flex items-center z-10">
+          <div className="w-3 h-px bg-amber-400/70" />
+          <MessageSquare size={12} className="text-amber-500 ml-0.5" />
+        </div>
+      )}
       <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 mb-0.5 shadow-xs ${isUser ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white' : 'bg-gradient-to-br from-amber-500 to-orange-600 text-white'
         }`}>
         {isUser ? 'A' : '✦'}
@@ -448,18 +468,40 @@ export const MessageBubble = ({
             </button>
           )}
           {isUser && onOpenNewThread && !isEditing && (
-            <button
-              onClick={() => onOpenNewThread(msg._id)}
-              className={`p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors cursor-pointer flex items-center gap-1 ${isNewThread ? 'text-amber-500' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'}`}
-              title="Start new thread"
-            >
-              <Plus size={12} />
-              {threadReplyCount && threadReplyCount > 0 && (
-                <span className="text-[10px] font-bold bg-gray-100 dark:bg-gray-700 px-1 rounded-full min-w-[16px] text-center">
-                  {threadReplyCount}
-                </span>
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={() => onOpenNewThread(msg._id)}
+                className={`p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors cursor-pointer flex items-center ${isNewThread || isActiveThread ? 'text-amber-500' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'}`}
+                title="Start new thread"
+              >
+                <Plus size={12} />
+              </button>
+              {threadCount > 0 && (
+                <div className="flex items-center gap-0.5 bg-gray-100/60 dark:bg-gray-800/40 px-1 py-0.5 rounded-lg border border-gray-200/30 dark:border-gray-700/30">
+                  <button
+                    onClick={() => onThreadNavigate?.('prev')}
+                    className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors cursor-pointer"
+                    title="Previous thread"
+                  >
+                    <ChevronLeft size={11} />
+                  </button>
+                  <button
+                    onClick={() => onOpenExistingThread?.(msg._id)}
+                    className="text-[10px] font-medium min-w-[28px] text-center hover:text-amber-600 dark:hover:text-amber-400 transition-colors cursor-pointer"
+                    title="Open thread"
+                  >
+                    {threadIndex + 1}/{threadCount}
+                  </button>
+                  <button
+                    onClick={() => onThreadNavigate?.('next')}
+                    className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors cursor-pointer"
+                    title="Next thread"
+                  >
+                    <ChevronRight size={11} />
+                  </button>
+                </div>
               )}
-            </button>
+            </div>
           )}
           {onCopy && !isEditing && (
             <button

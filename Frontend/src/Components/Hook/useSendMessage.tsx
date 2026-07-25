@@ -184,7 +184,10 @@ const handleFileUpload = async (
           } else {
             appendMessage(targetChatId, confirmedMsg)
           }
-          setActiveNodeId(targetChatId, confirmedMsg._id)
+          const isThreadMessage = !!(userMsg.threadRootId || customThreadRootId)
+          if (!isThreadMessage) {
+            setActiveNodeId(targetChatId, confirmedMsg._id)
+          }
         },
 
         (toolPayload: any) => {
@@ -211,7 +214,10 @@ const handleFileUpload = async (
         async (assistantMsg) => {
           setActiveTool(null)
           updateMessage(targetChatId, streamingId, assistantMsg)
-          setActiveNodeId(targetChatId, assistantMsg._id)
+          const isThreadMessage = !!(assistantMsg.threadRootId || customThreadRootId)
+          if (!isThreadMessage) {
+            setActiveNodeId(targetChatId, assistantMsg._id)
+          }
           setLoading(targetChatId, false)
           setLoading(chatId, false)
         },

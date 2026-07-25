@@ -1,15 +1,23 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { X, MessageSquare, CornerDownRight, Send, Square, Cpu } from 'lucide-react'
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { X, MessageSquare, CornerDownRight, Send, Square, Cpu, ChevronLeft, ChevronRight } from 'lucide-react'
 import { MessageBubble } from './MessageBubble'
 import { useSendMessage } from './Hook/useSendMessage'
 import { useChatStore } from '../Context/ChatContext'
 import type { Message } from '../Context/ChatContext'
+import { getThreadHeads, getThreadPath, getThreadLeafId } from '../utils/threadUtils'
+import { ModelSelector } from './ModelSelector'
 
 interface ThreadPanelProps {
   chatId: string
   rootMessage: Message
+  threadHeadId: string | null
+  threadIndex: number
+  threadCount: number
   allMessages: Message[]
   onClose: () => void
+  onNewThread: () => void
+  onOpenThreadAtIndex: (index: number) => void
+  onThreadHeadCreated: (headId: string) => void
   runCode: (code: string) => Promise<any>
   getFileIcon: (ext: string) => React.ReactNode
   formatFileSize: (size: number) => string
@@ -20,24 +28,77 @@ interface ThreadPanelProps {
 export const ThreadPanel: React.FC<ThreadPanelProps> = ({
   chatId,
   rootMessage,
+  threadHeadId,
+  threadIndex,
+  threadCount,
   allMessages,
   onClose,
+  onNewThread,
+  onOpenThreadAtIndex,
+  onThreadHeadCreated,
   runCode,
   getFileIcon,
   formatFileSize,
   formatTime,
   onOpenTextPreview,
 }) => {
-  const { getBranchInfo, switchBranch } = useChatStore()
+  const { getBranchInfo, getMessages } = useChatStore()
   const threadHook = useSendMessage(chatId)
 
   const [input, setInput] = useState('')
+  const [threadActiveNodeId, setThreadActiveNodeId] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState<string | null>(null)
+  const [editingFiles, setEditingFiles] = useState<File[]>([])
+  const [editingFileInputs, setEditingFileInputs] = useState<File[]>([])
+
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const isUserScrolledUpRef = useRef(false)
 
-  // Messages in this thread: messages that have threadRootId matching rootMessage._id
-  const threadMessages = allMessages.filter((m) => m.threadRootId === rootMessage._id)
+  const threadRootId = rootMessage._id
+
+  const threadMessages = useMemo(() => {
+    if (!threadHeadId) return []
+    return getThreadPath(allMessages, threadHeadId, threadActiveNodeId)
+  }, [allMessages, threadHeadId, threadActiveNodeId])
+
+  useEffect(() => {
+    if (!threadHeadId) {
+      setThreadActiveNodeId(null)
+      return
+    }
+    const leaf = getThreadLeafId(allMessages, threadHeadId, threadRootId)
+    setThreadActiveNodeId(leaf)
+  }, [threadHeadId, allMessages, threadRootId])
+
+  const switchThreadBranch = useCallback((currentMsgId: string, direction: 'prev' | 'next') => {
+    const msgs = allMessages
+    const msg = msgs.find(m => m._id === currentMsgId)
+    if (!msg) return
+
+    const siblings = msgs.filter(m =>
+      m.role === msg.role &&
+      (m.parentId === msg.parentId || (!m.parentId && !msg.parentId)) &&
+      String(m.threadRootId) === String(threadRootId)
+    )
+    if (siblings.length <= 1) return
+
+    const currentIndex = siblings.findIndex(s => s._id === currentMsgId)
+    let newIndex = direction === 'prev'
+      ? (currentIndex > 0 ? currentIndex - 1 : siblings.length - 1)
+      : (currentIndex < siblings.length - 1 ? currentIndex + 1 : 0)
+
+    const targetSibling = siblings[newIndex]
+    let currentId = targetSibling._id
+    while (true) {
+      const children = msgs.filter(m =>
+        m.parentId === currentId && String(m.threadRootId) === String(threadRootId)
+      )
+      if (children.length === 0) break
+      currentId = children[children.length - 1]._id
+    }
+    setThreadActiveNodeId(currentId)
+  }, [allMessages, threadRootId])
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget
@@ -52,14 +113,12 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
     }
   }, [threadMessages.length, threadHook.loading])
 
-  // Scroll to bottom when thread first opens
   useEffect(() => {
     setTimeout(() => {
       bottomRef.current?.scrollIntoView({ behavior: 'auto' })
     }, 50)
-  }, [rootMessage._id])
+  }, [threadHeadId, rootMessage._id])
 
-  // Auto-resize textarea
   useEffect(() => {
     if (!textareaRef.current) return
     textareaRef.current.style.height = 'auto'
@@ -71,9 +130,10 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
     const textToSend = input.trim()
     setInput('')
 
-    // Last message in thread or rootMessage if thread empty
     const lastThreadMsg =
       threadMessages.length > 0 ? threadMessages[threadMessages.length - 1] : rootMessage
+
+    const wasNewThread = !threadHeadId
 
     await threadHook.sendMessage(
       textToSend,
@@ -82,9 +142,17 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
       undefined,
       undefined,
       lastThreadMsg._id,
-      rootMessage._id
+      threadRootId
     )
-  }, [input, threadMessages, rootMessage, chatId, threadHook])
+
+    if (wasNewThread) {
+      const heads = getThreadHeads(getMessages(chatId), threadRootId)
+      const newest = heads[heads.length - 1]
+      if (newest) onThreadHeadCreated(newest._id)
+    }
+  }, [input, threadMessages, rootMessage, chatId, threadHook, threadHeadId, threadRootId, getMessages, onThreadHeadCreated])
+
+  // After send completes, pick up newly created thread head — removed; handled in handleSend
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -93,13 +161,76 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
     }
   }
 
+  const startEditing = (msgId: string) => {
+    const msg = threadMessages.find(m => m._id === msgId)
+    if (!msg) return
+    setIsEditing(msgId)
+    if (msg.fileInfo) {
+      setEditingFiles([{
+        name: msg.fileInfo.name,
+        size: msg.fileInfo.size,
+        mimeType: msg.fileInfo.mimeType,
+        extension: msg.fileInfo.extension,
+        file: msg.file,
+        isExisting: true
+      } as any])
+    } else {
+      setEditingFiles([])
+    }
+    setEditingFileInputs([])
+  }
+
+  const cancelEditing = () => {
+    setIsEditing(null)
+    setEditingFiles([])
+    setEditingFileInputs([])
+  }
+
+  const saveAndSubmit = async (newContent: string) => {
+    const msgId = isEditing
+    if (!msgId) return
+    const msg = allMessages.find(m => m._id === msgId)
+    if (!msg) return
+    cancelEditing()
+
+    await threadHook.sendMessage(
+      newContent,
+      chatId,
+      undefined,
+      undefined,
+      undefined,
+      msg.parentId || undefined,
+      threadRootId
+    )
+  }
+
+  const handleEditFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setEditingFileInputs([e.target.files[0]])
+      setEditingFiles([])
+    }
+  }
+
+  const removeEditFile = () => {
+    setEditingFileInputs([])
+    setEditingFiles([])
+  }
+
   const lastMsg = threadMessages[threadMessages.length - 1]
   const isStreaming = lastMsg?.role === 'assistant' && lastMsg?.content?.length > 0
   const showTypingIndicator = threadHook.loading && !isStreaming
 
+  const navigateThread = (dir: 'prev' | 'next') => {
+    if (threadCount === 0) return
+    const newIndex = dir === 'prev'
+      ? (threadIndex > 0 ? threadIndex - 1 : threadCount - 1)
+      : (threadIndex < threadCount - 1 ? threadIndex + 1 : 0)
+    onOpenThreadAtIndex(newIndex)
+  }
+
   return (
     <div
-      className="flex flex-col h-full w-full sm:w-96 md:w-[420px] shrink-0 shadow-2xl z-30"
+      className="flex flex-col h-full w-full sm:w-[320px] md:w-[380px] lg:w-[440px] shrink-0 shadow-2xl z-30"
       style={{
         backgroundColor: 'var(--bg-sidebar)',
         borderLeft: '1.5px solid var(--border-medium)'
@@ -116,31 +247,56 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
         <div className="flex items-center gap-2">
           <MessageSquare size={15} className="text-amber-500" />
           <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Thread</h3>
-          {threadMessages.length > 0 && (
-            <span
-              className="text-[11px] px-1.5 py-0.5 rounded-full font-mono"
-              style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--border-light)' }}
-            >
-              {threadMessages.length} {threadMessages.length === 1 ? 'reply' : 'replies'}
-            </span>
+          {threadCount > 0 && (
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={() => navigateThread('prev')}
+                className="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+                title="Previous thread"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span
+                className="text-[11px] px-1.5 py-0.5 rounded-full font-mono min-w-[40px] text-center"
+                style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--border-light)' }}
+              >
+                {threadIndex + 1}/{threadCount}
+              </span>
+              <button
+                onClick={() => navigateThread('next')}
+                className="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+                title="Next thread"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
           )}
         </div>
-        <button
-          onClick={onClose}
-          className="p-1.5 rounded-lg transition-colors cursor-pointer"
-          style={{ color: 'var(--text-secondary)' }}
-          onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--border-light)')}
-          onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-          title="Close Thread"
-        >
-          <X size={16} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onNewThread}
+            className="p-1.5 rounded-lg transition-colors cursor-pointer text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+            title="New thread"
+          >
+            <span className="text-lg leading-none font-light">+</span>
+          </button>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg transition-colors cursor-pointer"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--border-light)')}
+            onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+            title="Close Thread"
+          >
+            <X size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Thread Content */}
       <div
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto p-4 space-y-4"
+        className="flex-1 overflow-y-auto p-4 space-y-5 min-h-0"
       >
         {/* Root Message Anchor */}
         <div
@@ -181,31 +337,45 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
           </div>
         ) : (
           threadMessages.map((msg) => {
-            const branchInfo = getBranchInfo(chatId, msg._id)
+            const isUserMessage = msg.role === 'user'
+            const isCurrentMsgEditing = isEditing === msg._id
+            const branchInfo = isCurrentMsgEditing
+              ? undefined
+              : getBranchInfo(chatId, msg._id, threadRootId)
+
             return (
               <MessageBubble
                 key={msg._id}
-                msg={{ ...msg, isUser: msg.role === 'user' }}
+                msg={{ ...msg, isUser: isUserMessage }}
+                isUser={isUserMessage}
                 runCode={runCode}
                 getFileIcon={getFileIcon}
                 formatFileSize={formatFileSize}
                 formatTime={formatTime}
                 onOpenTextPreview={onOpenTextPreview}
+                isEditing={isCurrentMsgEditing}
+                onEditStart={() => isUserMessage && startEditing(msg._id)}
+                onCancelEdit={cancelEditing}
+                onSaveEdit={saveAndSubmit}
                 branchInfo={branchInfo}
-                onBranchChange={(dir) => switchBranch(chatId, msg._id, dir)}
-                selectedModel={threadHook.selectedModel}
-                setSelectedModel={threadHook.setSelectedModel}
+                onBranchChange={(dir) => switchThreadBranch(msg._id, dir)}
+                editingFiles={editingFiles}
+                editingFileInputs={editingFileInputs}
+                onEditFileSelect={handleEditFileSelect}
+                onRemoveEditFile={removeEditFile}
                 onCopy={(text) => navigator.clipboard.writeText(text)}
               />
             )
           })
         )}
 
-        {/* Typing indicator */}
         {showTypingIndicator && (
           <div className="flex items-end gap-2.5 animate-in fade-in duration-200">
-            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-[10px] shrink-0 mb-0.5">✦</div>
-            <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 px-3 py-2.5 rounded-2xl rounded-bl-sm shadow-xs">
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white text-xs shrink-0 mb-0.5 shadow-sm">✦</div>
+            <div
+              className="px-4 py-3 rounded-2xl rounded-bl-sm shadow-sm max-w-[80%]"
+              style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-light)' }}
+            >
               {threadHook.activeTool ? (
                 <div className="flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
                   <Cpu size={12} className="animate-pulse text-amber-500" />
@@ -256,30 +426,32 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
             rows={1}
             className="flex-1 bg-transparent resize-none outline-none text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 leading-relaxed py-0.5 min-h-[22px] max-h-[120px] overflow-y-auto"
           />
-          {threadHook.loading ? (
-            <button
-              onClick={threadHook.stopGeneration}
-              className="shrink-0 p-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-colors cursor-pointer mb-0.5"
-              title="Stop generation"
-            >
-              <Square size={14} />
-            </button>
-          ) : (
-            <button
-              onClick={handleSend}
-              disabled={!input.trim()}
-              className="shrink-0 p-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors cursor-pointer mb-0.5"
-              title="Send reply"
-            >
-              <Send size={14} />
-            </button>
-          )}
-        </div>
-        <div className="flex items-center justify-between mt-1.5 px-1">
-          <span className="text-[10px] text-gray-400">
-            Model: <span className="font-medium capitalize">{threadHook.selectedModel}</span>
-          </span>
-          <span className="text-[10px] text-gray-400">Enter to send · Shift+Enter for newline</span>
+          <div className="flex items-center gap-1.5 shrink-0 mb-0.5">
+            <ModelSelector
+              value={threadHook.selectedModel || 'small'}
+              onChange={threadHook.setSelectedModel}
+              disabled={threadHook.loading}
+              size="compact"
+            />
+            {threadHook.loading ? (
+              <button
+                onClick={threadHook.stopGeneration}
+                className="shrink-0 p-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-colors cursor-pointer"
+                title="Stop generation"
+              >
+                <Square size={14} />
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!input.trim()}
+                className="shrink-0 p-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors cursor-pointer"
+                title="Send reply"
+              >
+                <Send size={14} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

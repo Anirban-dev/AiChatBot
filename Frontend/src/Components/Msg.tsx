@@ -1,5 +1,5 @@
-import { useRef, useEffect, useState, useMemo } from 'react'
-import { Cpu, Loader2, Camera, X, MessageSquare, Plus } from 'lucide-react'
+import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
+import { Cpu, Loader2, Camera, X } from 'lucide-react'
 import { getMsgs } from '../API/Msg'
 import { useSendMessage } from './Hook/useSendMessage'
 import { useChatStore } from '../Context/ChatContext'
@@ -8,6 +8,7 @@ import { MsgChatInput } from './MsgChatInput'
 import { TextFilePreviewModal } from './TextFilePreviewModal'
 import { MessageBubble } from './MessageBubble'
 import { ThreadPanel } from './ThreadPanel'
+import { getThreadHeads } from '../utils/threadUtils'
 
 export const Msg = ({ chatId }: { chatId?: string }) => {
   const activeChatId = chatId || 'new'
@@ -15,33 +16,7 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
     getMessages, setMessages, getBranchInfo, getActivePath, activeNodeId, switchBranch,
     setActiveNodeId, pendingActiveMsgId, clearPendingActiveMsgId
   } = useChatStore()
-  
-  // Show toast when opening a new thread
-  const showNewThreadToast = () => {
-    // Create a temporary toast element using setTimeout to allow React to render first
-    setTimeout(() => {
-      const toast = document.createElement('div')
-      toast.className = 'fixed top-4 left-1/2 transform -translate-x-1/2 z-50 bg-amber-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-300'
-      toast.innerHTML = `
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="shrink-0">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-        </svg>
-        <span class="text-sm font-medium">Start a new thread to begin discussing this topic</span>
-        <button class="p-1 hover:bg-white/20 rounded-full transition-colors cursor-pointer" onclick="this.parentElement.remove()">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      `
-      // Add proper click handler
-      const closeButton = toast.querySelector('button')
-      if (closeButton) {
-        closeButton.onclick = () => toast.remove()
-      }
-      document.body.appendChild(toast)
-      setTimeout(() => toast.remove(), 4000)
-    }, 100)
-  }
+
   const activeNode = activeNodeId(activeChatId)
   const messages = getActivePath(activeChatId, activeNode || '')
   const allMessages = getMessages(activeChatId)
@@ -52,49 +27,88 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
     [messages]
   )
 
-  // Build reply count map: rootMessageId -> count
-  const threadReplyCountMap = useMemo(() => {
+  // Build thread count map: anchorMessageId -> number of threads
+  const threadCountMap = useMemo(() => {
     const map: Record<string, number> = {}
+    const anchors = new Set<string>()
     allMessages.forEach((m) => {
-      if (m.threadRootId) {
-        map[m.threadRootId] = (map[m.threadRootId] || 0) + 1
-      }
+      if (m.threadRootId) anchors.add(m.threadRootId)
+    })
+    anchors.forEach((anchorId) => {
+      map[anchorId] = getThreadHeads(allMessages, anchorId).length
     })
     return map
   }, [allMessages])
 
   const [activeThreadRootId, setActiveThreadRootId] = useState<string | null>(null)
-  const [isNewThread, setIsNewThread] = useState<boolean>(false)
+  const [activeThreadHeadId, setActiveThreadHeadId] = useState<string | null>(null)
+  const [threadBrowseIndex, setThreadBrowseIndex] = useState<Record<string, number>>({})
   const activeThreadRoot = activeThreadRootId
     ? allMessages.find((m) => m._id === activeThreadRootId) ?? null
     : null
 
-  const handleOpenThread = (msgId: string) => {
-    setActiveThreadRootId((prev) => (prev === msgId ? null : msgId))
+  const getThreadIndexForAnchor = useCallback((anchorId: string) => {
+    const count = threadCountMap[anchorId] || 0
+    if (count === 0) return 0
+    const stored = threadBrowseIndex[anchorId] ?? 0
+    return Math.min(stored, count - 1)
+  }, [threadCountMap, threadBrowseIndex])
+
+  const openThreadAtIndex = useCallback((anchorId: string, index: number) => {
+    const heads = getThreadHeads(allMessages, anchorId)
+    setActiveThreadRootId(anchorId)
+    setThreadBrowseIndex(prev => ({ ...prev, [anchorId]: index }))
+    if (heads[index]) {
+      setActiveThreadHeadId(heads[index]._id)
+    } else {
+      setActiveThreadHeadId(null)
+    }
+  }, [allMessages])
+
+  const handleOpenExistingThread = (msgId: string) => {
+    const index = getThreadIndexForAnchor(msgId)
+    openThreadAtIndex(msgId, index)
   }
 
   const handleStartNewThread = (msgId: string) => {
-    setActiveThreadRootId(msgId) // Open thread panel with this message as root
-    setIsNewThread(true)
-    setTimeout(() => setIsNewThread(false), 3000)
-    showNewThreadToast()
+    setActiveThreadRootId(msgId)
+    setActiveThreadHeadId(null)
+    if (activeThreadRootId === msgId) {
+      // Already open on this anchor — start fresh thread in place
+      setThreadBrowseIndex(prev => ({ ...prev, [msgId]: threadCountMap[msgId] || 0 }))
+    }
   }
+
+  const handleThreadNavigate = (msgId: string, direction: 'prev' | 'next') => {
+    const count = threadCountMap[msgId] || 0
+    if (count === 0) return
+    const current = getThreadIndexForAnchor(msgId)
+    const newIndex = direction === 'prev'
+      ? (current > 0 ? current - 1 : count - 1)
+      : (current < count - 1 ? current + 1 : 0)
+    setThreadBrowseIndex(prev => ({ ...prev, [msgId]: newIndex }))
+    if (activeThreadRootId === msgId) {
+      const heads = getThreadHeads(allMessages, msgId)
+      setActiveThreadHeadId(heads[newIndex]?._id ?? null)
+    }
+  }
+
+  const handleThreadHeadCreated = useCallback((headId: string) => {
+    setActiveThreadHeadId(headId)
+    if (activeThreadRootId) {
+      const heads = getThreadHeads(allMessages, activeThreadRootId)
+      const idx = heads.findIndex(h => h._id === headId)
+      if (idx >= 0) {
+        setThreadBrowseIndex(prev => ({ ...prev, [activeThreadRootId]: idx }))
+      }
+    }
+  }, [activeThreadRootId, allMessages])
 
   // Close thread when chat changes
   useEffect(() => {
     setActiveThreadRootId(null)
-    setIsNewThread(false)
+    setActiveThreadHeadId(null)
   }, [activeChatId])
-
-  // Close thread when the root message is no longer in the active branch path
-  // (i.e., user switched to a different edit branch via prev/next navigator)
-  useEffect(() => {
-    if (!activeThreadRootId) return
-    const isStillVisible = mainMessages.some(m => m._id === activeThreadRootId)
-    if (!isStillVisible) {
-      setActiveThreadRootId(null)
-    }
-  }, [mainMessages, activeThreadRootId])
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -325,10 +339,10 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
   const showTypingIndicator = (sendHook.loading || sendHook.uploading) && !isStreaming
 
   return (
-    <div className="flex flex-col h-full relative overflow-hidden" style={{ backgroundColor: 'var(--bg-chat)' }}>
-      {/* Main chat area + Thread panel side-by-side */}
-      <div className="flex flex-1 overflow-hidden">
-        <div id="active-chat-stream" onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-5">
+    <div className="flex h-full relative overflow-hidden" style={{ backgroundColor: 'var(--bg-chat)' }}>
+      {/* Main chat column */}
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+        <div id="active-chat-stream" onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-5 min-h-0">
         {mainMessages.length === 0 && !sendHook.loading && (
           <div className="flex flex-col items-center justify-center h-full gap-3 select-none">
             <div className="w-12 h-12 rounded-2xl bg-linear-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
@@ -346,7 +360,7 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
           return (
             <MessageBubble
               key={msg._id}
-              msg={{ ...msg, isUser: isUserMessage, threadReplyCount: threadReplyCountMap[msg._id] || 0 }}
+              msg={{ ...msg, isUser: isUserMessage }}
               isUser={isUserMessage}
               runCode={sendHook.runCode}
               getFileIcon={sendHook.getFileIcon}
@@ -364,11 +378,12 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
               onEditFileSelect={handleEditFileSelect}
               onRemoveEditFile={removeEditFile}
               onCopy={handleCopy}
-              onOpenThread={handleOpenThread}
               isActiveThread={activeThreadRootId === msg._id}
-              threadReplyCount={threadReplyCountMap[msg._id] || 0}
-              isCurrentChatEmpty={mainMessages.length === 0}
+              threadCount={threadCountMap[msg._id] || 0}
+              threadIndex={getThreadIndexForAnchor(msg._id)}
+              onThreadNavigate={(dir) => handleThreadNavigate(msg._id, dir)}
               onOpenNewThread={handleStartNewThread}
+              onOpenExistingThread={handleOpenExistingThread}
             />
           )
         })}
@@ -407,51 +422,72 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
           <div ref={bottomRef} />
         </div>
 
-        {/* Thread Panel - desktop right side */}
-        {activeThreadRoot && (
-          <div className="hidden md:flex h-full transition-all duration-200">
-            <ThreadPanel
-              chatId={activeChatId}
-              rootMessage={activeThreadRoot}
-              allMessages={allMessages}
-              onOpenTextPreview={(name, content) => setTextPreviewMsg({ name, content })}
-              onClose={() => setActiveThreadRootId(null)}
-              runCode={sendHook.runCode}
-              getFileIcon={sendHook.getFileIcon}
-              formatFileSize={sendHook.formatFileSize}
-              formatTime={sendHook.formatTime}
-            />
-          </div>
-        )}
+        <MsgChatInput
+          input={sendHook.input}
+          setInput={sendHook.setInput}
+          loading={sendHook.loading}
+          uploading={sendHook.uploading}
+          errorMessage={sendHook.errorMessage}
+          clearError={sendHook.clearError}
+          selectedModel={sendHook.selectedModel}
+          setSelectedModel={sendHook.setSelectedModel}
+          pendingFile={sendHook.pendingFile}
+          previewUrl={sendHook.previewUrl}
+          pendingCode={sendHook.pendingCode}
+          activeTool={sendHook.activeTool}
+          clearStaging={sendHook.clearStaging}
+          handleSendAction={sendHook.handleSendAction}
+          stopGeneration={sendHook.stopGeneration}
+          handleKeyDown={sendHook.handleKeyDown}
+          handlePaste={sendHook.handlePaste}
+          onFileSelect={sendHook.onFileSelect}
+          formatFileSize={sendHook.formatFileSize}
+          getFileIcon={sendHook.getFileIcon}
+          setIsCodeModalOpen={setIsCodeModalOpen}
+          startCamera={startCamera}
+        />
       </div>
 
-      {/* New thread indicator toast */}
-      {isNewThread && (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50">
-          <div className="bg-amber-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <MessageSquare size={16} />
-            <span className="text-sm font-medium">Start a new thread to begin discussing this topic</span>
-            <button
-              onClick={() => setIsNewThread(false)}
-              className="p-1 hover:bg-white/20 rounded-full transition-colors cursor-pointer"
-            >
-              <X size={14} />
-            </button>
-          </div>
+      {/* Thread Panel - desktop: full height beside main column */}
+      {activeThreadRoot && (
+        <div className="hidden md:flex h-full transition-all duration-200">
+          <ThreadPanel
+            chatId={activeChatId}
+            rootMessage={activeThreadRoot}
+            threadHeadId={activeThreadHeadId}
+            threadIndex={getThreadIndexForAnchor(activeThreadRoot._id)}
+            threadCount={threadCountMap[activeThreadRoot._id] || 0}
+            allMessages={allMessages}
+            onOpenTextPreview={(name, content) => setTextPreviewMsg({ name, content })}
+            onClose={() => { setActiveThreadRootId(null); setActiveThreadHeadId(null) }}
+            onNewThread={() => handleStartNewThread(activeThreadRoot._id)}
+            onOpenThreadAtIndex={(index) => openThreadAtIndex(activeThreadRoot._id, index)}
+            onThreadHeadCreated={handleThreadHeadCreated}
+            runCode={sendHook.runCode}
+            getFileIcon={sendHook.getFileIcon}
+            formatFileSize={sendHook.formatFileSize}
+            formatTime={sendHook.formatTime}
+          />
         </div>
       )}
 
-      {/* Thread Panel - mobile slide-over */}
+      {/* Thread Panel - mobile slide-over (full screen height) */}
       {activeThreadRoot && (
         <div className="md:hidden fixed inset-0 z-40 flex">
-          <div className="flex-1 bg-black/40" onClick={() => setActiveThreadRootId(null)} />
+          <div className="flex-1 bg-black/40" onClick={() => { setActiveThreadRootId(null); setActiveThreadHeadId(null) }} />
           <div className="w-[90vw] max-w-sm h-full flex shadow-2xl animate-in slide-in-from-right duration-200">
             <ThreadPanel
               chatId={activeChatId}
               rootMessage={activeThreadRoot}
+              threadHeadId={activeThreadHeadId}
+              threadIndex={getThreadIndexForAnchor(activeThreadRoot._id)}
+              threadCount={threadCountMap[activeThreadRoot._id] || 0}
               allMessages={allMessages}
               onOpenTextPreview={(name, content) => setTextPreviewMsg({ name, content })}
-              onClose={() => setActiveThreadRootId(null)}
+              onClose={() => { setActiveThreadRootId(null); setActiveThreadHeadId(null) }}
+              onNewThread={() => handleStartNewThread(activeThreadRoot._id)}
+              onOpenThreadAtIndex={(index) => openThreadAtIndex(activeThreadRoot._id, index)}
+              onThreadHeadCreated={handleThreadHeadCreated}
               runCode={sendHook.runCode}
               getFileIcon={sendHook.getFileIcon}
               formatFileSize={sendHook.formatFileSize}
@@ -460,31 +496,6 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
           </div>
         </div>
       )}
-
-      <MsgChatInput
-        input={sendHook.input}
-        setInput={sendHook.setInput}
-        loading={sendHook.loading}
-        uploading={sendHook.uploading}
-        errorMessage={sendHook.errorMessage}
-        clearError={sendHook.clearError}
-        selectedModel={sendHook.selectedModel}
-        setSelectedModel={sendHook.setSelectedModel}
-        pendingFile={sendHook.pendingFile}
-        previewUrl={sendHook.previewUrl}
-        pendingCode={sendHook.pendingCode}
-        activeTool={sendHook.activeTool}
-        clearStaging={sendHook.clearStaging}
-        handleSendAction={sendHook.handleSendAction}
-        stopGeneration={sendHook.stopGeneration}
-        handleKeyDown={sendHook.handleKeyDown}
-        handlePaste={sendHook.handlePaste}
-        onFileSelect={sendHook.onFileSelect}
-        formatFileSize={sendHook.formatFileSize}
-        getFileIcon={sendHook.getFileIcon}
-        setIsCodeModalOpen={setIsCodeModalOpen}
-        startCamera={startCamera}
-      />
 
       <CodeRagModal
         isOpen={isCodeModalOpen}
@@ -499,22 +510,6 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
         fileName={textPreviewMsg?.name || ''}
         content={textPreviewMsg?.content || ''}
       />
-
-      {/* New thread indicator */}
-      {isNewThread && (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50">
-          <div className="bg-amber-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <MessageSquare size={16} />
-            <span className="text-sm font-medium">Start a new thread to begin discussing this topic</span>
-            <button
-              onClick={() => setIsNewThread(false)}
-              className="p-1 hover:bg-white/20 rounded-full transition-colors cursor-pointer"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        </div>
-      )}
 
       {isCameraActive && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">

@@ -146,8 +146,8 @@ const Sidebar = ({ isMobile, collapsed, setCollapsed }: SidebarProps) => {
         className={`
           h-screen flex flex-col transition-[width,transform] duration-300 ease-in-out
           ${isMobile
-            ? `fixed top-0 left-0 z-50 w-68 transform ${collapsed ? '-translate-x-full' : 'translate-x-0'}`
-            : `${collapsed ? 'w-20' : 'w-68'}`
+            ? `fixed top-0 left-0 z-50 w-72 transform ${collapsed ? '-translate-x-full' : 'translate-x-0'}`
+            : `${collapsed ? 'w-20' : 'w-72'}`
           }
         `}
       >

@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react'
 import { Send, Square, Paperclip, X, AlertTriangle, Cpu, Image, FileText, Camera, Video, Code } from 'lucide-react'
+import { ModelSelector } from './ModelSelector'
 
 interface MsgChatInputProps {
   input: string
@@ -9,14 +10,14 @@ interface MsgChatInputProps {
   errorMessage: string | null
   clearError: (() => void) | undefined
   selectedModel: string
-  setSelectedModel: ((model: 'small' | 'large' | 'thinking' | 'critiq') => void) | undefined
+  setSelectedModel: (model: 'small' | 'large' | 'thinking' | 'critiq') => void
   pendingFile: File | null
   previewUrl: string | null
   pendingCode: { name: string; content: string } | null
-  activeTool: string | null
+  activeTool: string | null // NOTE: Currently unused, can be removed or implemented
   clearStaging: () => void
   handleSendAction: () => void
-  stopGeneration: () => void // FIXED: Added missing prop definition
+  stopGeneration: () => void
   handleKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void
   handlePaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void
@@ -40,7 +41,7 @@ export const MsgChatInput = ({
   pendingCode,
   clearStaging,
   handleSendAction,
-  stopGeneration, // FIXED: Destructured here
+  stopGeneration,
   handleKeyDown,
   handlePaste,
   onFileSelect,
@@ -55,6 +56,7 @@ export const MsgChatInput = ({
   const menuRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const inputContainerRef = useRef<HTMLDivElement>(null)
   const [editingFileInputs, setEditingFileInputs] = useState<File[]>([])
 
   const removeEditFile = (index: number) => {
@@ -86,6 +88,7 @@ export const MsgChatInput = ({
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
 
   const triggerNativeUpload = (acceptType: string) => {
     setFileAcceptType(acceptType)
@@ -195,6 +198,7 @@ export const MsgChatInput = ({
 
         {/* Core Chat Console Layout */}
         <div
+          ref={inputContainerRef}
           className={`flex items-end gap-2 rounded-2xl border px-3 py-2.5 shadow-sm transition-all focus-within:ring-1 focus-within:ring-amber-400/30 ${errorMessage ? 'border-red-300 dark:border-red-900/60' : ''}`}
           style={{
             backgroundColor: 'var(--bg-card)',
@@ -265,17 +269,12 @@ export const MsgChatInput = ({
 
           {/* Combined Tier Selector & Action Trigger Wrapper Group */}
           <div className="flex items-center gap-2 shrink-0 mb-0.5">
-            <select 
-              value={selectedModel || 'small'} 
-              onChange={(e) => setSelectedModel?.(e.target.value as 'small' | 'large' | 'thinking' | 'critiq')}
+            <ModelSelector
+              value={selectedModel || 'small'}
+              onChange={setSelectedModel}
               disabled={loading || uploading}
-              className="text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 px-2.5 py-1.5 rounded-xl text-gray-600 dark:text-gray-300 outline-none focus:border-gray-300 dark:focus:border-gray-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed font-semibold transition-all hover:bg-gray-100 dark:hover:bg-gray-600 shadow-xs"
-            >
-              <option value="small">✦ Chat (Small)</option>
-              <option value="large">⚡ Tools (Large)</option>
-              <option value="thinking">🧠 Reason (Thinking)</option>
-              <option value="critiq">🧐 Critique (Review)</option>
-            </select>
+              size="compact"
+            />
 
             {/* FIXED: The onClick below now routes to stopGeneration when active */}
             {loading || uploading ? (
@@ -293,7 +292,6 @@ export const MsgChatInput = ({
             )}
           </div>
         </div>
-        <p className="text-center text-[11px] text-gray-400 dark:text-gray-500 mt-2">Enter to send · Shift+Enter for new line</p>
       </div>
     </div>
   )

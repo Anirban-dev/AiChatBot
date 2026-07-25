@@ -43,8 +43,8 @@ interface ChatContextType {
   getActivePath: (chatId: string, activeNodeId: string) => Message[]
   setActiveNodeId: (chatId: string, nodeId: string) => void
   activeNodeId: (chatId: string) => string | null
-  getBranchInfo: (chatId: string, nodeId: string) => { branchCount: number; currentIndex: number }
-  switchBranch: (chatId: string, currentMsgId: string, direction: 'prev' | 'next') => void
+  getBranchInfo: (chatId: string, nodeId: string, scopeThreadRootId?: string | null) => { branchCount: number; currentIndex: number }
+  switchBranch: (chatId: string, currentMsgId: string, direction: 'prev' | 'next', scopeThreadRootId?: string | null) => void
   // Search-branch navigation: store a pending message ID to activate after messages load
   setPendingActiveMsgId: (chatId: string, msgId: string) => void
   pendingActiveMsgId: (chatId: string) => string | null
@@ -196,16 +196,32 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
     return path
   }
 
-  const getBranchInfo = (chatId: string, nodeId: string): { branchCount: number; currentIndex: number } => {
+  const sameScope = (a: Message, b: Message, scopeThreadRootId?: string | null) => {
+    if (scopeThreadRootId) {
+      return String(a.threadRootId) === String(scopeThreadRootId) &&
+        String(b.threadRootId) === String(scopeThreadRootId)
+    }
+    return !a.threadRootId && !b.threadRootId
+  }
+
+  const getBranchInfo = (
+    chatId: string,
+    nodeId: string,
+    scopeThreadRootId?: string | null
+  ): { branchCount: number; currentIndex: number } => {
     const msgs = store[chatId] || []
     const msg = msgs.find(m => m._id === nodeId)
     if (!msg) return { branchCount: 0, currentIndex: 0 }
-    
-    const siblings = msgs.filter(m => m.role === msg.role && (m.parentId === msg.parentId || (!m.parentId && !msg.parentId)))
+
+    const siblings = msgs.filter(m =>
+      m.role === msg.role &&
+      (m.parentId === msg.parentId || (!m.parentId && !msg.parentId)) &&
+      sameScope(m, msg, scopeThreadRootId)
+    )
     if (siblings.length <= 1) {
       return { branchCount: 0, currentIndex: 0 }
     }
-    
+
     const currentIndex = siblings.findIndex(s => s._id === nodeId)
     return {
       branchCount: siblings.length,
@@ -213,32 +229,44 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }
 
-  const switchBranch = (chatId: string, currentMsgId: string, direction: 'prev' | 'next') => {
+  const switchBranch = (
+    chatId: string,
+    currentMsgId: string,
+    direction: 'prev' | 'next',
+    scopeThreadRootId?: string | null
+  ) => {
     const msgs = store[chatId] || []
     const msg = msgs.find(m => m._id === currentMsgId)
     if (!msg) return
-    
-    const siblings = msgs.filter(m => m.role === msg.role && (m.parentId === msg.parentId || (!m.parentId && !msg.parentId)))
+
+    const siblings = msgs.filter(m =>
+      m.role === msg.role &&
+      (m.parentId === msg.parentId || (!m.parentId && !msg.parentId)) &&
+      sameScope(m, msg, scopeThreadRootId)
+    )
     if (siblings.length <= 1) return
-    
+
     const currentIndex = siblings.findIndex(s => s._id === currentMsgId)
     let newIndex = currentIndex
-    
+
     if (direction === 'prev') {
       newIndex = currentIndex > 0 ? currentIndex - 1 : siblings.length - 1
     } else {
       newIndex = currentIndex < siblings.length - 1 ? currentIndex + 1 : 0
     }
-    
+
     const targetSibling = siblings[newIndex]
-    
+
     let currentId = targetSibling._id
     while (true) {
-      const children = msgs.filter(m => m.parentId === currentId)
+      const children = msgs.filter(m =>
+        m.parentId === currentId && sameScope(m, targetSibling, scopeThreadRootId)
+      )
       if (children.length === 0) break
       currentId = children[children.length - 1]._id
     }
-    
+
+    if (scopeThreadRootId) return
     setActiveNodeId(chatId, currentId)
   }
 
