@@ -379,6 +379,7 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
               onRemoveEditFile={removeEditFile}
               onCopy={handleCopy}
               isActiveThread={activeThreadRootId === msg._id}
+              _threadReplyCount={msg.threadReplyCount}
               threadCount={threadCountMap[msg._id] || 0}
               threadIndex={getThreadIndexForAnchor(msg._id)}
               onThreadNavigate={(dir) => handleThreadNavigate(msg._id, dir)}

@@ -27,7 +27,8 @@ export interface MessageLike {
   toolCalls?: ToolCall[]
   createdAt: string
   parentId?: string | null
-  threadReplyCount?: number
+  _threadReplyCount?: number // Prefix with underscore to indicate intentionally unused
+  threadReplyCount?: number // Add this for compatibility with backend messages
   isUser?: boolean
   isEdited?: boolean
 }
@@ -191,7 +192,7 @@ interface MessageBubbleProps {
   onEditFileSelect?: (e: React.ChangeEvent<HTMLInputElement>) => void
   onRemoveEditFile?: (index: number) => void
   onCopy?: (content: string) => void
-  threadReplyCount?: number
+  _threadReplyCount?: number // Prefix with underscore to indicate intentionally unused
   threadCount?: number
   threadIndex?: number
   onThreadNavigate?: (direction: 'prev' | 'next') => void
@@ -199,7 +200,7 @@ interface MessageBubbleProps {
   onOpenNewThread?: (msgId: string) => void
   onOpenExistingThread?: (msgId: string) => void
   isActiveThread?: boolean
-  isCurrentChatEmpty?: boolean
+  _isCurrentChatEmpty?: boolean
 }
 
 export const MessageBubble = ({
@@ -220,7 +221,7 @@ export const MessageBubble = ({
   onEditFileSelect,
   onRemoveEditFile,
   onCopy,
-  threadReplyCount = 0,
+  _threadReplyCount = 0, // Prefix with underscore to indicate intentionally unused
   threadCount = 0,
   threadIndex = 0,
   onThreadNavigate,
@@ -228,7 +229,7 @@ export const MessageBubble = ({
   onOpenNewThread,
   onOpenExistingThread,
   isActiveThread = false,
-  isCurrentChatEmpty = false,
+  _isCurrentChatEmpty = false, // Prefix with underscore to indicate intentionally unused
   isUser = false,
 }: MessageBubbleProps) => {
   const fileInfo = msg.fileInfo

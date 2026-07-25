@@ -364,6 +364,7 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
                 onEditFileSelect={handleEditFileSelect}
                 onRemoveEditFile={removeEditFile}
                 onCopy={(text) => navigator.clipboard.writeText(text)}
+                _threadReplyCount={msg.threadReplyCount}
               />
             )
           })

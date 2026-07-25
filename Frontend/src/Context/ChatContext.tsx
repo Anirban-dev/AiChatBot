@@ -27,6 +27,7 @@ export interface Message {
   createdAt: string
   parentId?: string | null
   threadRootId?: string | null
+  threadReplyCount?: number
 }
 
 interface ChatContextType {
