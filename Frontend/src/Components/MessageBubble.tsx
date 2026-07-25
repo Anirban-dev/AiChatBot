@@ -1,4 +1,4 @@
-import { X, Paperclip, Send, Edit2, Copy, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react'
+import { X, Paperclip, Send, Edit2, Copy, ChevronLeft, ChevronRight, MessageSquare, Plus } from 'lucide-react'
 import MarkdownRenderer from './BashComponent'
 import { useState, useEffect, useRef } from 'react'
 
@@ -27,6 +27,7 @@ export interface MessageLike {
   toolCalls?: ToolCall[]
   createdAt: string
   parentId?: string | null
+  threadReplyCount?: number
   isUser?: boolean
   isEdited?: boolean
 }
@@ -172,13 +173,14 @@ const FileAttachmentPreview = ({
 
 // ─── The bubble itself ──────────────────────────────────────────────────────
 interface MessageBubbleProps {
-  msg: MessageLike & { threadRootId?: string | null; threadReplyCount?: number }
+  msg: MessageLike & { threadRootId?: string | null }
   runCode: (code: string) => Promise<any>
   getFileIcon: (ext: string) => React.ReactNode
   formatFileSize: (size: number) => string
   formatTime: (date: string) => string
   onOpenTextPreview: (name: string, content: string) => void
   isEditing?: boolean
+  isUser?: boolean
   onEditStart?: () => void
   onCancelEdit?: () => void
   onSaveEdit?: (content: string) => void
@@ -189,10 +191,12 @@ interface MessageBubbleProps {
   onEditFileSelect?: (e: React.ChangeEvent<HTMLInputElement>) => void
   onRemoveEditFile?: (index: number) => void
   onCopy?: (content: string) => void
-  selectedModel?: string
-  setSelectedModel?: (model: 'small' | 'large' | 'thinking' | 'critiq') => void
+  threadReplyCount?: number
+  isNewThread?: boolean
+  onOpenNewThread?: (msgId: string) => void
   onOpenThread?: (msgId: string) => void
   isActiveThread?: boolean
+  isCurrentChatEmpty?: boolean
 }
 
 export const MessageBubble = ({
@@ -213,15 +217,17 @@ export const MessageBubble = ({
   onEditFileSelect,
   onRemoveEditFile,
   onCopy,
-  selectedModel,
-  setSelectedModel,
+  threadReplyCount = 0,
+  isNewThread = false,
+  onOpenNewThread,
   onOpenThread,
   isActiveThread = false,
+  isCurrentChatEmpty = false,
+  isUser = false,
 }: MessageBubbleProps) => {
   const fileInfo = msg.fileInfo
   const ext = fileInfo?.extension?.toLowerCase() || ''
   const isTextFile = !!fileInfo && TEXT_EXTS.has(ext)
-  const isUser = msg.role === 'user' || msg.isUser === true
   const [copied, setCopied] = useState(false)
   const [editText, setEditText] = useState(msg.content)
   const editFileInputRef = useRef<HTMLInputElement>(null)
@@ -334,19 +340,6 @@ export const MessageBubble = ({
                 >
                   <Paperclip size={15} />
                 </button>
-
-                {selectedModel && setSelectedModel && (
-                  <select
-                    value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value as 'small' | 'large' | 'thinking' | 'critiq')}
-                    className="text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 px-2 py-1 rounded-lg text-gray-600 dark:text-gray-300 outline-none focus:border-gray-300 dark:focus:border-gray-500 cursor-pointer font-semibold transition-all hover:bg-gray-100 dark:hover:bg-gray-600"
-                  >
-                    <option value="small">✦ Chat (Small)</option>
-                    <option value="large">⚡ Tools (Large)</option>
-                    <option value="thinking">🧠 Reason (Thinking)</option>
-                    <option value="critiq">🧐 Critique (Review)</option>
-                  </select>
-                )}
               </div>
 
               <div className="flex items-center gap-1.5">
@@ -383,7 +376,7 @@ export const MessageBubble = ({
 
   return (
     <div className={`flex items-end gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
-      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 mb-0.5 shadow-sm ${isUser ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white' : 'bg-gradient-to-br from-amber-500 to-orange-600 text-white'
+      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 mb-0.5 shadow-xs ${isUser ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white' : 'bg-gradient-to-br from-amber-500 to-orange-600 text-white'
         }`}>
         {isUser ? 'A' : '✦'}
       </div>
@@ -452,6 +445,20 @@ export const MessageBubble = ({
               title="Edit message"
             >
               <Edit2 size={12} />
+            </button>
+          )}
+          {isUser && onOpenNewThread && !isEditing && (
+            <button
+              onClick={() => onOpenNewThread(msg._id)}
+              className={`p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors cursor-pointer flex items-center gap-1 ${isNewThread ? 'text-amber-500' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'}`}
+              title="Start new thread"
+            >
+              <Plus size={12} />
+              {threadReplyCount && threadReplyCount > 0 && (
+                <span className="text-[10px] font-bold bg-gray-100 dark:bg-gray-700 px-1 rounded-full min-w-[16px] text-center">
+                  {threadReplyCount}
+                </span>
+              )}
             </button>
           )}
           {onCopy && !isEditing && (

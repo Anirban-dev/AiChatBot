@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useMemo } from 'react'
-import { Cpu, Loader2, Camera, X } from 'lucide-react'
+import { Cpu, Loader2, Camera, X, MessageSquare, Plus } from 'lucide-react'
 import { getMsgs } from '../API/Msg'
 import { useSendMessage } from './Hook/useSendMessage'
 import { useChatStore } from '../Context/ChatContext'
@@ -15,6 +15,33 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
     getMessages, setMessages, getBranchInfo, getActivePath, activeNodeId, switchBranch,
     setActiveNodeId, pendingActiveMsgId, clearPendingActiveMsgId
   } = useChatStore()
+  
+  // Show toast when opening a new thread
+  const showNewThreadToast = () => {
+    // Create a temporary toast element using setTimeout to allow React to render first
+    setTimeout(() => {
+      const toast = document.createElement('div')
+      toast.className = 'fixed top-4 left-1/2 transform -translate-x-1/2 z-50 bg-amber-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-300'
+      toast.innerHTML = `
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="shrink-0">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        </svg>
+        <span class="text-sm font-medium">Start a new thread to begin discussing this topic</span>
+        <button class="p-1 hover:bg-white/20 rounded-full transition-colors cursor-pointer" onclick="this.parentElement.remove()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      `
+      // Add proper click handler
+      const closeButton = toast.querySelector('button')
+      if (closeButton) {
+        closeButton.onclick = () => toast.remove()
+      }
+      document.body.appendChild(toast)
+      setTimeout(() => toast.remove(), 4000)
+    }, 100)
+  }
   const activeNode = activeNodeId(activeChatId)
   const messages = getActivePath(activeChatId, activeNode || '')
   const allMessages = getMessages(activeChatId)
@@ -37,6 +64,7 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
   }, [allMessages])
 
   const [activeThreadRootId, setActiveThreadRootId] = useState<string | null>(null)
+  const [isNewThread, setIsNewThread] = useState<boolean>(false)
   const activeThreadRoot = activeThreadRootId
     ? allMessages.find((m) => m._id === activeThreadRootId) ?? null
     : null
@@ -45,9 +73,17 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
     setActiveThreadRootId((prev) => (prev === msgId ? null : msgId))
   }
 
+  const handleStartNewThread = (msgId: string) => {
+    setActiveThreadRootId(msgId) // Open thread panel with this message as root
+    setIsNewThread(true)
+    setTimeout(() => setIsNewThread(false), 3000)
+    showNewThreadToast()
+  }
+
   // Close thread when chat changes
   useEffect(() => {
     setActiveThreadRootId(null)
+    setIsNewThread(false)
   }, [activeChatId])
 
   // Close thread when the root message is no longer in the active branch path
@@ -311,6 +347,7 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
             <MessageBubble
               key={msg._id}
               msg={{ ...msg, isUser: isUserMessage, threadReplyCount: threadReplyCountMap[msg._id] || 0 }}
+              isUser={isUserMessage}
               runCode={sendHook.runCode}
               getFileIcon={sendHook.getFileIcon}
               formatFileSize={sendHook.formatFileSize}
@@ -327,10 +364,11 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
               onEditFileSelect={handleEditFileSelect}
               onRemoveEditFile={removeEditFile}
               onCopy={handleCopy}
-              selectedModel={sendHook.selectedModel}
-              setSelectedModel={sendHook.setSelectedModel}
               onOpenThread={handleOpenThread}
               isActiveThread={activeThreadRootId === msg._id}
+              threadReplyCount={threadReplyCountMap[msg._id] || 0}
+              isCurrentChatEmpty={mainMessages.length === 0}
+              onOpenNewThread={handleStartNewThread}
             />
           )
         })}
@@ -376,16 +414,32 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
               chatId={activeChatId}
               rootMessage={activeThreadRoot}
               allMessages={allMessages}
+              onOpenTextPreview={(name, content) => setTextPreviewMsg({ name, content })}
               onClose={() => setActiveThreadRootId(null)}
               runCode={sendHook.runCode}
               getFileIcon={sendHook.getFileIcon}
               formatFileSize={sendHook.formatFileSize}
               formatTime={sendHook.formatTime}
-              onOpenTextPreview={(name, content) => setTextPreviewMsg({ name, content })}
             />
           </div>
         )}
       </div>
+
+      {/* New thread indicator toast */}
+      {isNewThread && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50">
+          <div className="bg-amber-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <MessageSquare size={16} />
+            <span className="text-sm font-medium">Start a new thread to begin discussing this topic</span>
+            <button
+              onClick={() => setIsNewThread(false)}
+              className="p-1 hover:bg-white/20 rounded-full transition-colors cursor-pointer"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Thread Panel - mobile slide-over */}
       {activeThreadRoot && (
@@ -396,12 +450,12 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
               chatId={activeChatId}
               rootMessage={activeThreadRoot}
               allMessages={allMessages}
+              onOpenTextPreview={(name, content) => setTextPreviewMsg({ name, content })}
               onClose={() => setActiveThreadRootId(null)}
               runCode={sendHook.runCode}
               getFileIcon={sendHook.getFileIcon}
               formatFileSize={sendHook.formatFileSize}
               formatTime={sendHook.formatTime}
-              onOpenTextPreview={(name, content) => setTextPreviewMsg({ name, content })}
             />
           </div>
         </div>
@@ -445,6 +499,22 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
         fileName={textPreviewMsg?.name || ''}
         content={textPreviewMsg?.content || ''}
       />
+
+      {/* New thread indicator */}
+      {isNewThread && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50">
+          <div className="bg-amber-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <MessageSquare size={16} />
+            <span className="text-sm font-medium">Start a new thread to begin discussing this topic</span>
+            <button
+              onClick={() => setIsNewThread(false)}
+              className="p-1 hover:bg-white/20 rounded-full transition-colors cursor-pointer"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {isCameraActive && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
