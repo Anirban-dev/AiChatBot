@@ -43,12 +43,21 @@ const Navbar = ({ dark, setDark, toggleSidebar, chatTitle }: NavbarProps) => {
 
   return (
     <>
-      <div className="w-full h-14 px-4 flex items-center justify-between bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shrink-0 select-none">
+      <div
+        className="w-full h-14 px-4 flex items-center justify-between shrink-0 select-none"
+        style={{
+          backgroundColor: 'var(--bg-navbar)',
+          borderBottom: '1px solid var(--border-medium)'
+        }}
+      >
         
         {/* Left Elements */}
         <div className="flex items-center gap-3 min-w-0">
           <button
-            className="sm:hidden p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 transition-colors cursor-pointer shrink-0"
+            className="sm:hidden p-1.5 rounded-lg transition-colors cursor-pointer shrink-0"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--border-light)')}
+            onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
             onClick={toggleSidebar}
           >
             <Menu size={18} />
@@ -69,7 +78,10 @@ const Navbar = ({ dark, setDark, toggleSidebar, chatTitle }: NavbarProps) => {
           {/* Theme control toggle */}
           <button
             onClick={() => setDark(!dark)}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 transition-colors cursor-pointer"
+            className="p-2 rounded-lg transition-colors cursor-pointer"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--border-light)')}
+            onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
             {dark ? <Sun size={17} /> : <Moon size={17} />}
           </button>
@@ -90,33 +102,45 @@ const Navbar = ({ dark, setDark, toggleSidebar, chatTitle }: NavbarProps) => {
             </button>
 
             {dropdownOpen && (
-              <div className="absolute right-0 mt-1.5 w-56 rounded-xl shadow-xl border bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 overflow-hidden z-50">
-                <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800">
-                  <div className="w-8 h-8 rounded-full bg-linear-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-semibold shrink-0">
+              <div
+                className="absolute right-0 mt-1.5 w-56 rounded-xl shadow-2xl overflow-hidden z-50"
+                style={{
+                  backgroundColor: 'var(--bg-card)',
+                  border: '1px solid var(--border-medium)'
+                }}
+              >
+                <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: '1px solid var(--border-light)' }}>
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white text-sm font-semibold shrink-0">
                     {currentUser.name.charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{currentUser.name}</p>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{currentUser.email}</p>
+                    <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{currentUser.name}</p>
+                    <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{currentUser.email}</p>
                   </div>
                 </div>
 
                 <div className="py-1">
                   <button
                     onClick={() => openModal('details')}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+                    className="w-full text-left px-4 py-2 text-sm transition-colors cursor-pointer"
+                    style={{ color: 'var(--text-primary)' }}
+                    onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--border-light)')}
+                    onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
                   >
                     Account details
                   </button>
                   <button
                     onClick={() => openModal('accounts')}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+                    className="w-full text-left px-4 py-2 text-sm transition-colors cursor-pointer"
+                    style={{ color: 'var(--text-primary)' }}
+                    onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--border-light)')}
+                    onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
                   >
                     Switch account
                   </button>
                 </div>
 
-                <div className="border-t border-gray-100 dark:border-gray-800 py-1">
+                <div className="py-1" style={{ borderTop: '1px solid var(--border-light)' }}>
                   <button
                     onClick={() => { setDropdownOpen(false); logout() }}
                     className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors cursor-pointer"

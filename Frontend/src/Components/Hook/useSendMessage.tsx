@@ -141,7 +141,8 @@ const handleFileUpload = async (
     uploadedFileInfo?: any,
     uploadedFileContent?: string,
     optimisticMsgId?: string,
-    customParentId?: string
+    customParentId?: string,
+    customThreadRootId?: string
   ) => {
     const content = forcedContent ?? input.trim()
     if (!content && !uploadedFileInfo) return
@@ -175,6 +176,7 @@ const handleFileUpload = async (
             fileInfo: userMsg.fileInfo,
             file: userMsg.file ?? uploadedFileContent,
             parentId: userMsg.parentId || null,
+            threadRootId: userMsg.threadRootId || customThreadRootId || null,
             createdAt: userMsg.createdAt || new Date().toISOString()
           }
           if (optimisticMsgId) {
@@ -232,7 +234,8 @@ const handleFileUpload = async (
 
         uploadedFileInfo,
         uploadedFileContent,
-        customParentId
+        customParentId,
+        customThreadRootId
       )
     } catch (err: any) {
       if (err.name !== 'AbortError') {

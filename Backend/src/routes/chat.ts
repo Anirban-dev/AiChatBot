@@ -170,7 +170,9 @@ router.get('/search/query', genLimiter, async (req: AuthRequest, res: Response) 
         chatTitle: parentChat ? parentChat.title : 'Untitled Chat',
         messageId: msg._id,
         content: msg.content,
-        createdAt: msg.createdAt
+        createdAt: msg.createdAt,
+        threadRootId: (msg as any).threadRootId || null,
+        isThread: !!(msg as any).threadRootId,
       }
     })
 

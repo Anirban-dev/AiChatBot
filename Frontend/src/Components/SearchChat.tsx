@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, X, MessageSquare } from 'lucide-react'
 import { searchChats } from '../API/Chat'
+import { useChatStore } from '../Context/ChatContext'
 
 interface SearchModalProps {
   isOpen: boolean
@@ -14,6 +15,7 @@ const SearchModal = ({ isOpen, onClose, recentChats }: SearchModalProps) => {
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const navigate = useNavigate()
+  const { setPendingActiveMsgId } = useChatStore()
 
   // Reset inputs on open/close toggle
   useEffect(() => {
@@ -89,22 +91,29 @@ const SearchModal = ({ isOpen, onClose, recentChats }: SearchModalProps) => {
       <div className="fixed inset-0 cursor-default" onClick={onClose} />
 
       {/* Modal Frame */}
-      <div className="relative w-full max-w-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[60vh] transition-all transform scale-100 animate-in fade-in zoom-in-95 duration-150">
+      <div
+        className="relative w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[60vh] transition-all transform scale-100 animate-in fade-in zoom-in-95 duration-150"
+        style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-medium)' }}
+      >
         
         {/* Header Search Area */}
-        <div className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-200 dark:border-gray-800">
-          <Search size={18} className="text-gray-400 dark:text-gray-500 shrink-0" />
+        <div className="flex items-center gap-3 px-4 py-3.5" style={{ borderBottom: '1px solid var(--border-medium)' }}>
+          <Search size={18} className="shrink-0" style={{ color: 'var(--text-secondary)' }} />
           <input
             autoFocus
             type="text"
             placeholder="Search keywords inside your messages..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-transparent border-none outline-none text-sm font-medium text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 p-0 focus:ring-0"
+            className="w-full bg-transparent border-none outline-none text-sm font-medium p-0 focus:ring-0"
+            style={{ color: 'var(--text-primary)' }}
           />
           <button 
             onClick={onClose}
-            className="p-1 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/60 transition-all cursor-pointer"
+            className="p-1 rounded-lg transition-all cursor-pointer"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--border-light)')}
+            onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
             <X size={16} />
           </button>
@@ -130,10 +139,13 @@ const SearchModal = ({ isOpen, onClose, recentChats }: SearchModalProps) => {
                       onClose()
                       navigate(`/${chat.id}`)
                     }}
-                    className="w-full text-left p-3 rounded-xl border border-gray-100 dark:border-gray-800/40 hover:border-blue-500/30 bg-gray-50/50 dark:bg-gray-950/30 hover:bg-blue-500/5 dark:hover:bg-blue-500/5 transition-all flex items-center gap-3 group cursor-pointer"
+                    className="w-full text-left p-3 rounded-xl transition-all flex items-center gap-3 group cursor-pointer"
+                    style={{ backgroundColor: 'var(--border-light)', border: '1px solid var(--border-medium)' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'; (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--border-medium)' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-medium)'; (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--border-light)' }}
                   >
-                    <MessageSquare size={16} className="text-gray-400 dark:text-gray-500 group-hover:text-blue-500 transition-colors" />
-                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-200 truncate">
+                    <MessageSquare size={16} className="text-amber-500 transition-colors shrink-0" />
+                    <span className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
                       {chat.title}
                     </span>
                   </button>
@@ -150,16 +162,24 @@ const SearchModal = ({ isOpen, onClose, recentChats }: SearchModalProps) => {
               <button
                 key={result.messageId}
                 onClick={() => {
+                  // Tag the message to activate the right branch after navigation
+                  setPendingActiveMsgId(result.chatId, result.messageId)
                   onClose()
                   navigate(`/${result.chatId}`)
                 }}
                 className="w-full text-left p-3 rounded-xl border border-gray-100 dark:border-gray-800/40 hover:border-blue-500/30 bg-gray-50/50 dark:bg-gray-950/30 hover:bg-blue-500/5 dark:hover:bg-blue-500/5 transition-all flex flex-col gap-1 group cursor-pointer"
               >
-                <div className="flex items-center gap-2">
-                  <MessageSquare size={13} className="text-blue-500 opacity-70" />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <MessageSquare size={13} className="text-blue-500 opacity-70 shrink-0" />
                   <span className="text-xs font-bold text-gray-800 dark:text-gray-200 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate">
                     {result.chatTitle}
                   </span>
+                  {result.isThread && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-[10px] font-semibold text-blue-500 dark:text-blue-400 shrink-0">
+                      <MessageSquare size={9} />
+                      In thread
+                    </span>
+                  )}
                 </div>
                 <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed font-normal line-clamp-2 pl-5">
                   {highlightText(result.content, searchQuery)}

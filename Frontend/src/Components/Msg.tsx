@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useMemo } from 'react'
 import { Cpu, Loader2, Camera, X } from 'lucide-react'
 import { getMsgs } from '../API/Msg'
 import { useSendMessage } from './Hook/useSendMessage'
@@ -7,12 +7,58 @@ import { CodeRagModal } from './CodeRag'
 import { MsgChatInput } from './MsgChatInput'
 import { TextFilePreviewModal } from './TextFilePreviewModal'
 import { MessageBubble } from './MessageBubble'
+import { ThreadPanel } from './ThreadPanel'
 
 export const Msg = ({ chatId }: { chatId?: string }) => {
   const activeChatId = chatId || 'new'
-  const { getMessages, setMessages, getBranchInfo, getActivePath, activeNodeId, switchBranch } = useChatStore()
+  const {
+    getMessages, setMessages, getBranchInfo, getActivePath, activeNodeId, switchBranch,
+    setActiveNodeId, pendingActiveMsgId, clearPendingActiveMsgId
+  } = useChatStore()
   const activeNode = activeNodeId(activeChatId)
   const messages = getActivePath(activeChatId, activeNode || '')
+  const allMessages = getMessages(activeChatId)
+
+  // Filter main-timeline messages (no threadRootId) for display
+  const mainMessages = useMemo(
+    () => messages.filter((m) => !m.threadRootId),
+    [messages]
+  )
+
+  // Build reply count map: rootMessageId -> count
+  const threadReplyCountMap = useMemo(() => {
+    const map: Record<string, number> = {}
+    allMessages.forEach((m) => {
+      if (m.threadRootId) {
+        map[m.threadRootId] = (map[m.threadRootId] || 0) + 1
+      }
+    })
+    return map
+  }, [allMessages])
+
+  const [activeThreadRootId, setActiveThreadRootId] = useState<string | null>(null)
+  const activeThreadRoot = activeThreadRootId
+    ? allMessages.find((m) => m._id === activeThreadRootId) ?? null
+    : null
+
+  const handleOpenThread = (msgId: string) => {
+    setActiveThreadRootId((prev) => (prev === msgId ? null : msgId))
+  }
+
+  // Close thread when chat changes
+  useEffect(() => {
+    setActiveThreadRootId(null)
+  }, [activeChatId])
+
+  // Close thread when the root message is no longer in the active branch path
+  // (i.e., user switched to a different edit branch via prev/next navigator)
+  useEffect(() => {
+    if (!activeThreadRootId) return
+    const isStillVisible = mainMessages.some(m => m._id === activeThreadRootId)
+    if (!isStillVisible) {
+      setActiveThreadRootId(null)
+    }
+  }, [mainMessages, activeThreadRootId])
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -37,17 +83,32 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
     shouldSnapInstantRef.current = true
   }
 
+  const isUserScrolledUpRef = useRef<boolean>(false)
+
+  // Track scroll position to respect user's manual scroll up during streaming
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+    isUserScrolledUpRef.current = !isAtBottom
+  }
+
   useEffect(() => {
     if (!bottomRef.current) return
-    if (messages.length > 0) {
-      if (shouldSnapInstantRef.current) {
-        bottomRef.current.scrollIntoView({ behavior: 'auto' })
-        shouldSnapInstantRef.current = false
-      } else {
-        bottomRef.current.scrollIntoView({ behavior: 'smooth' })
-      }
+    if (messages.length === 0) return
+
+    // Snap to bottom instantly when switching chats
+    if (shouldSnapInstantRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'auto' })
+      shouldSnapInstantRef.current = false
+      isUserScrolledUpRef.current = false
+      return
     }
-  }, [messages, chatId, sendHook.activeTool])
+
+    // Only auto-scroll while LLM is generating if the user hasn't explicitly scrolled up
+    if (sendHook.loading && !isUserScrolledUpRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages, chatId, sendHook.loading])
 
   useEffect(() => {
     if (!chatId || chatId === 'new') return
@@ -62,6 +123,29 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
     }
     fetchMsgs()
   }, [chatId])
+
+  // After messages load, apply any pending search-branch navigation:
+  // walk from the pending message ID to its leaf descendant (staying on main-timeline)
+  // so the user sees the full conversation on the correct branch.
+  useEffect(() => {
+    const pendingId = pendingActiveMsgId(activeChatId)
+    if (!pendingId) return
+    const msgs = getMessages(activeChatId)
+    if (msgs.length === 0) return
+    const target = msgs.find(m => m._id === pendingId)
+    if (!target) return
+
+    // Walk to leaf on main timeline from this message
+    const mainMsgs = msgs.filter(m => !m.threadRootId)
+    let currentId = pendingId
+    while (true) {
+      const children = mainMsgs.filter(m => m.parentId === currentId)
+      if (children.length === 0) break
+      currentId = children[children.length - 1]._id
+    }
+    setActiveNodeId(activeChatId, currentId)
+    clearPendingActiveMsgId(activeChatId)
+  }, [activeChatId, getMessages(activeChatId).length])
 
   const startCamera = async () => {
     try {
@@ -200,14 +284,16 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
     setTimeout(() => setCopiedText(null), 2000)
   }
 
-  const lastMsg = messages[messages.length - 1]
+  const lastMsg = mainMessages[mainMessages.length - 1]
   const isStreaming = lastMsg?.role === 'assistant' && lastMsg?.content?.length > 0
   const showTypingIndicator = (sendHook.loading || sendHook.uploading) && !isStreaming
 
   return (
-    <div className="flex flex-col h-full bg-gray-50/50 dark:bg-gray-900/20 relative">
-      <div id="active-chat-stream" className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-5">
-        {messages.length === 0 && !sendHook.loading && (
+    <div className="flex flex-col h-full relative overflow-hidden" style={{ backgroundColor: 'var(--bg-chat)' }}>
+      {/* Main chat area + Thread panel side-by-side */}
+      <div className="flex flex-1 overflow-hidden">
+        <div id="active-chat-stream" onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-5">
+        {mainMessages.length === 0 && !sendHook.loading && (
           <div className="flex flex-col items-center justify-center h-full gap-3 select-none">
             <div className="w-12 h-12 rounded-2xl bg-linear-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
               <span className="text-white text-xl">✦</span>
@@ -216,7 +302,7 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
           </div>
         )}
 
-        {messages.map((msg) => {
+        {mainMessages.map((msg) => {
           const isCurrentMsgEditing = isEditing === msg._id
           const isUserMessage = msg.role === 'user'
           const branchInfo = isCurrentMsgEditing ? undefined : getBranchInfo(activeChatId, msg._id)
@@ -224,7 +310,7 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
           return (
             <MessageBubble
               key={msg._id}
-              msg={{ ...msg, isUser: isUserMessage }}
+              msg={{ ...msg, isUser: isUserMessage, threadReplyCount: threadReplyCountMap[msg._id] || 0 }}
               runCode={sendHook.runCode}
               getFileIcon={sendHook.getFileIcon}
               formatFileSize={sendHook.formatFileSize}
@@ -241,14 +327,21 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
               onEditFileSelect={handleEditFileSelect}
               onRemoveEditFile={removeEditFile}
               onCopy={handleCopy}
+              selectedModel={sendHook.selectedModel}
+              setSelectedModel={sendHook.setSelectedModel}
+              onOpenThread={handleOpenThread}
+              isActiveThread={activeThreadRootId === msg._id}
             />
           )
         })}
 
         {showTypingIndicator && (
           <div className="flex items-end gap-2.5 animate-in fade-in duration-200">
-            <div className="w-7 h-7 rounded-full bg-linear-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-xs shrink-0 mb-0.5 shadow-xs">✦</div>
-            <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 px-4 py-3 rounded-2xl rounded-bl-sm shadow-xs max-w-[80%]">
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white text-xs shrink-0 mb-0.5 shadow-sm">✦</div>
+            <div
+              className="px-4 py-3 rounded-2xl rounded-bl-sm shadow-sm max-w-[80%]"
+              style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-light)' }}
+            >
               {sendHook.uploading ? (
                 <div className="flex items-center gap-2 text-xs text-gray-400">
                   <Loader2 size={12} className="animate-spin text-blue-500" />Uploading…
@@ -273,8 +366,46 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
             </div>
           </div>
         )}
-        <div ref={bottomRef} />
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Thread Panel - desktop right side */}
+        {activeThreadRoot && (
+          <div className="hidden md:flex h-full transition-all duration-200">
+            <ThreadPanel
+              chatId={activeChatId}
+              rootMessage={activeThreadRoot}
+              allMessages={allMessages}
+              onClose={() => setActiveThreadRootId(null)}
+              runCode={sendHook.runCode}
+              getFileIcon={sendHook.getFileIcon}
+              formatFileSize={sendHook.formatFileSize}
+              formatTime={sendHook.formatTime}
+              onOpenTextPreview={(name, content) => setTextPreviewMsg({ name, content })}
+            />
+          </div>
+        )}
       </div>
+
+      {/* Thread Panel - mobile slide-over */}
+      {activeThreadRoot && (
+        <div className="md:hidden fixed inset-0 z-40 flex">
+          <div className="flex-1 bg-black/40" onClick={() => setActiveThreadRootId(null)} />
+          <div className="w-[90vw] max-w-sm h-full flex shadow-2xl animate-in slide-in-from-right duration-200">
+            <ThreadPanel
+              chatId={activeChatId}
+              rootMessage={activeThreadRoot}
+              allMessages={allMessages}
+              onClose={() => setActiveThreadRootId(null)}
+              runCode={sendHook.runCode}
+              getFileIcon={sendHook.getFileIcon}
+              formatFileSize={sendHook.formatFileSize}
+              formatTime={sendHook.formatTime}
+              onOpenTextPreview={(name, content) => setTextPreviewMsg({ name, content })}
+            />
+          </div>
+        </div>
+      )}
 
       <MsgChatInput
         input={sendHook.input}

@@ -139,23 +139,28 @@ const Sidebar = ({ isMobile, collapsed, setCollapsed }: SidebarProps) => {
 
       {/* ◄ FIXED BELOW: Changed transition-all to transition-[width,transform] */}
       <div
+        style={{
+          backgroundColor: 'var(--bg-sidebar)',
+          borderRight: '1px solid var(--border-medium)'
+        }}
         className={`
           h-screen flex flex-col transition-[width,transform] duration-300 ease-in-out
-          bg-gray-50 dark:bg-gray-950
-          border-r border-gray-200/80 dark:border-gray-800/60
           ${isMobile
             ? `fixed top-0 left-0 z-50 w-68 transform ${collapsed ? '-translate-x-full' : 'translate-x-0'}`
             : `${collapsed ? 'w-20' : 'w-68'}`
           }
         `}
       >
-        <div className="flex items-center justify-between px-4 py-4 border-b border-gray-200 dark:border-gray-800 h-16">
+        <div className="flex items-center justify-between px-4 py-4 h-16" style={{ borderBottom: '1px solid var(--border-medium)' }}>
           <div className={`overflow-hidden transition-all duration-200 ${collapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
-            <span className="text-base font-bold tracking-tight text-gray-900 dark:text-white pl-1">ChatAI</span>
+            <span className="text-base font-bold tracking-tight pl-1" style={{ color: 'var(--text-primary)' }}>ChatAI</span>
           </div>
           <button
             onClick={toggleSidebar}
-            className="p-2 rounded-xl hover:bg-gray-200/70 dark:hover:bg-gray-800/70 text-gray-500 dark:text-gray-400 transition-all cursor-pointer shrink-0"
+            className="p-2 rounded-xl transition-all cursor-pointer shrink-0"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--border-light)')}
+            onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
             {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
           </button>
@@ -165,14 +170,16 @@ const Sidebar = ({ isMobile, collapsed, setCollapsed }: SidebarProps) => {
           <Link
             to="/"
             className={`flex items-center gap-3 px-4 py-3 rounded-xl
-              bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800
-              hover:border-gray-300 dark:hover:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-900/60
-              text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white
-              text-sm font-semibold shadow-xs transition-all duration-200 cursor-pointer
+              text-sm font-semibold shadow-sm transition-all duration-200 cursor-pointer
               ${collapsed ? 'justify-center px-3 py-3' : ''}
             `}
+            style={{
+              backgroundColor: 'var(--bg-card)',
+              border: '1px solid var(--border-medium)',
+              color: 'var(--text-primary)'
+            }}
           >
-            <Plus size={18} className="shrink-0 text-blue-500" />
+            <Plus size={18} className="shrink-0 text-amber-500" />
             <span className={`transition-all duration-200 whitespace-nowrap ${collapsed ? 'hidden' : 'block'}`}>
               New chat
             </span>
@@ -181,13 +188,16 @@ const Sidebar = ({ isMobile, collapsed, setCollapsed }: SidebarProps) => {
           <button
             onClick={() => setIsSearchOpen(true)}
             className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl
-              bg-gray-100/70 dark:bg-gray-900/40 hover:bg-gray-200/50 dark:hover:bg-gray-900/80
-              text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200
-              text-xs font-medium transition-all duration-200 border border-transparent hover:border-gray-200 dark:hover:border-gray-800 cursor-pointer
+              text-xs font-medium transition-all duration-200 cursor-pointer
               ${collapsed ? 'justify-center px-3' : ''}
             `}
+            style={{
+              backgroundColor: 'var(--border-light)',
+              border: '1px solid var(--border-medium)',
+              color: 'var(--text-secondary)'
+            }}
           >
-            <Search size={16} className="shrink-0 text-gray-400 dark:text-gray-500" />
+            <Search size={16} className="shrink-0" style={{ color: 'var(--text-secondary)' }} />
             <span className={`transition-all duration-200 whitespace-nowrap ${collapsed ? 'hidden' : 'block'}`}>
               Search history...
             </span>
@@ -212,7 +222,7 @@ const Sidebar = ({ isMobile, collapsed, setCollapsed }: SidebarProps) => {
                   className={({ isActive }) =>
                     `flex items-center justify-center p-3 rounded-xl transition-all duration-200 cursor-pointer ${
                       isActive
-                        ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium'
+                        ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium'
                         : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200/50 dark:hover:bg-gray-800/40 hover:text-gray-900 dark:hover:text-white'
                     }`
                   }
@@ -224,25 +234,27 @@ const Sidebar = ({ isMobile, collapsed, setCollapsed }: SidebarProps) => {
           ) : (
             grouped.map(([label, items]) => (
               <div key={label} className="space-y-1.5">
-                <p className="px-3 text-[11px] font-bold text-gray-400/80 dark:text-gray-500 uppercase tracking-wider">
+                <p className="px-3 text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--accent)', opacity: 0.7 }}>
                   {label}
                 </p>
-                <div className="space-y-1">
+                <div className="space-y-0.5">
                   {items.map(chat => (
                     renamingChatId === chat.id ? (
-                      <form 
-                        key={chat.id} 
-                        onSubmit={(e) => handleRenameSubmit(e, chat.id)} 
-                        className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-blue-500/5 dark:bg-blue-500/10 border border-blue-500/50"
+                      <form
+                        key={chat.id}
+                        onSubmit={(e) => handleRenameSubmit(e, chat.id)}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-xl"
+                        style={{ backgroundColor: 'var(--border-light)', border: '1px solid var(--accent)', opacity: 0.5 }}
                       >
-                        <MessageSquare size={16} className="shrink-0 text-blue-500" />
+                        <MessageSquare size={16} className="shrink-0 text-amber-500" />
                         <input 
                           autoFocus
                           value={newTitle}
                           onChange={(e) => setNewTitle(e.target.value)}
                           onBlur={() => setRenamingChatId(null)}
                           onKeyDown={(e) => { if (e.key === 'Escape') setRenamingChatId(null) }}
-                          className="w-full bg-transparent text-sm text-gray-900 dark:text-white outline-none font-medium border-none p-0 focus:ring-0"
+                          className="w-full bg-transparent text-sm outline-none font-medium border-none p-0 focus:ring-0"
+                          style={{ color: 'var(--text-primary)' }}
                         />
                       </form>
                     ) : (
@@ -253,10 +265,13 @@ const Sidebar = ({ isMobile, collapsed, setCollapsed }: SidebarProps) => {
                         className={({ isActive }) =>
                           `group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-200 cursor-pointer ${
                             isActive
-                              ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold'
-                              : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200/50 dark:hover:bg-gray-800/40 hover:text-gray-900 dark:hover:text-white'
+                              ? 'bg-amber-500/15 dark:bg-amber-500/10 font-semibold'
+                              : 'hover:bg-amber-500/8 dark:hover:bg-white/5'
                           }`
                         }
+                        style={({ isActive }) => ({
+                          color: isActive ? 'var(--accent)' : 'var(--text-secondary)'
+                        })}
                       >
                         <MessageSquare size={16} className="shrink-0 opacity-60 group-hover:opacity-100 transition-opacity" />
                         <span className="truncate flex-1">
@@ -272,14 +287,17 @@ const Sidebar = ({ isMobile, collapsed, setCollapsed }: SidebarProps) => {
         </div>
 
         {!collapsed && (
-          <div className="px-3 py-3 border-t border-gray-200 dark:border-gray-800">
-            <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-200/50 dark:hover:bg-gray-800/40 cursor-pointer transition-all duration-200">
-              <div className="w-8 h-8 rounded-full bg-linear-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-xs">
+          <div className="px-3 py-3" style={{ borderTop: '1px solid var(--border-medium)' }}>
+            <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all duration-200"
+              onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--border-light)')}
+              onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+            >
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-sm">
                 {currentUser.name.charAt(0).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-gray-900 dark:text-white truncate">{currentUser.name}</p>
-                <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate mt-0.5">{currentUser.email}</p>
+                <p className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{currentUser.name}</p>
+                <p className="text-[11px] truncate mt-0.5" style={{ color: 'var(--text-secondary)' }}>{currentUser.email}</p>
               </div>
             </div>
           </div>
@@ -288,14 +306,17 @@ const Sidebar = ({ isMobile, collapsed, setCollapsed }: SidebarProps) => {
 
       {contextMenu && (
         <div
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          className="fixed z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl py-1.5 min-w-40 backdrop-blur-md"
+          style={{ top: contextMenu.y, left: contextMenu.x, backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-medium)' }}
+          className="fixed z-50 rounded-2xl shadow-2xl py-1.5 min-w-40 backdrop-blur-md"
         >
           <button
             onClick={handleRenameClick}
-            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/60 transition-colors cursor-pointer"
+            className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm font-medium transition-colors cursor-pointer rounded-xl mx-auto"
+            style={{ color: 'var(--text-primary)' }}
+            onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--border-light)')}
+            onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
-            <Edit2 size={15} className="text-gray-400" />
+            <Edit2 size={15} style={{ color: 'var(--text-secondary)' }} />
             Rename
           </button>
           <button

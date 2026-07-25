@@ -26,6 +26,7 @@ export interface Message {
   toolCalls?: ToolCall[]
   createdAt: string
   parentId?: string | null
+  threadRootId?: string | null
 }
 
 interface ChatContextType {
@@ -44,6 +45,10 @@ interface ChatContextType {
   activeNodeId: (chatId: string) => string | null
   getBranchInfo: (chatId: string, nodeId: string) => { branchCount: number; currentIndex: number }
   switchBranch: (chatId: string, currentMsgId: string, direction: 'prev' | 'next') => void
+  // Search-branch navigation: store a pending message ID to activate after messages load
+  setPendingActiveMsgId: (chatId: string, msgId: string) => void
+  pendingActiveMsgId: (chatId: string) => string | null
+  clearPendingActiveMsgId: (chatId: string) => void
 }
 
 const ChatContext = createContext<ChatContextType | null>(null)
@@ -51,6 +56,7 @@ const ChatContext = createContext<ChatContextType | null>(null)
 export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
   const [loadingChats, setLoadingChats] = useState<Record<string, boolean>>({})
   const [activeNodeIds, setActiveNodeIds] = useState<Record<string, string | null>>({})
+  const [pendingActiveMsgIds, setPendingActiveMsgIds] = useState<Record<string, string | null>>({})
   
   const setLoading = (chatId: string, val: boolean) => {
     setLoadingChats(prev => ({ ...prev, [chatId]: val }))
@@ -236,11 +242,20 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
     setActiveNodeId(chatId, currentId)
   }
 
+  const setPendingActiveMsgId = (chatId: string, msgId: string) =>
+    setPendingActiveMsgIds(prev => ({ ...prev, [chatId]: msgId }))
+
+  const pendingActiveMsgId = (chatId: string) => pendingActiveMsgIds[chatId] || null
+
+  const clearPendingActiveMsgId = (chatId: string) =>
+    setPendingActiveMsgIds(prev => ({ ...prev, [chatId]: null }))
+
   return (
     <ChatContext.Provider value={{
       getMessages, setMessages, appendMessage,
       updateMessage, removeMessage, appendToken, appendReasoningToken, updateToolCall, setLoading, isLoading,
-      getActivePath, setActiveNodeId, activeNodeId, getBranchInfo, switchBranch
+      getActivePath, setActiveNodeId, activeNodeId, getBranchInfo, switchBranch,
+      setPendingActiveMsgId, pendingActiveMsgId, clearPendingActiveMsgId
     }}>
       {children}
     </ChatContext.Provider>

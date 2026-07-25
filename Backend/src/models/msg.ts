@@ -40,6 +40,11 @@ const messageSchema = new mongoose.Schema({
     ref: 'Message',
     default: null,
   },
+  threadRootId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Message',
+    default: null,
+  },
   isEdited: {
     type: Boolean,
     default: false,

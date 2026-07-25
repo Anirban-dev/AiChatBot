@@ -79,7 +79,7 @@ function Chat() {
   }, [chatId])
 
   return (
-    <div className="flex h-screen bg-white dark:bg-gray-900 overflow-hidden">
+    <div className="flex h-screen overflow-hidden" style={{ backgroundColor: 'var(--bg-page)' }}>
       <Sidebar
         isMobile={isMobile}
         collapsed={collapsed}
@@ -94,10 +94,10 @@ function Chat() {
           chatTitle={chat?.title}
         />
 
-        <div className="flex-1 min-h-0 bg-gray-50 dark:bg-gray-800/50">
+        <div className="flex-1 min-h-0" style={{ backgroundColor: 'var(--bg-chat)' }}>
           {loading ? (
             <div className="flex items-center justify-center h-full">
-              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : (
             <Msg chatId={chatId!} />

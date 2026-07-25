@@ -388,40 +388,49 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                 # Stream finished for this iteration
                 full_text = "".join(text_content_buffer)
 
-                # Parse inline <function>name{args}</function> emitted by models
-                # that do not support native tool calling
-                if "<function>" in full_text and not is_tool_call:
-                    func_matches = re.findall(
-                        r"<function>(\w+)\s*(\{.*?\})?\s*(?:</function>|$)",
+                # Clean up Qwen/DeepSeek control tokens & inline tool tokens if model outputted them into text
+                if not is_tool_call and ("<|message|>" in full_text or "commentary" in full_text or "<function>" in full_text or "<tool_call>" in full_text):
+                    # Check for inline function / tool call patterns (e.g. commentary<|message|>... or <function>web_search{...}</function>)
+                    tool_matches = re.findall(
+                        r"(?:<function>|<tool_call>|commentary<\|message\|>)?\s*(\w+)\s*(?:\{.*?\})?\s*(?:</function>|</tool_call>|<\|end\|>|$)",
                         full_text,
                         re.DOTALL,
                     )
-                    if func_matches:
-                        is_tool_call = True
-                        for idx, (func_name, raw_args) in enumerate(func_matches):
-                            raw_args = raw_args.strip() if raw_args else "{}"
-                            # Validate JSON — fall back to empty dict on parse failure
-                            try:
-                                json.loads(raw_args)
-                                args_str = raw_args
-                            except json.JSONDecodeError:
-                                args_str = "{}"
-                            call_id = f"call_inline_{iteration}_{idx}"
-                            tool_calls_buffer[len(tool_calls_buffer)] = {
-                                "id": call_id,
-                                "type": "function",
-                                "function": {"name": func_name, "arguments": args_str},
-                            }
-                        # Remove all <function> blocks from visible content
-                        clean_text = re.sub(
-                            r"<function>\w+\s*(?:\{.*?\})?\s*(?:</function>|$)",
-                            "",
+                    # Also match standard tool calls like "Use web_search to find..."
+                    tool_names_known = set(tool_manager.get_tools().keys())
+                    inline_calls = []
+                    for match_name in re.findall(r"\b([a-zA-Z_0-9]+)\b", full_text):
+                        if match_name in tool_names_known and match_name not in inline_calls:
+                            inline_calls.append(match_name)
+
+                    if "<function>" in full_text or "<tool_call>" in full_text:
+                        func_matches = re.findall(
+                            r"(?:<function>|<tool_call>)\s*(\w+)\s*(\{.*?\})?\s*(?:</function>|</tool_call>|$)",
                             full_text,
-                            flags=re.DOTALL,
-                        ).strip()
-                        text_content_buffer = [clean_text]
+                            re.DOTALL,
+                        )
+                        if func_matches:
+                            is_tool_call = True
+                            for idx, (func_name, raw_args) in enumerate(func_matches):
+                                raw_args = raw_args.strip() if raw_args else "{}"
+                                try:
+                                    json.loads(raw_args)
+                                    args_str = raw_args
+                                except json.JSONDecodeError:
+                                    args_str = "{}"
+                                call_id = f"call_inline_{iteration}_{idx}"
+                                tool_calls_buffer[len(tool_calls_buffer)] = {
+                                    "id": call_id,
+                                    "type": "function",
+                                    "function": {"name": func_name, "arguments": args_str},
+                                }
 
                 if not is_tool_call:
+                    # Clean any leaked control tokens from visible output buffer
+                    clean_text = re.sub(r"<\|message\|>|<\|end\|>|commentary<\|message\|>", "", full_text).strip()
+                    if clean_text != full_text:
+                        text_content_buffer = [clean_text]
+
                     # No tools called → text was already streamed → done
                     _log.info(f"[Generate] Complete: chat={chat_id} iter={iteration+1} tokens={total_tokens}")
                     break
@@ -432,11 +441,7 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                 tool_names = [tc["function"]["name"] for tc in tool_calls]
                 _log.info(f"[Tools] Executing: {tool_names} chat={chat_id}")
 
-                # 1. Output visual text to the user
-                notice = f"\n\n[Action: Calling tool(s): {', '.join(tool_names)}...]\n\n"
-                yield f"data: {json.dumps({'token': notice})}\n\n"
-
-                # 2. Inform Node.js that tools are running (Triggers MongoDB log)
+                # 1. Inform Node.js that tools are running (Triggers MongoDB log)
                 for tc in tool_calls:
                     tool_payload = {
                         "tool_call": {

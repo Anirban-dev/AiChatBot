@@ -30,20 +30,19 @@ const InputField = ({
   required?: boolean
 }) => (
   <div className="relative">
-    <Icon size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+    <Icon size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-secondary)' }} />
     <input
       type={type}
       placeholder={placeholder}
       value={value}
       onChange={e => onChange(e.target.value)}
       required={required}
-      className="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl
-        bg-gray-50 dark:bg-gray-800
-        border border-gray-200 dark:border-gray-700
-        text-gray-900 dark:text-white
-        placeholder-gray-400 dark:placeholder-gray-500
-        focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 dark:focus:border-blue-500
-        transition-all"
+      className="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400/30 transition-all"
+      style={{
+        backgroundColor: 'var(--border-light)',
+        border: '1px solid var(--border-medium)',
+        color: 'var(--text-primary)'
+      }}
     />
   </div>
 )
@@ -132,13 +131,21 @@ const Login = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 px-4 relative transition-colors duration-300">
+    <div
+      className="min-h-screen flex items-center justify-center px-4 relative transition-colors duration-300"
+      style={{ backgroundColor: 'var(--bg-page)' }}
+    >
       
       {/* Absolute Positioning Universal Theme Switcher Control */}
       <div className="absolute top-4 right-4 sm:top-6 sm:right-6">
         <button
           onClick={() => setDark(!dark)}
-          className="p-2.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 shadow-xs hover:bg-gray-50 dark:hover:bg-gray-800 transition cursor-pointer"
+          className="p-2.5 rounded-xl shadow-sm hover:opacity-80 transition cursor-pointer"
+          style={{
+            border: '1px solid var(--border-medium)',
+            backgroundColor: 'var(--bg-card)',
+            color: 'var(--text-secondary)'
+          }}
           title={dark ? "Switch to Light Mode" : "Switch to Dark Mode"}
         >
           {dark ? <Sun size={16} /> : <Moon size={16} />}
@@ -149,17 +156,23 @@ const Login = () => {
 
         {/* Logo / Brand */}
         <div className="text-center mb-8">
-          <div className="inline-flex w-12 h-12 rounded-2xl bg-linear-to-br from-blue-500 to-indigo-600 items-center justify-center mb-4 shadow-lg shadow-blue-500/20">
+          <div className="inline-flex w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 items-center justify-center mb-4 shadow-lg shadow-amber-500/20">
             <span className="text-white text-xl">✦</span>
           </div>
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">ChatAI</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <h1 className="text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>ChatAI</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             {isLogin ? 'Welcome back' : 'Create your account'}
           </p>
         </div>
 
         {/* Card */}
-        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm p-6 space-y-4">
+        <div
+          className="rounded-2xl shadow-sm p-6 space-y-4"
+          style={{
+            backgroundColor: 'var(--bg-card)',
+            border: '1px solid var(--border-medium)'
+          }}
+        >
 
           {/* Google button */}
           <button

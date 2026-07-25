@@ -166,8 +166,34 @@ const DefaultTerminal = ({ language, code, children }: { language: string; code:
   </div>
 )
 
+const preprocessContent = (rawText: string) => {
+  if (!rawText) return ''
+
+  // 1. Strip raw Qwen / LLM control tokens and commentary headers
+  let text = rawText
+    .replace(/commentary<\|message\|>/g, '')
+    .replace(/<\|message\|>/g, '')
+    .replace(/<\|end\|>/g, '')
+    .replace(/<\|im_start\|>/g, '')
+    .replace(/<\|im_end\|>/g, '')
+
+  // 2. Normalize LaTeX math formula delimiters like ChatGPT:
+  // Block math: \[ ... \] or \\[ ... \\]
+  text = text.replace(/\\\\?\[([\s\S]*?)null?\\\\?\]/g, (_, math) => `\n\n$$\n${math.trim()}\n$$\n\n`)
+  text = text.replace(/\\\\?\[([\s\S]*?)\\\\?\]/g, (_, math) => `\n\n$$\n${math.trim()}\n$$\n\n`)
+
+  // Inline math: \( ... \) or \\( ... \\)
+  text = text.replace(/\\\\?\(([\s\S]*?)\\\\?\)/g, (_, math) => `$${math.trim()}$`)
+
+  // Clean trailing slash/backslash block artifacts like /.../ or \.../
+  text = text.replace(/(^|\s)\/([^\/\n]+)\/(\s|$)/g, '$1*$2*$3')
+
+  return text
+}
+
 const MarkdownRenderer = ({ content, isUser, runCode }: MarkdownRendererProps) => {
   const baseText = isUser ? 'text-white' : 'text-gray-800 dark:text-gray-100'
+  const cleanedContent = preprocessContent(content)
 
   return (
     <div className={`text-sm leading-relaxed ${baseText}`}>
@@ -209,7 +235,7 @@ const MarkdownRenderer = ({ content, isUser, runCode }: MarkdownRendererProps) =
           p: ({ children }) => <p className="mb-1.5 last:mb-0 leading-relaxed">{children}</p>,
         }}
       >
-        {content}
+        {cleanedContent}
       </ReactMarkdown>
     </div>
   )

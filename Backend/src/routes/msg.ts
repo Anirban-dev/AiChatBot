@@ -24,7 +24,7 @@ router.get('/', midLimiter, async (req: Request<{ chatId: string }>, res: Respon
 })
 
 router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: Response) => {
-  const { content, model = 'small', fileInfo, file, parentId } = req.body
+  const { content, model = 'small', fileInfo, file, parentId, threadRootId } = req.body
   const { chatId } = req.params
 
   if (!content && !file) return res.status(400).json({ error: 'Content is required' })
@@ -88,20 +88,81 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       return res.status(429).json({ error: 'Hourly token quota consumed. Please wait until the next hour.' })
     }
 
-    // 1. Fetch recent context along the branch parent chain
-    let currentParentId = parentId
-    if (!currentParentId) {
-      const lastMsg = await Message.findOne({ chatId }).sort({ createdAt: -1 })
-      if (lastMsg) {
-        currentParentId = lastMsg._id
-      }
-    }
+    // ─── 1. Build context window ───────────────────────────────────────────────
+    //
+    // Strategy depends on whether this is a thread message or a main-chat message.
+    //
+    // THREAD MESSAGE:
+    //   a) Walk this thread's own parentId chain back to the thread root anchor.
+    //   b) From the anchor, walk the main-timeline parentId chain (threadRootId: null only),
+    //      skipping any messages that belong to another thread.
+    //   This gives the AI: [main chat history] + [this thread's prior replies]
+    //
+    // MAIN MESSAGE:
+    //   Walk the parentId chain directly, skipping thread messages.
+    //
     const previousMessages: any[] = []
-    while (currentParentId && previousMessages.length < 10) {
-      const parentMsg = await Message.findById(currentParentId)
-      if (!parentMsg) break
-      previousMessages.unshift(parentMsg)
-      currentParentId = parentMsg.parentId
+    const CONTEXT_LIMIT = 12
+
+    if (threadRootId) {
+      // ── PHASE 1: collect this thread's own prior replies ──
+      //   Walk the parentId chain starting from the last message in this thread.
+      //   Stop (and do NOT include) as soon as we see a message that doesn't
+      //   belong to this thread — that boundary message is the anchor itself
+      //   (threadRootId: null) or a message from a different thread.
+      const threadReplies: any[] = []
+      let currentId = parentId
+      while (currentId) {
+        const msg = await Message.findById(currentId)
+        if (!msg) break
+        // Only collect messages that actually belong to THIS thread
+        if (String(msg.threadRootId) !== String(threadRootId)) break
+        threadReplies.unshift(msg)
+        currentId = msg.parentId
+      }
+
+      // ── PHASE 2: build main-timeline context up to (and including) the anchor ──
+      //   Start at the thread root anchor, then walk backwards through the main
+      //   chat timeline.  Skip any message that has a threadRootId set (i.e., it
+      //   belongs to another thread that was branched off earlier in the chat).
+      //   We still follow msg.parentId even for skipped messages so we don't lose
+      //   our place in the chain.
+      const mainCtx: any[] = []
+      const anchorMsg = await Message.findById(threadRootId)
+      if (anchorMsg) {
+        mainCtx.unshift(anchorMsg)   // include the anchor message itself
+        let walkId = anchorMsg.parentId
+        while (walkId && mainCtx.length + threadReplies.length < CONTEXT_LIMIT) {
+          const msg = await Message.findById(walkId)
+          if (!msg) break
+          // Only include pure main-timeline messages (no thread affiliation)
+          if (!msg.threadRootId) {
+            mainCtx.unshift(msg)
+          }
+          // Always advance along parentId even if we skipped this message
+          walkId = msg.parentId
+        }
+      }
+
+      previousMessages.push(...mainCtx, ...threadReplies)
+
+    } else {
+      // ── MAIN CHAT: walk parentId chain, skip any thread messages ──
+      let currentParentId = parentId
+      if (!currentParentId) {
+        const lastMsg = await Message.findOne({ chatId, threadRootId: null }).sort({ createdAt: -1 })
+        if (lastMsg) currentParentId = lastMsg._id
+      }
+      while (currentParentId && previousMessages.length < CONTEXT_LIMIT) {
+        const parentMsg = await Message.findById(currentParentId)
+        if (!parentMsg) break
+        // Skip messages that belong to a thread branch
+        if (!parentMsg.threadRootId) {
+          previousMessages.unshift(parentMsg)
+        }
+        // Always advance along parentId even if we skipped this message
+        currentParentId = parentMsg.parentId
+      }
     }
 
     const userMessage = await Message.create({
@@ -111,6 +172,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       fileInfo,
       file,
       parentId: parentId || null,
+      threadRootId: threadRootId || null,
     })
 
     res.setHeader('Content-Type', 'text/event-stream')
@@ -431,6 +493,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       reasoning: reasoningContent || undefined,
       toolCalls: activeToolCalls,
       parentId: userMessage._id,
+      threadRootId: threadRootId || null,
     })
 
     // ─── Redis hourly tracking commit ─────────────────────────────────────────

@@ -2,12 +2,37 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-.dark {
-  background-color: black;
-  color: white;
+/* ─── Light Mode: warm cream base ──────────────────────────── */
+:root {
+  --bg-page:        #faf8f2;   /* warm cream page */
+  --bg-sidebar:     #f5f0e8;   /* deeper cream sidebar */
+  --bg-chat:        #f0ead9;   /* very warm chat bg */
+  --bg-navbar:      #ffffff;   /* pure white navbar */
+  --bg-card:        #ffffff;
+  --border-light:   #e2d9c8;   /* amber-tinted border */
+  --border-medium:  #d4c9b0;   /* stronger amber border */
+  --text-primary:   #1c1917;
+  --text-secondary: #57534e;
+  --accent:         #d97706;
 }
 
-/* Webkit browsers (Chrome, Safari, Edge) */
+/* ─── Dark Mode: rich layered darks ────────────────────────── */
+.dark {
+  --bg-page:        #0f0e0c;   /* near-black warm base */
+  --bg-sidebar:     #1a1814;   /* very dark warm brown */
+  --bg-chat:        #39362f;   /* slightly different chat bg */
+  --bg-navbar:      #1f1d19;   /* dark navbar */
+  --bg-card:        #242018;   /* dark card */
+  --border-light:   #2e2a22;   /* subtle warm dark border */
+  --border-medium:  #3d3830;   /* stronger dark border */
+  --text-primary:   #f5f0e8;
+  --text-secondary: #a8a29e;
+  --accent:         #f59e0b;
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+}
+
+/* ─── Scrollbars ─────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -17,16 +42,27 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #4b5563;
+  background: #c4a96a;
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #6b7280;
+  background: #b8935a;
 }
 
-/* Firefox */
+.dark ::-webkit-scrollbar-thumb {
+  background: #4a4030;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #5c5040;
+}
+
 * {
   scrollbar-width: thin;
-  scrollbar-color: #4b5563 transparent;
+  scrollbar-color: #c4a96a transparent;
+}
+
+.dark * {
+  scrollbar-color: #4a4030 transparent;
 }

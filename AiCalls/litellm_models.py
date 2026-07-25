@@ -12,7 +12,6 @@ LITELLM_ROUTER_MODELS = {
         {"model_name": "small", "litellm_params": {"model": "groq/qwen/qwen3-32b",            "api_key": os.getenv("GROQ_API_KEY")}},
         # # --- OpenRouter smart free router ---
         {"model_name": "small", "litellm_params": {"model": "openrouter/openrouter/free",     "api_key": os.getenv("OPENROUTER_API_KEY")}},
-        {"model_name": "small", "litellm_params": {"model": "openrouter/liquid/lfm-2.5-1.2b-instruct:free", "api_key": os.getenv("OPENROUTER_API_KEY")}},
         # {"model_name": "small", "litellm_params": {"model": "openrouter/liquid/lfm-2.5-1.2b-thinking:free", "api_key": os.getenv("OPENROUTER_API_KEY")}},
         {"model_name": "small", "litellm_params": {"model": "openrouter/tencent/hy3:free", "api_key": os.getenv("OPENROUTER_API_KEY")}},
         

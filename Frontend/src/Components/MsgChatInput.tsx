@@ -96,7 +96,13 @@ export const MsgChatInput = ({
   }
 
   return (
-    <div className="px-4 sm:px-6 pb-4 pt-2 border-t border-gray-100 dark:border-gray-800/60 bg-white dark:bg-gray-900">
+    <div
+      className="px-4 sm:px-6 pb-4 pt-2 shrink-0"
+      style={{
+        backgroundColor: 'var(--bg-navbar)',
+        borderTop: '1px solid var(--border-medium)'
+      }}
+    >
       <div className="relative max-w-4xl mx-auto">
         
         {/* File Attachment Upload Preview Box */}
@@ -188,9 +194,13 @@ export const MsgChatInput = ({
         )}
 
         {/* Core Chat Console Layout */}
-        <div className={`flex items-end gap-2 bg-white dark:bg-gray-800 rounded-2xl border px-3 py-2.5 shadow-sm transition-all focus-within:ring-1 focus-within:ring-gray-300 dark:focus-within:ring-gray-600 ${
-          errorMessage ? 'border-red-300 dark:border-red-900/60 bg-red-50/10' : 'border-gray-200 dark:border-gray-700 focus-within:border-gray-300 dark:focus-within:border-gray-600'
-        }`}>
+        <div
+          className={`flex items-end gap-2 rounded-2xl border px-3 py-2.5 shadow-sm transition-all focus-within:ring-1 focus-within:ring-amber-400/30 ${errorMessage ? 'border-red-300 dark:border-red-900/60' : ''}`}
+          style={{
+            backgroundColor: 'var(--bg-card)',
+            border: errorMessage ? undefined : `1.5px solid var(--border-medium)`
+          }}
+        >
           <input 
             type="file" 
             ref={fileInputRef} 

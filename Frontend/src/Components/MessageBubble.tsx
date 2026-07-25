@@ -1,4 +1,4 @@
-import { Cpu, Loader2, X, Paperclip, Save, XCircle, Edit2, Copy, ChevronLeft, ChevronRight } from 'lucide-react'
+import { X, Paperclip, Send, Edit2, Copy, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react'
 import MarkdownRenderer from './BashComponent'
 import { useState, useEffect, useRef } from 'react'
 
@@ -34,61 +34,65 @@ export interface MessageLike {
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'])
 const TEXT_EXTS = new Set(['.txt', '.md', '.json', '.js', '.ts', '.py', '.cpp', '.c', '.h', '.html', '.css', '.csv'])
 
-const bubbleBase = 'px-4 py-2.5 text-sm leading-relaxed rounded-2xl shadow-xs'
+const bubbleBase = 'px-4 py-2.5 text-sm leading-relaxed rounded-2xl shadow-sm'
 const userBubble = `${bubbleBase} bg-blue-600 text-white rounded-br-sm`
-const assistantBubble = `${bubbleBase} bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border border-gray-100 dark:border-gray-700 rounded-bl-sm`
+const assistantBubble = `${bubbleBase} rounded-bl-sm`
 
 // ─── Tool call pills ───────────────────────────────────────────────────────
 const ToolCallList = ({ toolCalls }: { toolCalls: ToolCall[] }) => (
-  <div className="flex flex-col gap-1.5 w-full">
-    {toolCalls.map((tc) => (
-      <div
-        key={tc.id}
-        className={`flex items-start gap-2.5 px-3 py-2.5 rounded-xl border text-xs font-medium ${tc.status === 'completed'
-            ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/40 text-emerald-700 dark:text-emerald-400'
-            : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/40 text-amber-700 dark:text-amber-400'
+  <div className="flex flex-wrap gap-1.5 w-full mb-1">
+    {toolCalls.map((tc) => {
+      const isRunning = tc.status === 'running'
+      const isCompleted = tc.status === 'completed'
+      const isFailed = tc.status === 'failed'
+
+      return (
+        <div
+          key={tc.id}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium transition-all duration-200 ${
+            isRunning
+              ? 'bg-amber-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400'
+              : isCompleted
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+              : 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400'
           }`}
-      >
-        <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
-          {tc.status === 'running' && (
-            <div className="relative flex items-center justify-center w-4 h-4">
-              <Cpu size={11} className="text-amber-500 animate-pulse" />
-              <Loader2 size={16} className="animate-spin text-amber-400/60 absolute" />
-            </div>
-          )}
-          {tc.status === 'completed' && (
-            <svg className="w-3.5 h-3.5 text-emerald-500" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-            </svg>
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="font-mono text-[10px] font-semibold uppercase tracking-wider opacity-70">
-              {tc.status === 'running' ? 'Calling' : tc.status === 'completed' ? 'Tool Result' : 'Tool Error'}
+          title={tc.error || tc.result || tc.name}
+        >
+          {isRunning && (
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
             </span>
-            <span className={`font-mono text-[11px] px-1.5 py-0.5 rounded-md font-bold ${tc.status === 'completed' ? 'bg-emerald-100 dark:bg-emerald-900/50' :
-                tc.status === 'failed' ? 'bg-rose-100 dark:bg-rose-900/50' :
-                  'bg-amber-100 dark:bg-amber-900/50'
-              }`}>{tc.name}</span>
-          </div>
+          )}
+          {isCompleted && (
+            <span className="inline-flex items-center justify-center h-2 w-2 rounded-full bg-emerald-500 text-white">
+              <svg className="w-1.5 h-1.5 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </span>
+          )}
+          {isFailed && (
+            <span className="inline-flex items-center justify-center h-2 w-2 rounded-full bg-rose-500 text-white">
+              <svg className="w-1.5 h-1.5 stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </span>
+          )}
+          <span className="font-mono text-[11px] font-semibold">{tc.name}</span>
         </div>
-      </div>
-    ))}
+      )
+    })}
   </div>
 )
 
 // ─── Reasoning / "thought process" collapsible ─────────────────────────────
 const ReasoningBlock = ({ reasoning }: { reasoning: string }) => (
-  <details open className="w-full group/think border border-gray-200/60 dark:border-gray-700/60 rounded-2xl bg-gray-50/50 dark:bg-gray-800/10 mb-1.5 overflow-hidden transition-all duration-300">
-    <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none text-xs font-semibold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+  <details className="w-fit max-w-full group/think border border-gray-200/60 dark:border-gray-700/60 rounded-xl bg-gray-50/50 dark:bg-gray-800/10 mb-1.5 overflow-hidden transition-all duration-200">
+    <summary className="inline-flex items-center gap-1.5 px-2.5 py-1 cursor-pointer select-none text-xs font-semibold text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 list-none">
       <span className="text-violet-500 animate-pulse">🧠</span>
       <span>Thought process</span>
-      <svg className="w-3.5 h-3.5 ml-auto transition-transform duration-300 group-open/think:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
-      </svg>
     </summary>
-    <div className="px-4 pb-3 pt-1 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-150 dark:border-gray-700/40 font-serif leading-relaxed whitespace-pre-wrap">
+    <div className="px-3 pb-2.5 pt-1 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-150 dark:border-gray-700/40 font-serif leading-relaxed whitespace-pre-wrap">
       {reasoning}
     </div>
   </details>
@@ -168,7 +172,7 @@ const FileAttachmentPreview = ({
 
 // ─── The bubble itself ──────────────────────────────────────────────────────
 interface MessageBubbleProps {
-  msg: MessageLike
+  msg: MessageLike & { threadRootId?: string | null; threadReplyCount?: number }
   runCode: (code: string) => Promise<any>
   getFileIcon: (ext: string) => React.ReactNode
   formatFileSize: (size: number) => string
@@ -185,6 +189,10 @@ interface MessageBubbleProps {
   onEditFileSelect?: (e: React.ChangeEvent<HTMLInputElement>) => void
   onRemoveEditFile?: (index: number) => void
   onCopy?: (content: string) => void
+  selectedModel?: string
+  setSelectedModel?: (model: 'small' | 'large' | 'thinking' | 'critiq') => void
+  onOpenThread?: (msgId: string) => void
+  isActiveThread?: boolean
 }
 
 export const MessageBubble = ({
@@ -205,6 +213,10 @@ export const MessageBubble = ({
   onEditFileSelect,
   onRemoveEditFile,
   onCopy,
+  selectedModel,
+  setSelectedModel,
+  onOpenThread,
+  isActiveThread = false,
 }: MessageBubbleProps) => {
   const fileInfo = msg.fileInfo
   const ext = fileInfo?.extension?.toLowerCase() || ''
@@ -307,7 +319,7 @@ export const MessageBubble = ({
             )}
 
             <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-gray-200 dark:border-gray-700">
-              <div>
+              <div className="flex items-center gap-2">
                 <input
                   type="file"
                   ref={editFileInputRef}
@@ -322,22 +334,35 @@ export const MessageBubble = ({
                 >
                   <Paperclip size={15} />
                 </button>
+
+                {selectedModel && setSelectedModel && (
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value as 'small' | 'large' | 'thinking' | 'critiq')}
+                    className="text-xs bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 px-2 py-1 rounded-lg text-gray-600 dark:text-gray-300 outline-none focus:border-gray-300 dark:focus:border-gray-500 cursor-pointer font-semibold transition-all hover:bg-gray-100 dark:hover:bg-gray-600"
+                  >
+                    <option value="small">✦ Chat (Small)</option>
+                    <option value="large">⚡ Tools (Large)</option>
+                    <option value="thinking">🧠 Reason (Thinking)</option>
+                    <option value="critiq">🧐 Critique (Review)</option>
+                  </select>
+                )}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <button
                   onClick={onCancelEdit}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors cursor-pointer"
+                  className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-lg transition-colors cursor-pointer"
+                  title="Cancel edit"
                 >
-                  <XCircle size={14} />
-                  Cancel
+                  <X size={15} />
                 </button>
                 <button
                   onClick={() => onSaveEdit?.(editText)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors cursor-pointer"
+                  className="p-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors cursor-pointer"
+                  title="Send edited message"
                 >
-                  <Save size={14} />
-                  Save & Submit
+                  <Send size={15} />
                 </button>
               </div>
             </div>
@@ -358,12 +383,12 @@ export const MessageBubble = ({
 
   return (
     <div className={`flex items-end gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
-      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 mb-0.5 shadow-xs ${isUser ? 'bg-linear-to-br from-blue-500 to-indigo-600 text-white' : 'bg-linear-to-br from-violet-500 to-purple-600 text-white'
+      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 mb-0.5 shadow-sm ${isUser ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white' : 'bg-gradient-to-br from-amber-500 to-orange-600 text-white'
         }`}>
         {isUser ? 'A' : '✦'}
       </div>
 
-      <div className={`flex flex-col gap-1.5 max-w-[80%] ${isUser ? 'items-end' : 'items-start'}`}>
+      <div className={`flex flex-col gap-1 max-w-[80%] ${isUser ? 'items-end' : 'items-start'}`}>
         {msg.role === 'assistant' && !!msg.toolCalls?.length && (
           <ToolCallList toolCalls={msg.toolCalls} />
         )}
@@ -373,7 +398,10 @@ export const MessageBubble = ({
         )}
 
         {isTextFile && fileInfo ? (
-          <div className={`${isUser ? userBubble : assistantBubble} relative group`}>
+          <div
+            className={`${isUser ? userBubble : assistantBubble} relative group`}
+            style={!isUser ? { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' } : undefined}
+          >
             <div className="flex flex-col gap-2">
               <TextFileAttachmentCard
                 fileInfo={fileInfo}
@@ -388,7 +416,10 @@ export const MessageBubble = ({
             </div>
           </div>
         ) : (
-          <div className={`${isUser ? userBubble : assistantBubble} relative group`}>
+          <div
+            className={`${isUser ? userBubble : assistantBubble} relative group`}
+            style={!isUser ? { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' } : undefined}
+          >
             {fileInfo ? (
               <div className="flex flex-col gap-2">
                 <FileAttachmentPreview
@@ -409,7 +440,7 @@ export const MessageBubble = ({
           </div>
         )}
 
-        <div className="flex items-center gap-3 px-1 mt-1 text-[11px] text-gray-400 dark:text-gray-500 select-none">
+        <div className="flex items-center gap-3 px-1 mt-0 text-[11px] text-gray-400 dark:text-gray-500 select-none">
           <span>{formatTime(msg.createdAt)}</span>
           {msg.isEdited && (
             <span>(edited)</span>

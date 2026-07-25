@@ -22,12 +22,13 @@ export const sendMsg = async (
   onReasoning?: (reasoning: string) => void,
   fileInfo?: any,
   file?: string,
-  parentId?: string
+  parentId?: string,
+  threadRootId?: string
 ) => {
   const res = await fetchWithRefresh(`${BASE_URL}/chats/${chatId}/msgs`, {
     method: 'POST',
     headers: authHeader(),
-    body: JSON.stringify({ content, model, fileInfo, file, parentId }),
+    body: JSON.stringify({ content, model, fileInfo, file, parentId, threadRootId }),
     signal,
   })
 
