@@ -72,8 +72,9 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
   const setMessages = (chatId: string, msgs: Message[]) => {
     setStore(prev => ({ ...prev, [chatId]: msgs }))
     if (msgs.length > 0) {
-      const lastMsg = msgs[msgs.length - 1]
-      setActiveNodeIds(prev => ({ ...prev, [chatId]: lastMsg._id }))
+      const mainMsgs = msgs.filter(m => !m.threadRootId)
+      const target = mainMsgs.length > 0 ? mainMsgs[mainMsgs.length - 1] : msgs[msgs.length - 1]
+      setActiveNodeIds(prev => ({ ...prev, [chatId]: target._id }))
     }
   }
 
@@ -112,12 +113,16 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
           )
         }
       } else {
+        // Find preceding user message to infer threadRootId
+        const lastMsg = msgs[msgs.length - 1]
+        const threadRootId = lastMsg?.threadRootId || null
         return {
           ...prev,
           [chatId]: [...msgs, {
             _id: msgId,
             role: 'assistant',
             content: token,
+            threadRootId,
             createdAt: new Date().toISOString(),
           }]
         }
@@ -137,6 +142,8 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
           )
         }
       } else {
+        const lastMsg = msgs[msgs.length - 1]
+        const threadRootId = lastMsg?.threadRootId || null
         return {
           ...prev,
           [chatId]: [...msgs, {
@@ -144,6 +151,7 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
             role: 'assistant',
             content: '',
             reasoning: token,
+            threadRootId,
             createdAt: new Date().toISOString(),
           }]
         }

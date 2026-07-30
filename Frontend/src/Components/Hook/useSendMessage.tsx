@@ -7,7 +7,25 @@ import { createChat } from '../../API/Chat'
 import { useChatStore } from '../../Context/ChatContext'
 import { usePython } from './usePython'
 
-export const useSendMessage = (chatId: string) => {
+// Token counting utility (approximate: 1 token ≈ 4 characters)
+const MAX_TOKENS = 400
+const TOKEN_CHAR_RATIO = 4
+
+const countTokens = (text: string): number => {
+  return Math.ceil(text.length / TOKEN_CHAR_RATIO)
+}
+
+const trimToTokenLimit = (text: string): string => {
+  const tokenCount = countTokens(text)
+  if (tokenCount <= MAX_TOKENS) {
+    return text
+  }
+  // Trim to approximately 100 tokens
+  const maxChars = MAX_TOKENS * TOKEN_CHAR_RATIO
+  return text.slice(0, maxChars)
+}
+
+export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = false) => {
   const navigate = useNavigate()
   const [input, setInput] = useState('')
   const {
@@ -48,6 +66,7 @@ export const useSendMessage = (chatId: string) => {
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const previewUrlRef = useRef<string | null>(null)
+  const inputContainerRef = useRef<HTMLDivElement | null>(null)
 
   const setPreviewUrlSync = (url: string | null) => {
     previewUrlRef.current = url
@@ -59,6 +78,11 @@ export const useSendMessage = (chatId: string) => {
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
     }
   }, [])
+
+  const handleInputLimit = (value: string) => {
+    const trimmed = trimToTokenLimit(value)
+    setInput(trimmed)
+  }
 
   const clearStaging = () => {
     setPendingFile(null)
@@ -105,36 +129,36 @@ export const useSendMessage = (chatId: string) => {
   }
 
   // useSendMessage.ts
-const handleFileUpload = async (
-  file: File,
-  targetChatId: string,
-  onUploaded: (data: any) => void
-) => {
-  if (!file || !targetChatId || uploadingRef.current) return
-  setUploadingSync(true)
-  currentFileName.current = file.name
-  uploadAbortControllerRef.current = new AbortController()
+  const handleFileUpload = async (
+    file: File,
+    targetChatId: string,
+    onUploaded: (data: any) => void
+  ) => {
+    if (!file || !targetChatId || uploadingRef.current) return
+    setUploadingSync(true)
+    currentFileName.current = file.name
+    uploadAbortControllerRef.current = new AbortController()
 
-  try {
-    const res = await uploadFile(file, targetChatId, uploadAbortControllerRef.current.signal)
-    if (res) {
-      if (res.indexed === false) {
-        console.warn('File saved but AI indexing failed:', res.indexWarning)
+    try {
+      const res = await uploadFile(file, targetChatId, uploadAbortControllerRef.current.signal)
+      if (res) {
+        if (res.indexed === false) {
+          console.warn('File saved but AI indexing failed:', res.indexWarning)
+        }
+        onUploaded(res)
       }
-      onUploaded(res)
+    } catch (err: any) {
+      if (err.name !== 'AbortError' && err.name !== 'CanceledError') {
+        const serverMsg = err?.response?.data?.error   // ← the friendly 429 message lives here
+        console.error(err)
+        setErrorMessage(serverMsg || err.message || 'File upload encountered an error.')
+      }
+    } finally {
+      setUploadingSync(false)
+      currentFileName.current = null
+      uploadAbortControllerRef.current = null
     }
-  } catch (err: any) {
-    if (err.name !== 'AbortError' && err.name !== 'CanceledError') {
-      const serverMsg = err?.response?.data?.error   // ← the friendly 429 message lives here
-      console.error(err)
-      setErrorMessage(serverMsg || err.message || 'File upload encountered an error.')
-    }
-  } finally {
-    setUploadingSync(false)
-    currentFileName.current = null
-    uploadAbortControllerRef.current = null
   }
-}
   const sendMessage = async (
     forcedContent?: string,
     passedChatId?: string,
@@ -147,7 +171,7 @@ const handleFileUpload = async (
     const content = forcedContent ?? input.trim()
     if (!content && !uploadedFileInfo) return
 
-    if (!forcedContent) setInput('')
+    setInput('')
     const targetChatId = passedChatId || chatId
     setLoading(targetChatId, true)
     setErrorMessage(null)
@@ -215,20 +239,21 @@ const handleFileUpload = async (
           setActiveTool(null)
           updateMessage(targetChatId, streamingId, assistantMsg)
           const isThreadMessage = !!(assistantMsg.threadRootId || customThreadRootId)
-          if (!isThreadMessage) {
+          if (!isThreadMessage && targetChatId === chatId) {
             setActiveNodeId(targetChatId, assistantMsg._id)
           }
           setLoading(targetChatId, false)
-          setLoading(chatId, false)
         },
 
-        (errData: { type?: string; message: string }) => {
+        (errData: { type?: string; message: string; threadRootId?: string | null }) => {
           setActiveTool(null)
           removeMessage(targetChatId, streamingId)
           if (optimisticMsgId) removeMessage(targetChatId, optimisticMsgId)
           setErrorMessage(errData.message || 'A streaming worker pipeline exception occurred.')
           setLoading(targetChatId, false)
-          setLoading(chatId, false)
+          if (targetChatId === chatId) {
+            setLoading(chatId, false)
+          }
         },
 
         messageAbortControllerRef.current.signal,
@@ -255,8 +280,8 @@ const handleFileUpload = async (
     }
   }
 
-  const handleSendAction = async () => {
-    const cachedInput = input.trim()
+  const handleSendAction = async (customParentId?: string, customThreadRootId?: string) => {
+    let cachedInput = input.trim()
     let fileToUpload = pendingFile
 
     if (loading || uploadingRef.current) return
@@ -266,6 +291,10 @@ const handleFileUpload = async (
     }
 
     if (!fileToUpload && !cachedInput) return
+
+    // Enforce token limit on user input
+    const finalInput = trimToTokenLimit(cachedInput)
+    cachedInput = finalInput
 
     let targetChatId = chatId
     if (!targetChatId || targetChatId === 'new') {
@@ -304,7 +333,8 @@ const handleFileUpload = async (
           mimeType: capturedFile.type,
           extension: ext
         },
-        parentId: parentNodeId || null,
+        parentId: customParentId || parentNodeId || null,
+        threadRootId: customThreadRootId,
         createdAt: new Date().toISOString()
       } as any)
 
@@ -330,7 +360,7 @@ const handleFileUpload = async (
         return
       }
 
-      await sendMessage(cachedInput, targetChatId, uploadedFileInfo, uploadedFileContent, optimisticId, parentNodeId || undefined)
+      await sendMessage(cachedInput, targetChatId, uploadedFileInfo, uploadedFileContent, optimisticId, customParentId || parentNodeId || undefined, customThreadRootId)
 
     } else {
       const optimisticId = crypto.randomUUID()
@@ -338,11 +368,12 @@ const handleFileUpload = async (
         _id: optimisticId,
         role: 'user',
         content: cachedInput,
-        parentId: parentNodeId || null,
+        parentId: customParentId || parentNodeId || null,
+        threadRootId: customThreadRootId,
         createdAt: new Date().toISOString()
       })
       setInput('')
-      await sendMessage(cachedInput, targetChatId, undefined, undefined, optimisticId, parentNodeId || undefined)
+      await sendMessage(cachedInput, targetChatId, undefined, undefined, optimisticId, customParentId || parentNodeId || undefined, customThreadRootId)
     }
   }
 
@@ -369,6 +400,63 @@ const handleFileUpload = async (
         }
       }
     }
+  }
+
+  // Handle paste for text content
+  const handleTextPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    e.preventDefault()
+    const text = e.clipboardData.getData('text/plain')
+    const trimmedText = trimToTokenLimit(text)
+    setInput(trimmedText)
+  }
+
+  // Handle drag over event
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (errorMessage) return
+
+    // Allow drop only for images
+    const hasImage = Array.from(e.dataTransfer.items).some(
+      item => item.type.startsWith('image/')
+    )
+    if (hasImage) {
+      e.dataTransfer.dropEffect = 'copy'
+      inputContainerRef.current?.classList.add('border-amber-400', 'ring-1', 'ring-amber-400/50')
+    } else {
+      e.dataTransfer.dropEffect = 'none'
+    }
+  }
+
+  // Handle drag leave event
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    inputContainerRef.current?.classList.remove('border-amber-400', 'ring-1', 'ring-amber-400/50')
+  }
+
+  // Handle drop event
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    inputContainerRef.current?.classList.remove('border-amber-400', 'ring-1', 'ring-amber-400/50')
+
+    if (errorMessage) return
+    if (uploadingRef.current) return
+
+    const files = e.dataTransfer.files
+    const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'))
+
+    if (imageFiles.length === 0) {
+      setErrorMessage('Please drag and drop image files only.')
+      return
+    }
+
+    // Handle the first image file found
+    const file = imageFiles[0]
+    setPendingFile(file)
+    const url = URL.createObjectURL(file)
+    setPreviewUrlSync(url)
   }
 
   const onFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -410,7 +498,8 @@ const handleFileUpload = async (
   return {
     input, setInput, sendMessage, stopGeneration, handleFileUpload, loading, uploading, runCode, isPythonReady,
     pendingFile, previewUrl, clearStaging, handleSendAction, handleKeyDown, pendingCode, setCodeContext,
-    handlePaste, onFileSelect, formatFileSize, getFileIcon, formatTime,
-    activeTool, setActiveTool, errorMessage, setErrorMessage, selectedModel, setSelectedModel, clearError
+    handlePaste, handleTextPaste, countTokens, onFileSelect, formatFileSize, getFileIcon, formatTime,
+    activeTool, setActiveTool, errorMessage, setErrorMessage, selectedModel, setSelectedModel, clearError,
+    vectorDBAvailable, handleDragOver, handleDragLeave, handleDrop, inputContainerRef
   }
 }

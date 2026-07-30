@@ -38,14 +38,14 @@ export const saveSession = (
   refreshToken: string
 ) => {
   setAccessToken(accessToken)
-  localStorage.setItem('refreshToken', refreshToken)
+  setCookie('refreshToken', refreshToken, COOKIE_EXPIRES_DAYS)
   localStorage.setItem('user', JSON.stringify(user))
   saveAccount(user, refreshToken) // persist in the accounts list too
 }
 
 export const clearSession = () => {
   clearAccessToken()
-  localStorage.removeItem('refreshToken')
+  deleteCookie('refreshToken')
   localStorage.removeItem('user')
 }
 
@@ -118,7 +118,7 @@ export const switchAccount = async (email: string) => {
     saveAccount(target, data.refreshToken)
 
     setAccessToken(data.accessToken)
-    localStorage.setItem('refreshToken', data.refreshToken)
+    setCookie('refreshToken', data.refreshToken, COOKIE_EXPIRES_DAYS)
     localStorage.setItem('user', JSON.stringify({
       id: target.id, name: target.name, email: target.email
     }))

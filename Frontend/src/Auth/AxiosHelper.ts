@@ -4,7 +4,9 @@ import { getCookie, setCookie, deleteCookie } from "./authHelper"
 const BASE_URL = import.meta.env.VITE_BASE_URL
 
 const ACCESS_TOKEN_COOKIE = 'accessToken'
+const REFRESH_TOKEN_COOKIE = 'refreshToken'
 const ACCESS_TOKEN_EXPIRES_DAYS = 1 / 96 // 15 minutes
+const REFRESH_TOKEN_EXPIRES_DAYS = 30
 
 const api = axios.create({ baseURL: BASE_URL })
 
@@ -61,14 +63,14 @@ api.interceptors.response.use(
     isRefreshing = true
 
     try {
-      const refreshToken = localStorage.getItem('refreshToken')
+      const refreshToken = getCookie(REFRESH_TOKEN_COOKIE)
       if (!refreshToken) throw new Error('No refresh token')
 
-      const { data } = await axios.post(`${BASE_URL}/login/refresh`, { refreshToken })
+      const { data } = await api.post('/login/refresh', { refreshToken })
 
       // Store the new tokens
       setAccessToken(data.accessToken)
-      localStorage.setItem('refreshToken', data.refreshToken) // rotated
+      setCookie(REFRESH_TOKEN_COOKIE, data.refreshToken, REFRESH_TOKEN_EXPIRES_DAYS)
 
       drainQueue(data.accessToken)
 
@@ -78,7 +80,7 @@ api.interceptors.response.use(
     } catch (refreshErr) {
       rejectQueue(refreshErr)
       clearAccessToken()
-      localStorage.removeItem('refreshToken')
+      deleteCookie(REFRESH_TOKEN_COOKIE)
       window.location.href = '/login'
       throw refreshErr
     } finally {

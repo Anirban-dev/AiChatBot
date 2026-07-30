@@ -91,20 +91,19 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
             f"history_len={len(history)} prompt_len={len(user_prompt)}"
         )
 
-        # ── 2. RAG RETRIEVAL ──────────────────────────────────────────────────
-        # Use only active linear path for RAG search (conversation branching)
-        context_docs = await vdb.search(user_prompt, chat_id, k=4, active_path=active_path)
-        context = "\n\n---\n\n".join(d.page_content for d in context_docs)
-
-        # ── 3. BUILD SYSTEM PROMPT ────────────────────────────────────────────
+        # ── 2. BUILD SYSTEM PROMPT ────────────────────────────────────────────
         system = SYSTEM_PROMPT
 
+        # Check if vector DB tool is available
+        vector_db_available = tool_manager.is_vector_db_available(mode)
+        
         state_block = ss.get_state_block(chat_id)
         if state_block:
             system += state_block
-
-        if context:
-            system += f"\n\n=== Relevant Document Context ===\n{context}\n"
+        
+        # If vector DB is available, note it in system prompt
+        if vector_db_available:
+            system += "\n\n━━━ VECTOR DATABASE ━━━\n- You have access to a vector database containing uploaded documents.\n- Use the vector_db_search tool when you need information from files.\n- Only call this tool if the user has uploaded relevant documents."
 
         if mode == "thinking":
             system += (
@@ -214,6 +213,7 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
 
             # ── SMALL MODE: no tools, pure streaming ──────────────────────────
             if mode == "small":
+                # For small mode, don't pass tools (including vector DB)
                 stream = await client.chat.completions.create(
                     model=target_model,
                     messages=messages,
@@ -258,7 +258,7 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                 stream = await client.chat.completions.create(
                     model=target_model,
                     messages=messages,
-                    tools=tool_manager.get_schemas(),
+                    tools=tool_manager.get_schemas(mode),
                     tool_choice="auto",
                     stream=True,
                     user_id=user_id,
@@ -460,8 +460,17 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
 
                 async def _run(tc):
                     func_name = tc["function"]["name"]
+                    
+                    # For vector_db_search, inject active_path and chat_id into arguments
+                    if func_name == "vector_db_search":
+                        args = json.loads(tc["function"]["arguments"])
+                        args["active_path"] = active_path
+                        args["chat_id"] = chat_id
+                        _log.debug(f"[Tool] vector_db_search with chat_id={chat_id} and active_path of {len(active_path)} messages")
+                    else:
+                        args = json.loads(tc["function"]["arguments"])
+                    
                     try:
-                        args   = json.loads(tc["function"]["arguments"])
                         result = await tool_manager.execute(func_name, args)
                         _log.debug(f"[Tool] {func_name} → OK")
                         return str(result)[:MAX_TOOL_RESULT]

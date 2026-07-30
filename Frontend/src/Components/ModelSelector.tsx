@@ -4,6 +4,7 @@ export interface ModelOption {
   value: 'small' | 'large' | 'thinking' | 'critiq'
   label: string
   icon: string
+  hasVectorDB?: boolean
 }
 
 interface ModelSelectorProps {
@@ -11,20 +12,22 @@ interface ModelSelectorProps {
   onChange: (value: 'small' | 'large' | 'thinking' | 'critiq') => void
   disabled?: boolean
   size?: 'regular' | 'compact'
+  vectorDBAvailable?: boolean
 }
 
 const MODEL_OPTIONS: ModelOption[] = [
-  { value: 'small', label: '✦ Chat (Small)', icon: '✦' },
-  { value: 'large', label: '⚡ Tools (Large)', icon: '⚡' },
-  { value: 'thinking', label: '🧠 Reason (Thinking)', icon: '🧠' },
-  { value: 'critiq', label: '🧐 Critique (Review)', icon: '🧐' },
+  { value: 'small', label: '✦ Chat (Small)', icon: '✦', hasVectorDB: false },
+  { value: 'large', label: '⚡ Tools (Large)', icon: '⚡', hasVectorDB: true },
+  { value: 'thinking', label: '🧠 Reason (Thinking)', icon: '🧠', hasVectorDB: true },
+  { value: 'critiq', label: '🧐 Critique (Review)', icon: '🧐', hasVectorDB: true },
 ]
 
 export const ModelSelector = ({
   value,
   onChange,
   disabled = false,
-  size = 'regular'
+  size = 'regular',
+  vectorDBAvailable = false
 }: ModelSelectorProps) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
@@ -60,6 +63,7 @@ export const ModelSelector = ({
         rounded-xl text-gray-600 dark:text-gray-300 outline-none focus:border-gray-300 dark:focus:border-gray-500
         cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed font-semibold transition-all
         hover:bg-gray-100 dark:hover:bg-gray-600 shadow-xs appearance-none
+        ${vectorDBAvailable && value !== 'small' ? 'border-violet-300 dark:border-violet-700' : ''}
         ${isMobile
           ? 'w-8 h-8 min-w-8 p-0 flex items-center justify-center text-base text-center'
           : 'px-2.5 py-1.5 w-auto'
@@ -72,7 +76,10 @@ export const ModelSelector = ({
         ))
       ) : (
         MODEL_OPTIONS.map(option => (
-          <option key={option.value} value={option.value}>{option.label}</option>
+          <option key={option.value} value={option.value}>
+            {option.label}
+            {option.hasVectorDB }
+          </option>
         ))
       )}
     </select>

@@ -17,7 +17,7 @@ export const sendMsg = async (
   onUserMessage: (msg: any) => void,
   onToolCall: (payload: { tool: string; status: string }) => void,
   onDone: (assistantMsg: any) => void,
-  onError: (errData: { type?: string; message: string }) => void,
+  onError: (errData: { type?: string; message: string; threadRootId?: string | null }) => void,
   signal: AbortSignal,
   onReasoning?: (reasoning: string) => void,
   fileInfo?: any,
@@ -105,7 +105,8 @@ export const sendMsg = async (
             case 'error':
               onError({
                 type: parsed.type ?? 'STREAM_INTERRUPTED',
-                message: parsed.message ?? 'An unexpected generation failure occurred.'
+                message: parsed.message ?? 'An unexpected generation failure occurred.',
+                threadRootId: parsed.threadRootId
               })
               break
             default:

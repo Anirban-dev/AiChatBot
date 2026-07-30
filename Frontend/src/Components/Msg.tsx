@@ -17,16 +17,16 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
     setActiveNodeId, pendingActiveMsgId, clearPendingActiveMsgId
   } = useChatStore()
 
+  const sendHook = useSendMessage(activeChatId, true)
   const activeNode = activeNodeId(activeChatId)
   const messages = getActivePath(activeChatId, activeNode || '')
   const allMessages = getMessages(activeChatId)
 
-  // Filter main-timeline messages (no threadRootId) for display
-  const mainMessages = useMemo(
-    () => messages.filter((m) => !m.threadRootId),
-    [messages]
-  )
-
+  const [activeThreadRootId, setActiveThreadRootId] = useState<string | null>(null)
+  const [activeThreadHeadId, setActiveThreadHeadId] = useState<string | null>(null)
+  const [isComposingNewThread, setIsComposingNewThread] = useState(false)
+  const [threadBrowseIndex, setThreadBrowseIndex] = useState<Record<string, number>>({})
+  
   // Build thread count map: anchorMessageId -> number of threads
   const threadCountMap = useMemo(() => {
     const map: Record<string, number> = {}
@@ -40,12 +40,15 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
     return map
   }, [allMessages])
 
-  const [activeThreadRootId, setActiveThreadRootId] = useState<string | null>(null)
-  const [activeThreadHeadId, setActiveThreadHeadId] = useState<string | null>(null)
-  const [threadBrowseIndex, setThreadBrowseIndex] = useState<Record<string, number>>({})
   const activeThreadRoot = activeThreadRootId
     ? allMessages.find((m) => m._id === activeThreadRootId) ?? null
     : null
+
+  // Main-timeline active path messages (only messages without threadRootId)
+  const mainMessages = useMemo(
+    () => messages.filter((m) => !m.threadRootId),
+    [messages]
+  )
 
   const getThreadIndexForAnchor = useCallback((anchorId: string) => {
     const count = threadCountMap[anchorId] || 0
@@ -56,13 +59,10 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
 
   const openThreadAtIndex = useCallback((anchorId: string, index: number) => {
     const heads = getThreadHeads(allMessages, anchorId)
+    setIsComposingNewThread(false)
     setActiveThreadRootId(anchorId)
     setThreadBrowseIndex(prev => ({ ...prev, [anchorId]: index }))
-    if (heads[index]) {
-      setActiveThreadHeadId(heads[index]._id)
-    } else {
-      setActiveThreadHeadId(null)
-    }
+    setActiveThreadHeadId(heads[index] ? heads[index]._id : null)
   }, [allMessages])
 
   const handleOpenExistingThread = (msgId: string) => {
@@ -70,14 +70,16 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
     openThreadAtIndex(msgId, index)
   }
 
+  const handleComposeConsumed = useCallback(() => setIsComposingNewThread(false), [])
+
   const handleStartNewThread = (msgId: string) => {
-    setActiveThreadRootId(msgId)
-    setActiveThreadHeadId(null)
-    if (activeThreadRootId === msgId) {
-      // Already open on this anchor — start fresh thread in place
-      setThreadBrowseIndex(prev => ({ ...prev, [msgId]: threadCountMap[msgId] || 0 }))
-    }
+  setIsComposingNewThread(true)
+  setActiveThreadRootId(msgId)
+  setActiveThreadHeadId(null)
+  if (activeThreadRootId === msgId) {
+    setThreadBrowseIndex(prev => ({ ...prev, [msgId]: threadCountMap[msgId] || 0 }))
   }
+}
 
   const handleThreadNavigate = (msgId: string, direction: 'prev' | 'next') => {
     const count = threadCountMap[msgId] || 0
@@ -125,8 +127,6 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
   const [editingFiles, setEditingFiles] = useState<File[]>([])
   const [editingFileInputs, setEditingFileInputs] = useState<File[]>([])
   const [, setCopiedText] = useState<string | null>(null)
-
-  const sendHook = useSendMessage(activeChatId)
 
   if (lastChatIdRef.current !== activeChatId) {
     lastChatIdRef.current = activeChatId
@@ -336,7 +336,8 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
 
   const lastMsg = mainMessages[mainMessages.length - 1]
   const isStreaming = lastMsg?.role === 'assistant' && lastMsg?.content?.length > 0
-  const showTypingIndicator = (sendHook.loading || sendHook.uploading) && !isStreaming
+  const isMainLoading = sendHook.loading && !allMessages.some(m => m.threadRootId && m._id === allMessages[allMessages.length - 1]?._id)
+  const showTypingIndicator = (isMainLoading || sendHook.uploading) && !isStreaming
 
   return (
     <div className="flex h-full relative overflow-hidden" style={{ backgroundColor: 'var(--bg-chat)' }}>
@@ -441,11 +442,16 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
           stopGeneration={sendHook.stopGeneration}
           handleKeyDown={sendHook.handleKeyDown}
           handlePaste={sendHook.handlePaste}
+          handleTextPaste={sendHook.handleTextPaste}
+          handleDragOver={sendHook.handleDragOver}
+          handleDragLeave={sendHook.handleDragLeave}
+          handleDrop={sendHook.handleDrop}
           onFileSelect={sendHook.onFileSelect}
           formatFileSize={sendHook.formatFileSize}
           getFileIcon={sendHook.getFileIcon}
           setIsCodeModalOpen={setIsCodeModalOpen}
           startCamera={startCamera}
+          tokenCount={sendHook.countTokens(sendHook.input)}
         />
       </div>
 
@@ -468,6 +474,8 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
             getFileIcon={sendHook.getFileIcon}
             formatFileSize={sendHook.formatFileSize}
             formatTime={sendHook.formatTime}
+            isComposingNewThread={isComposingNewThread}
+            onComposeConsumed={handleComposeConsumed}
           />
         </div>
       )}
@@ -493,6 +501,8 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
               getFileIcon={sendHook.getFileIcon}
               formatFileSize={sendHook.formatFileSize}
               formatTime={sendHook.formatTime}
+              isComposingNewThread={isComposingNewThread}
+              onComposeConsumed={handleComposeConsumed}
             />
           </div>
         </div>

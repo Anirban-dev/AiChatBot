@@ -1,5 +1,6 @@
 // If you inlined the token variable into axiosInstance.ts, use this:
 import { getAccessToken, setAccessToken, clearAccessToken } from "./AxiosHelper"
+import { getCookie, setCookie, deleteCookie } from "./authHelper"
 
 // If you kept the separate tokens.ts file, use this instead:
 // import { tokenStore } from "./tokens"
@@ -22,7 +23,7 @@ export const fetchWithRefresh = async (input: RequestInfo, init: RequestInit): P
   if (res.status !== 401) return res
 
   // 401 — try to refresh
-  const refreshToken = localStorage.getItem('refreshToken')
+  const refreshToken = getCookie('refreshToken')
   if (!refreshToken) {
     clearAccessToken()
     window.location.href = '/login'
@@ -37,7 +38,7 @@ export const fetchWithRefresh = async (input: RequestInfo, init: RequestInit): P
 
   if (!refreshRes.ok) {
     clearAccessToken()
-    localStorage.removeItem('refreshToken')
+    deleteCookie('refreshToken')
     localStorage.removeItem('user')
     window.location.href = '/login'
     throw new Error('Session expired')
@@ -45,7 +46,7 @@ export const fetchWithRefresh = async (input: RequestInfo, init: RequestInit): P
 
   const data = await refreshRes.json()
   setAccessToken(data.accessToken)
-  localStorage.setItem('refreshToken', data.refreshToken)
+  setCookie('refreshToken', data.refreshToken, 30)
 
   // Retry the original request with the new token
   const retryInit = {

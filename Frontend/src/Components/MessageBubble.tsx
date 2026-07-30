@@ -41,12 +41,13 @@ const userBubble = `${bubbleBase} bg-blue-600 text-white rounded-br-sm`
 const assistantBubble = `${bubbleBase} rounded-bl-sm`
 
 // ─── Tool call pills ───────────────────────────────────────────────────────
-const ToolCallList = ({ toolCalls }: { toolCalls: ToolCall[] }) => (
+const ToolCallList = ({ toolCalls, isVectorDbTool }: { toolCalls: ToolCall[], isVectorDbTool?: boolean }) => (
   <div className="flex flex-wrap gap-1.5 w-full mb-1">
     {toolCalls.map((tc) => {
       const isRunning = tc.status === 'running'
       const isCompleted = tc.status === 'completed'
       const isFailed = tc.status === 'failed'
+      const isVectorDb = tc.name === 'vector_db_search'
 
       return (
         <div
@@ -57,7 +58,7 @@ const ToolCallList = ({ toolCalls }: { toolCalls: ToolCall[] }) => (
               : isCompleted
               ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
               : 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400'
-          }`}
+          } ${isVectorDb ? 'border-violet-500/40 bg-violet-500/5 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400' : ''}`}
           title={tc.error || tc.result || tc.name}
         >
           {isRunning && (
@@ -80,7 +81,10 @@ const ToolCallList = ({ toolCalls }: { toolCalls: ToolCall[] }) => (
               </svg>
             </span>
           )}
-          <span className="font-mono text-[11px] font-semibold">{tc.name}</span>
+          <span className="font-mono text-[11px] font-semibold flex items-center gap-1">
+            {isVectorDb && <span className="text-xs">📊</span>}
+            {tc.name}
+          </span>
         </div>
       )
     })}
@@ -404,7 +408,7 @@ export const MessageBubble = ({
 
       <div className={`flex flex-col gap-1 max-w-[80%] ${isUser ? 'items-end' : 'items-start'}`}>
         {msg.role === 'assistant' && !!msg.toolCalls?.length && (
-          <ToolCallList toolCalls={msg.toolCalls} />
+          <ToolCallList toolCalls={msg.toolCalls} isVectorDbTool={msg.toolCalls.some(tc => tc.name === 'vector_db_search')} />
         )}
 
         {msg.role === 'assistant' && msg.reasoning && (

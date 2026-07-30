@@ -23,6 +23,8 @@ interface ThreadPanelProps {
   formatFileSize: (size: number) => string
   formatTime: (date: string) => string
   onOpenTextPreview: (name: string, content: string) => void
+  isComposingNewThread: boolean
+  onComposeConsumed: () => void
 }
 
 export const ThreadPanel: React.FC<ThreadPanelProps> = ({
@@ -41,6 +43,8 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
   formatFileSize,
   formatTime,
   onOpenTextPreview,
+  isComposingNewThread,
+  onComposeConsumed,
 }) => {
   const { getBranchInfo, getMessages } = useChatStore()
   const threadHook = useSendMessage(chatId)
@@ -50,6 +54,7 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
   const [isEditing, setIsEditing] = useState<string | null>(null)
   const [editingFiles, setEditingFiles] = useState<File[]>([])
   const [editingFileInputs, setEditingFileInputs] = useState<File[]>([])
+  const pendingNewThreadRef = useRef(false)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -65,12 +70,25 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
   useEffect(() => {
     if (!threadHeadId) {
       setThreadActiveNodeId(null)
+      const heads = getThreadHeads(allMessages, threadRootId)
+      if (heads.length > 0) {
+        if (pendingNewThreadRef.current) {
+          pendingNewThreadRef.current = false
+          onThreadHeadCreated(heads[heads.length - 1]._id)
+          onComposeConsumed()
+        } else if (!isComposingNewThread) {
+          onThreadHeadCreated(heads[heads.length - 1]._id)
+        }
+        // else: composing — keep panel empty.
+      }
       return
     }
+    pendingNewThreadRef.current = false
+    onComposeConsumed()
     const leaf = getThreadLeafId(allMessages, threadHeadId, threadRootId)
     setThreadActiveNodeId(leaf)
-  }, [threadHeadId, allMessages, threadRootId])
-
+  }, [threadHeadId, allMessages, threadRootId, onThreadHeadCreated, isComposingNewThread, onComposeConsumed])
+  
   const switchThreadBranch = useCallback((currentMsgId: string, direction: 'prev' | 'next') => {
     const msgs = allMessages
     const msg = msgs.find(m => m._id === currentMsgId)
@@ -134,6 +152,10 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
       threadMessages.length > 0 ? threadMessages[threadMessages.length - 1] : rootMessage
 
     const wasNewThread = !threadHeadId
+    if (wasNewThread) {
+      // Signal the useEffect to bind as soon as the new head lands in allMessages.
+      pendingNewThreadRef.current = true
+    }
 
     await threadHook.sendMessage(
       textToSend,
@@ -144,13 +166,8 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
       lastThreadMsg._id,
       threadRootId
     )
-
-    if (wasNewThread) {
-      const heads = getThreadHeads(getMessages(chatId), threadRootId)
-      const newest = heads[heads.length - 1]
-      if (newest) onThreadHeadCreated(newest._id)
-    }
-  }, [input, threadMessages, rootMessage, chatId, threadHook, threadHeadId, threadRootId, getMessages, onThreadHeadCreated])
+    // onThreadHeadCreated is called by the useEffect once allMessages updates.
+  }, [input, threadMessages, rootMessage, chatId, threadHook, threadHeadId, threadRootId])
 
   // After send completes, pick up newly created thread head — removed; handled in handleSend
 
@@ -218,7 +235,17 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
 
   const lastMsg = threadMessages[threadMessages.length - 1]
   const isStreaming = lastMsg?.role === 'assistant' && lastMsg?.content?.length > 0
-  const showTypingIndicator = threadHook.loading && !isStreaming
+  // Typing indicator only shows in THIS thread's panel:
+  // loading is active AND the most recent message in this thread is a user message
+  // (i.e. the assistant reply hasn't arrived yet).
+  const isThisThreadLoading = threadHook.loading && (
+    threadMessages.length === 0 || lastMsg?.role === 'user'
+  ) && (
+    // And some message already belongs to this thread root (so we don't show
+    // the spinner in a sibling thread panel that happens to share the same hook).
+    threadMessages.length > 0 || allMessages.some(m => String(m.threadRootId) === String(threadRootId))
+  )
+  const showTypingIndicator = isThisThreadLoading && !isStreaming
 
   const navigateThread = (dir: 'prev' | 'next') => {
     if (threadCount === 0) return
@@ -274,7 +301,7 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
         </div>
         <div className="flex items-center gap-1">
           <button
-            onClick={onNewThread}
+            onClick={() => onNewThread()}
             className="p-1.5 rounded-lg transition-colors cursor-pointer text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30"
             title="New thread"
           >
@@ -433,6 +460,7 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
               onChange={threadHook.setSelectedModel}
               disabled={threadHook.loading}
               size="compact"
+              vectorDBAvailable={threadHook.vectorDBAvailable || false}
             />
             {threadHook.loading ? (
               <button

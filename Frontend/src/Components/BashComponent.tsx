@@ -233,6 +233,20 @@ const MarkdownRenderer = ({ content, isUser, runCode }: MarkdownRendererProps) =
             </code>
           ),
           p: ({ children }) => <p className="mb-1.5 last:mb-0 leading-relaxed">{children}</p>,
+          a: ({ href, children, ...props }) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={isUser
+                ? "font-bold hover:underline"
+                : "text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 underline"
+              }
+              {...props}
+            >
+              {children}
+            </a>
+          ),
         }}
       >
         {cleanedContent}

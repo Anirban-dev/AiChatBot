@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import axios from 'axios'
 import { clearAccessToken, getAccessToken, setAccessToken } from './AxiosHelper'
+import { getCookie, setCookie, deleteCookie } from './authHelper'
 
 // ProtectedRoute does a silent refresh on every page load/refresh.
 // The access token lives in memory, so it's gone after a refresh.
@@ -20,7 +21,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
         return
       }
 
-      const refreshToken = localStorage.getItem('refreshToken')
+      const refreshToken = getCookie('refreshToken')
       if (!refreshToken) {
         setStatus('unauth')
         return
@@ -29,12 +30,12 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
       try {
         const { data } = await axios.post(`${BASE_URL}/login/refresh`, { refreshToken })
         setAccessToken(data.accessToken)
-        localStorage.setItem('refreshToken', data.refreshToken) // rotated
+        setCookie('refreshToken', data.refreshToken, 30)
         setStatus('ok')
       } catch {
         // Refresh token expired or invalid — clear everything
         clearAccessToken()
-        localStorage.removeItem('refreshToken')
+        deleteCookie('refreshToken')
         localStorage.removeItem('user')
         setStatus('unauth')
       }

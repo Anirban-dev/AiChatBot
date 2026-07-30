@@ -20,11 +20,16 @@ interface MsgChatInputProps {
   stopGeneration: () => void
   handleKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void
   handlePaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void
+  handleTextPaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void
+  handleDragOver: (e: React.DragEvent<HTMLDivElement>) => void
+  handleDragLeave: (e: React.DragEvent<HTMLDivElement>) => void
+  handleDrop: (e: React.DragEvent<HTMLDivElement>) => void
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void
   formatFileSize: (size: number) => string
   getFileIcon: (ext: string) => React.ReactNode
   setIsCodeModalOpen: (open: boolean) => void
   startCamera: () => void
+  tokenCount: number
 }
 
 export const MsgChatInput = ({
@@ -44,11 +49,16 @@ export const MsgChatInput = ({
   stopGeneration,
   handleKeyDown,
   handlePaste,
+  handleTextPaste,
+  handleDragOver,
+  handleDragLeave,
+  handleDrop,
   onFileSelect,
   formatFileSize,
   getFileIcon,
   setIsCodeModalOpen,
-  startCamera
+  startCamera,
+  tokenCount
 }: MsgChatInputProps) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [fileAcceptType, setFileAcceptType] = useState<string>('.*')
@@ -199,6 +209,9 @@ export const MsgChatInput = ({
         {/* Core Chat Console Layout */}
         <div
           ref={inputContainerRef}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
           className={`flex items-end gap-2 rounded-2xl border px-3 py-2.5 shadow-sm transition-all focus-within:ring-1 focus-within:ring-amber-400/30 ${errorMessage ? 'border-red-300 dark:border-red-900/60' : ''}`}
           style={{
             backgroundColor: 'var(--bg-card)',
@@ -255,17 +268,21 @@ export const MsgChatInput = ({
             )}
           </div>
 
-          <textarea 
-            ref={textareaRef} 
-            value={input} 
-            onChange={e => setInput(e.target.value)} 
-            onKeyDown={handleKeyDown} 
-            onPaste={handlePaste} 
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onPaste={(e) => { handleTextPaste(e); handlePaste(e); }}
             disabled={!!errorMessage}
-            placeholder={errorMessage ? "Resolve engine block exception to continue..." : "Message…"} 
-            rows={1} 
-            className="flex-1 bg-transparent resize-none outline-none text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 max-h-40 py-0.5 leading-relaxed disabled:opacity-50" 
+            placeholder={errorMessage ? "Resolve engine block exception to continue..." : "Message…"}
+            rows={1}
+            className="flex-1 bg-transparent resize-none outline-none text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 max-h-40 py-0.5 leading-relaxed disabled:opacity-50"
           />
+          {/* Token count indicator */}
+          <div className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap ml-2 shrink-0">
+            {tokenCount} tokens
+          </div>
 
           {/* Combined Tier Selector & Action Trigger Wrapper Group */}
           <div className="flex items-center gap-2 shrink-0 mb-0.5">
