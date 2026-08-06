@@ -1,19 +1,20 @@
-// src/routes/msg.ts
+// src/routes/messages/send.ts
 import { Router, Request, Response } from 'express'
-import { Message }    from '../models/msg'
-import { Chat }       from '../models/chat'
-import { User }       from '../models/user'
-import authMiddleware, { AuthRequest } from '../middleware/auth'
-import { midLimiter } from '../utils/ratelimitHelper'
-import { writeLog }   from '../utils/logger'
-import { redis }      from '../utils/redis'
-import { TIER_DEFAULTS } from './admin/users'
-import { LlmLog } from '../models/llmLog'
+import { Message }    from '../../models/msg'
+import { Chat }       from '../../models/chat'
+import { User }       from '../../models/user'
+import authMiddleware, { AuthRequest } from '../../middleware/auth'
+import { midLimiter } from '../../utils/ratelimitHelper'
+import { writeLog }   from '../../utils/logger'
+import { redis }      from '../../utils/redis'
+import { TIER_DEFAULTS } from '../admin/users'
+import { LlmLog } from '../../models/llmLog'
 import mongoose from 'mongoose'
 
 const router = Router({ mergeParams: true })
 router.use(authMiddleware)
 
+// ─── GET: fetch all messages for a chat ──────────────────────────────────────
 router.get('/', midLimiter, async (req: Request<{ chatId: string }>, res: Response) => {
   try {
     const messages = await Message.find({ chatId: req.params.chatId }).sort({ createdAt: 1 })
@@ -23,6 +24,7 @@ router.get('/', midLimiter, async (req: Request<{ chatId: string }>, res: Respon
   }
 })
 
+// ─── POST: send a message and stream the AI response ─────────────────────────
 router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: Response) => {
   const { content, model = 'small', fileInfo, file, parentId, threadRootId } = req.body
   const { chatId } = req.params
@@ -88,58 +90,55 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       return res.status(429).json({ error: 'Hourly token quota consumed. Please wait until the next hour.' })
     }
 
-    // ─── 1. Build context window ───────────────────────────────────────────────
-    //
-    // Strategy depends on whether this is a thread message or a main-chat message.
+    // ─── Build context window ──────────────────────────────────────────────────
     //
     // THREAD MESSAGE:
     //   a) Walk this thread's own parentId chain back to the thread root anchor.
-    //   b) From the anchor, walk the main-timeline parentId chain (threadRootId: null only),
-    //      skipping any messages that belong to another thread.
-    //   This gives the AI: [main chat history] + [this thread's prior replies]
+    //   b) From the anchor, walk the main-timeline parentId chain (threadRootId: null only).
+    //   This gives: [main chat history up to anchor] + [this thread's prior replies]
     //
-    // MAIN MESSAGE:
-    //   Walk the parentId chain directly, skipping thread messages.
+    // MAIN / BRANCH MESSAGE:
+    //   Walk the parentId chain directly from the given parentId, skipping thread messages.
     //
     const previousMessages: any[] = []
-    const CONTEXT_LIMIT = 12
+    const CONTEXT_LIMIT = 100
+
+    let computedThreadHeadId: string | null = null
 
     if (threadRootId) {
       // ── PHASE 1: collect this thread's own prior replies ──
-      //   Walk the parentId chain starting from the last message in this thread.
-      //   Stop (and do NOT include) as soon as we see a message that doesn't
-      //   belong to this thread — that boundary message is the anchor itself
-      //   (threadRootId: null) or a message from a different thread.
       const threadReplies: any[] = []
       let currentId = parentId
       while (currentId) {
         const msg = await Message.findById(currentId)
         if (!msg) break
-        // Only collect messages that actually belong to THIS thread
         if (String(msg.threadRootId) !== String(threadRootId)) break
         threadReplies.unshift(msg)
         currentId = msg.parentId
       }
 
+      // Determine threadHeadId
+      if (parentId && String(parentId) !== String(threadRootId)) {
+        const parentMsg: any = await Message.findById(parentId)
+        if (parentMsg?.threadHeadId) {
+          computedThreadHeadId = String(parentMsg.threadHeadId)
+        } else if (threadReplies.length > 0) {
+          computedThreadHeadId = String(threadReplies[0]._id)
+        }
+      }
+
       // ── PHASE 2: build main-timeline context up to (and including) the anchor ──
-      //   Start at the thread root anchor, then walk backwards through the main
-      //   chat timeline.  Skip any message that has a threadRootId set (i.e., it
-      //   belongs to another thread that was branched off earlier in the chat).
-      //   We still follow msg.parentId even for skipped messages so we don't lose
-      //   our place in the chain.
       const mainCtx: any[] = []
       const anchorMsg = await Message.findById(threadRootId)
       if (anchorMsg) {
-        mainCtx.unshift(anchorMsg)   // include the anchor message itself
+        mainCtx.unshift(anchorMsg)
         let walkId = anchorMsg.parentId
         while (walkId && mainCtx.length + threadReplies.length < CONTEXT_LIMIT) {
           const msg = await Message.findById(walkId)
           if (!msg) break
-          // Only include pure main-timeline messages (no thread affiliation)
           if (!msg.threadRootId) {
             mainCtx.unshift(msg)
           }
-          // Always advance along parentId even if we skipped this message
           walkId = msg.parentId
         }
       }
@@ -147,7 +146,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       previousMessages.push(...mainCtx, ...threadReplies)
 
     } else {
-      // ── MAIN CHAT: walk parentId chain, skip any thread messages ──
+      // ── MAIN / BRANCH CHAT: walk parentId chain, skip any thread messages ──
       let currentParentId = parentId
       if (!currentParentId) {
         const lastMsg = await Message.findOne({ chatId, threadRootId: null }).sort({ createdAt: -1 })
@@ -156,16 +155,20 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       while (currentParentId && previousMessages.length < CONTEXT_LIMIT) {
         const parentMsg = await Message.findById(currentParentId)
         if (!parentMsg) break
-        // Skip messages that belong to a thread branch
         if (!parentMsg.threadRootId) {
           previousMessages.unshift(parentMsg)
         }
-        // Always advance along parentId even if we skipped this message
         currentParentId = parentMsg.parentId
       }
     }
 
+    const userMessageId = new mongoose.Types.ObjectId()
+    if (threadRootId && !computedThreadHeadId) {
+      computedThreadHeadId = String(userMessageId)
+    }
+
     const userMessage = await Message.create({
+      _id: userMessageId,
       chatId,
       role: 'user',
       content,
@@ -173,6 +176,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       file,
       parentId: parentId || null,
       threadRootId: threadRootId || null,
+      threadHeadId: threadRootId ? computedThreadHeadId : null,
     })
 
     res.setHeader('Content-Type', 'text/event-stream')
@@ -181,7 +185,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     if (res.flushHeaders) res.flushHeaders()
 
     res.write(`event: userMessage\ndata: ${JSON.stringify(userMessage)}\n\n`)
-    
+
     const aiCallStart = Date.now()
     const response = await fetch(`${process.env.AI_API}/chat`, {
       method: 'POST',
@@ -212,7 +216,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       }),
     })
 
-    // ── 429 quota — logged to BOTH Log and LlmLog so it shows in every admin view
+    // ── 429 quota ──────────────────────────────────────────────────────────────
     if (response.status === 429) {
       let quotaMessage = `Rate limit reached for the '${targetTier}' model. Please wait a moment before retrying.`
       try {
@@ -245,7 +249,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       return res.end()
     }
 
-    // ── Any other non-2xx from Python
+    // ── Any other non-2xx from Python ──────────────────────────────────────────
     if (!response.ok) {
       let pythonError = `Python API ${response.status}`
       try {
@@ -279,7 +283,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
 
     if (!response.body) throw new Error('AI API returned an empty body')
 
-    // 5. Stream the response
+    // ── Stream the response ────────────────────────────────────────────────────
     const reader  = response.body.getReader()
     const decoder = new TextDecoder()
 
@@ -451,11 +455,8 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       return res.end()
     }
 
-    // 6. Persist completed response
+    // ── Persist completed response ─────────────────────────────────────────────
     if (!hasSeenActivity && !fullContent.trim()) {
-      // 🌟 FIX — this branch previously logged nothing at all. Now it's
-      // visible in both Activity Logs and LLM Logs, same as every other
-      // failure mode.
       await writeLog({
         userId, action: 'AI_CHAT', status: 'failed', method: 'POST',
         path: `/api/chats/${chatId}/msgs`,
@@ -485,18 +486,20 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
 
     const cleanContent = fullContent && fullContent.trim() !== ''
       ? fullContent.trim()
-      : (activeToolCalls.length > 0 ? '[Executed Tool Action]' : '[Stream Disconnected]');
+      : (activeToolCalls.length > 0 ? '[Executed Tool Action]' : '[Stream Disconnected]')
+
     const assistantMessage = await Message.create({
       chatId: req.params.chatId,
       role: 'assistant',
       content: cleanContent,
       reasoning: reasoningContent || undefined,
       toolCalls: activeToolCalls,
-      parentId: userMessage._id,
+      parentId: String(userMessage._id),
       threadRootId: threadRootId || null,
+      threadHeadId: threadRootId ? computedThreadHeadId : null,
     })
 
-    // ─── Redis hourly tracking commit ─────────────────────────────────────────
+    // ─── Redis hourly tracking commit ──────────────────────────────────────────
     const totalEstimatedTokens = Math.ceil((content.length + fullContent.length) / 4)
     const secondsUntilNextHour = 3600 - (now.getUTCMinutes() * 60 + now.getUTCSeconds())
     const redisTTL = secondsUntilNextHour + 600
@@ -559,110 +562,6 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     }
     res.write(`event: error\ndata: ${JSON.stringify({ message: 'Stream interrupted' })}\n\n`)
     res.end()
-  }
-})
-
-router.post('/stop', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: Response) => {
-  const { chatId } = req.params
-  try {
-    const response = await fetch(`${process.env.AI_API}/stop`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ chat_id: chatId }),
-    })
-    if (!response.ok) return res.status(500).json({ error: 'Failed to terminate the engine stream thread' })
-    res.json({ success: true, message: 'Stream stop signal sent' })
-  } catch (err) {
-    console.error('Stop Endpoint Error:', err)
-    res.status(500).json({ error: 'Internal Server Error' })
-  }
-})
-
-// Edit message endpoint (for inline editing)
-router.put('/:msgId/edit', midLimiter, async (req: AuthRequest<{ msgId: string; chatId: string }>, res: Response) => {
-  const { msgId } = req.params
-  const { content, model = 'small', fileInfo, file } = req.body
-  const chatId = req.params.chatId
-  const userId = req.userId!
-
-  if (!content && !file) return res.status(400).json({ error: 'Content is required' })
-
-  const validTiers = ['small', 'large', 'thinking', 'critiq']
-  const targetTier = validTiers.includes(model) ? model : 'small'
-
-  try {
-    const message = await Message.findById(msgId)
-    if (!message) return res.status(404).json({ error: 'Message not found' })
-
-    // Get the original message's parentId for the new branch
-    const parentMessageId = message.parentId || msgId
-
-    // Create a new user message with the same parentId (creates a new branch)
-    const newUserMessage = await Message.create({
-      chatId,
-      role: 'user',
-      content,
-      fileInfo,
-      file,
-      parentId: parentMessageId,
-    })
-
-    // Send the new message to the frontend
-    res.setHeader('Content-Type', 'text/event-stream')
-    res.setHeader('Cache-Control', 'no-cache')
-    res.setHeader('Connection', 'keep-alive')
-    if (res.flushHeaders) res.flushHeaders()
-
-    res.write(`event: userMessage\ndata: ${JSON.stringify(newUserMessage)}\n\n`)
-
-    // Trigger AI response with the edited message
-    const aiCallStart = Date.now()
-    const response = await fetch(`${process.env.AI_API}/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Connection': 'keep-alive',
-        'X-User-Id': userId,
-        'X-Chat-Id': chatId,
-      },
-      body: JSON.stringify({
-        message: content,
-        file_info: fileInfo, // Convert to snake_case for Python
-        file: file,
-        chat_id: chatId,
-        mode: targetTier,
-        history: [], // Start fresh for the edited message
-      }),
-    })
-
-    if (!response.ok) {
-      throw new Error(`AI API error: ${response.status}`)
-    }
-
-    // Stream the AI response
-    if (response.body) {
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        const buffer = decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n\n')
-
-        for (const line of lines) {
-          if (line.trim()) {
-            res.write(line + '\n\n')
-          }
-        }
-      }
-    }
-
-    res.end()
-  } catch (err) {
-    console.error('Edit Message Error:', err)
-    res.status(500).json({ error: 'Failed to edit message' })
   }
 })
 

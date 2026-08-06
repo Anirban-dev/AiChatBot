@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { X, MessageSquare, CornerDownRight, Send, Square, Cpu, ChevronLeft, ChevronRight } from 'lucide-react'
+import { X, MessageSquare, CornerDownRight, Send, Square, Cpu, ChevronLeft, ChevronRight, GitBranch, Plus, Trash2 } from 'lucide-react'
 import { MessageBubble } from './MessageBubble'
 import { useSendMessage } from './Hook/useSendMessage'
 import { useChatStore } from '../Context/ChatContext'
 import type { Message } from '../Context/ChatContext'
-import { getThreadHeads, getThreadPath, getThreadLeafId } from '../utils/threadUtils'
+import { getThreadHeads, getThreadPath, getThreadLeafId, getEffectiveThreadHeadId } from '../utils/threadUtils'
 import { ModelSelector } from './ModelSelector'
+import { deleteThread } from '../API/Msg'
 
 interface ThreadPanelProps {
   chatId: string
@@ -46,7 +47,7 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
   isComposingNewThread,
   onComposeConsumed,
 }) => {
-  const { getBranchInfo, getMessages } = useChatStore()
+  const { getBranchInfo, getMessages, removeMessages } = useChatStore()
   const threadHook = useSendMessage(chatId)
 
   const [input, setInput] = useState('')
@@ -54,7 +55,19 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
   const [isEditing, setIsEditing] = useState<string | null>(null)
   const [editingFiles, setEditingFiles] = useState<File[]>([])
   const [editingFileInputs, setEditingFileInputs] = useState<File[]>([])
+  const [isDeleting, setIsDeleting] = useState(false)
   const pendingNewThreadRef = useRef(false)
+
+  // ESC key listener to close thread panel
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -94,10 +107,12 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
     const msg = msgs.find(m => m._id === currentMsgId)
     if (!msg) return
 
+    const effectiveHead = getEffectiveThreadHeadId(msgs, msg)
     const siblings = msgs.filter(m =>
       m.role === msg.role &&
       (m.parentId === msg.parentId || (!m.parentId && !msg.parentId)) &&
-      String(m.threadRootId) === String(threadRootId)
+      String(m.threadRootId) === String(threadRootId) &&
+      (getEffectiveThreadHeadId(msgs, m) === effectiveHead)
     )
     if (siblings.length <= 1) return
 
@@ -110,7 +125,9 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
     let currentId = targetSibling._id
     while (true) {
       const children = msgs.filter(m =>
-        m.parentId === currentId && String(m.threadRootId) === String(threadRootId)
+        m.parentId === currentId &&
+        String(m.threadRootId) === String(threadRootId) &&
+        (getEffectiveThreadHeadId(msgs, m) === effectiveHead)
       )
       if (children.length === 0) break
       currentId = children[children.length - 1]._id
@@ -210,14 +227,10 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
     if (!msg) return
     cancelEditing()
 
-    await threadHook.sendMessage(
+    await threadHook.branchMessage(
+      msgId,
       newContent,
       chatId,
-      undefined,
-      undefined,
-      undefined,
-      msg.parentId || undefined,
-      threadRootId
     )
   }
 
@@ -255,46 +268,73 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
     onOpenThreadAtIndex(newIndex)
   }
 
+  const handleDeleteThread = async () => {
+    if (!threadHeadId || isDeleting) return
+    if (!window.confirm('Are you sure you want to delete this thread and its attachments?')) return
+
+    setIsDeleting(true)
+    try {
+      const res = await deleteThread(chatId, threadHeadId)
+      if (res.deletedIds && res.deletedIds.length > 0) {
+        removeMessages(chatId, res.deletedIds)
+      }
+      const heads = getThreadHeads(allMessages, threadRootId)
+      if (heads.length <= 1) {
+        onClose()
+      } else {
+        const nextIndex = threadIndex > 0 ? threadIndex - 1 : 0
+        onOpenThreadAtIndex(nextIndex)
+      }
+    } catch (err) {
+      console.error('Failed to delete thread:', err)
+      alert('Failed to delete thread. Please try again.')
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   return (
     <div
       className="flex flex-col h-full w-full sm:w-[320px] md:w-[380px] lg:w-[440px] shrink-0 shadow-2xl z-30"
       style={{
         backgroundColor: 'var(--bg-sidebar)',
-        borderLeft: '1.5px solid var(--border-medium)'
+        borderLeft: '2px solid rgba(251,191,36,0.35)'
       }}
     >
-      {/* Thread Header */}
+      {/* Thread Header — amber-themed */}
       <div
-        className="flex items-center justify-between px-4 py-3 shrink-0"
+        className="flex items-center justify-between px-4 py-2.5 shrink-0"
         style={{
           borderBottom: '1.5px solid var(--border-medium)',
+          background: 'linear-gradient(to right, rgba(251,191,36,0.07), transparent)',
           backgroundColor: 'var(--bg-navbar)'
         }}
       >
         <div className="flex items-center gap-2">
-          <MessageSquare size={15} className="text-amber-500" />
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Thread</h3>
+          {/* Amber dot accent */}
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-amber-500 shadow-sm shadow-amber-400/50" />
+            <MessageSquare size={13} className="text-amber-500" />
+            <h3 className="text-sm font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>Thread</h3>
+          </div>
           {threadCount > 0 && (
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-0.5 bg-amber-100/80 dark:bg-amber-900/30 border border-amber-300/50 dark:border-amber-700/40 rounded-full pl-0.5 pr-1 py-0.5">
               <button
                 onClick={() => navigateThread('prev')}
-                className="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+                className="p-0.5 rounded-full hover:bg-amber-200/60 dark:hover:bg-amber-800/40 transition-colors cursor-pointer text-amber-600 dark:text-amber-400"
                 title="Previous thread"
               >
-                <ChevronLeft size={14} />
+                <ChevronLeft size={12} />
               </button>
-              <span
-                className="text-[11px] px-1.5 py-0.5 rounded-full font-mono min-w-[40px] text-center"
-                style={{ color: 'var(--text-secondary)', backgroundColor: 'var(--border-light)' }}
-              >
+              <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 min-w-[36px] text-center font-mono">
                 {threadIndex + 1}/{threadCount}
               </span>
               <button
                 onClick={() => navigateThread('next')}
-                className="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+                className="p-0.5 rounded-full hover:bg-amber-200/60 dark:hover:bg-amber-800/40 transition-colors cursor-pointer text-amber-600 dark:text-amber-400"
                 title="Next thread"
               >
-                <ChevronRight size={14} />
+                <ChevronRight size={12} />
               </button>
             </div>
           )}
@@ -302,18 +342,29 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
         <div className="flex items-center gap-1">
           <button
             onClick={() => onNewThread()}
-            className="p-1.5 rounded-lg transition-colors cursor-pointer text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+            className="flex items-center gap-1 px-2 py-1 rounded-lg transition-colors cursor-pointer text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-950/40 text-xs font-medium"
             title="New thread"
           >
-            <span className="text-lg leading-none font-light">+</span>
+            <Plus size={12} />
+            <span>New</span>
           </button>
+          {threadHeadId && (
+            <button
+              onClick={handleDeleteThread}
+              disabled={isDeleting}
+              className="p-1.5 rounded-lg transition-colors cursor-pointer text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 disabled:opacity-50"
+              title="Delete this thread (DB & RAG VectorDB)"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
           <button
             onClick={onClose}
             className="p-1.5 rounded-lg transition-colors cursor-pointer"
             style={{ color: 'var(--text-secondary)' }}
             onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--border-light)')}
             onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-            title="Close Thread"
+            title="Close Thread (Esc)"
           >
             <X size={16} />
           </button>
@@ -391,7 +442,6 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
                 onEditFileSelect={handleEditFileSelect}
                 onRemoveEditFile={removeEditFile}
                 onCopy={(text) => navigator.clipboard.writeText(text)}
-                _threadReplyCount={msg.threadReplyCount}
               />
             )
           })

@@ -165,7 +165,7 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
     if (getMessages(chatId).length > 0) return
     const fetchMsgs = async () => {
       try {
-        const data = await getMsgs(chatId)
+        const data = await getMessages(chatId)
         setMessages(chatId, data)
       } catch (err) {
         console.error(err)
@@ -291,10 +291,11 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
           return
         }
 
-        await sendHook.sendMessage(newContent, activeChatId, uploadedFileInfo, uploadedFileContent, undefined, msg.parentId || undefined)
+        await sendHook.branchMessage(msgId, newContent, activeChatId, uploadedFileInfo, uploadedFileContent)
       } else if (editingFiles.length > 0 && (editingFiles[0] as any).isExisting) {
         const existing = editingFiles[0]
-        await sendHook.sendMessage(
+        await sendHook.branchMessage(
+          msgId,
           newContent,
           activeChatId,
           {
@@ -304,15 +305,13 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
             extension: (existing as any).extension
           },
           (existing as any).file,
-          undefined,
-          msg.parentId || undefined
         )
       } else {
-        await sendHook.sendMessage(newContent, activeChatId, undefined, undefined, undefined, msg.parentId || undefined)
+        await sendHook.branchMessage(msgId, newContent, activeChatId)
       }
     } catch (error) {
-      console.error('Failed to save message:', error)
-      alert(error instanceof Error ? error.message : 'Failed to save message. Please try again.')
+      console.error('Failed to create message branch:', error)
+      alert(error instanceof Error ? error.message : 'Failed to create branch. Please try again.')
     }
   }
 
@@ -380,7 +379,6 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
               onRemoveEditFile={removeEditFile}
               onCopy={handleCopy}
               isActiveThread={activeThreadRootId === msg._id}
-              _threadReplyCount={msg.threadReplyCount}
               threadCount={threadCountMap[msg._id] || 0}
               threadIndex={getThreadIndexForAnchor(msg._id)}
               onThreadNavigate={(dir) => handleThreadNavigate(msg._id, dir)}

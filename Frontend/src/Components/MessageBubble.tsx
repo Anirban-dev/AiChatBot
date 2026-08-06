@@ -1,4 +1,4 @@
-import { X, Paperclip, Send, Edit2, Copy, ChevronLeft, ChevronRight, MessageSquare, Plus } from 'lucide-react'
+import { X, Paperclip, Send, Edit2, Copy, ChevronLeft, ChevronRight, MessageSquare, Plus, GitBranch } from 'lucide-react'
 import MarkdownRenderer from './BashComponent'
 import { useState, useEffect, useRef } from 'react'
 
@@ -27,8 +27,9 @@ export interface MessageLike {
   toolCalls?: ToolCall[]
   createdAt: string
   parentId?: string | null
-  _threadReplyCount?: number // Prefix with underscore to indicate intentionally unused
-  threadReplyCount?: number // Add this for compatibility with backend messages
+  threadRootId?: string | null
+  threadHeadId?: string | null
+  threadReplyCount?: number
   isUser?: boolean
   isEdited?: boolean
 }
@@ -196,15 +197,12 @@ interface MessageBubbleProps {
   onEditFileSelect?: (e: React.ChangeEvent<HTMLInputElement>) => void
   onRemoveEditFile?: (index: number) => void
   onCopy?: (content: string) => void
-  _threadReplyCount?: number // Prefix with underscore to indicate intentionally unused
   threadCount?: number
   threadIndex?: number
   onThreadNavigate?: (direction: 'prev' | 'next') => void
-  isNewThread?: boolean
   onOpenNewThread?: (msgId: string) => void
   onOpenExistingThread?: (msgId: string) => void
   isActiveThread?: boolean
-  _isCurrentChatEmpty?: boolean
 }
 
 export const MessageBubble = ({
@@ -225,15 +223,11 @@ export const MessageBubble = ({
   onEditFileSelect,
   onRemoveEditFile,
   onCopy,
-  _threadReplyCount = 0, // Prefix with underscore to indicate intentionally unused
   threadCount = 0,
-  threadIndex = 0,
   onThreadNavigate,
-  isNewThread = false,
   onOpenNewThread,
   onOpenExistingThread,
   isActiveThread = false,
-  _isCurrentChatEmpty = false, // Prefix with underscore to indicate intentionally unused
   isUser = false,
 }: MessageBubbleProps) => {
   const fileInfo = msg.fileInfo
@@ -472,42 +466,58 @@ export const MessageBubble = ({
               <Edit2 size={12} />
             </button>
           )}
+          {/* ─── Thread indicator (amber) ─────────────────────────────────── */}
           {isUser && onOpenNewThread && !isEditing && (
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-1">
+              {/* New thread button */}
               <button
                 onClick={() => onOpenNewThread(msg._id)}
-                className={`p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors cursor-pointer flex items-center ${isNewThread || isActiveThread ? 'text-amber-500' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-200'}`}
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-all cursor-pointer ${
+                  isActiveThread
+                    ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 ring-1 ring-amber-400/50'
+                    : 'text-gray-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30'
+                }`}
                 title="Start new thread"
               >
-                <Plus size={12} />
+                <MessageSquare size={11} />
+                <span>+</span>
               </button>
+
+              {/* Existing threads navigator */}
               {threadCount > 0 && (
-                <div className="flex items-center gap-0.5 bg-gray-100/60 dark:bg-gray-800/40 px-1 py-0.5 rounded-lg border border-gray-200/30 dark:border-gray-700/30">
+                <div className={`flex items-center gap-0.5 rounded-md border px-0.5 py-0.5 ${
+                  isActiveThread
+                    ? 'bg-amber-100/80 dark:bg-amber-900/30 border-amber-300/60 dark:border-amber-700/50'
+                    : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/40 dark:border-amber-800/30'
+                }`}>
                   <button
                     onClick={() => onThreadNavigate?.('prev')}
-                    className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors cursor-pointer"
+                    className="p-0.5 hover:bg-amber-200/60 dark:hover:bg-amber-800/40 rounded transition-colors cursor-pointer text-amber-600 dark:text-amber-400"
                     title="Previous thread"
                   >
-                    <ChevronLeft size={11} />
+                    <ChevronLeft size={10} />
                   </button>
                   <button
                     onClick={() => onOpenExistingThread?.(msg._id)}
-                    className="text-[10px] font-medium min-w-[28px] text-center hover:text-amber-600 dark:hover:text-amber-400 transition-colors cursor-pointer"
+                    className="flex items-center gap-0.5 text-[10px] font-semibold min-w-[42px] justify-center text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors cursor-pointer"
                     title="Open thread"
                   >
-                    {threadIndex + 1}/{threadCount}
+                    <MessageSquare size={9} />
+                    <span>{threadCount}</span>
                   </button>
                   <button
                     onClick={() => onThreadNavigate?.('next')}
-                    className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors cursor-pointer"
+                    className="p-0.5 hover:bg-amber-200/60 dark:hover:bg-amber-800/40 rounded transition-colors cursor-pointer text-amber-600 dark:text-amber-400"
                     title="Next thread"
                   >
-                    <ChevronRight size={11} />
+                    <ChevronRight size={10} />
                   </button>
                 </div>
               )}
             </div>
           )}
+
+          {/* ─── Copy button ─────────────────────────────────────────────── */}
           {onCopy && !isEditing && (
             <button
               onClick={() => {
@@ -522,24 +532,27 @@ export const MessageBubble = ({
               {copied && <span className="text-[10px] text-blue-500">Copied!</span>}
             </button>
           )}
+
+          {/* ─── Branch indicator (blue/violet) ──────────────────────────── */}
           {branchInfo && branchInfo.branchCount > 1 && !isEditing && (
-            <div className="flex items-center gap-1 bg-gray-100/60 dark:bg-gray-800/40 px-1.5 py-0.5 rounded-lg border border-gray-200/30 dark:border-gray-700/30">
+            <div className="flex items-center gap-0.5 bg-violet-50/80 dark:bg-violet-950/20 border border-violet-200/50 dark:border-violet-700/30 rounded-md px-0.5 py-0.5">
               <button
                 onClick={() => onBranchChange?.('prev')}
-                className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors cursor-pointer"
+                className="p-0.5 hover:bg-violet-100 dark:hover:bg-violet-800/40 rounded transition-colors cursor-pointer text-violet-500 dark:text-violet-400"
                 title="Previous version"
               >
-                <ChevronLeft size={11} />
+                <ChevronLeft size={10} />
               </button>
-              <span className="text-[10px] font-medium min-w-[28px] text-center">
-                {branchInfo.currentIndex}/{branchInfo.branchCount}
+              <span className="flex items-center gap-0.5 text-[10px] font-semibold min-w-[42px] justify-center text-violet-600 dark:text-violet-400">
+                <GitBranch size={9} />
+                <span>v{branchInfo.currentIndex}/{branchInfo.branchCount}</span>
               </span>
               <button
                 onClick={() => onBranchChange?.('next')}
-                className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors cursor-pointer"
+                className="p-0.5 hover:bg-violet-100 dark:hover:bg-violet-800/40 rounded transition-colors cursor-pointer text-violet-500 dark:text-violet-400"
                 title="Next version"
               >
-                <ChevronRight size={11} />
+                <ChevronRight size={10} />
               </button>
             </div>
           )}

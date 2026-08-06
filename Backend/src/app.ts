@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import loginRoutes from './routes/login'
 import chatRoutes from './routes/chat'
-import msgRoutes from './routes/msg'
+import msgRoutes from './routes/messages/index'
 import fileRoutes from './routes/file'
 import adminRoutes from './routes/admin/index'
 import { requestLogger } from './middleware/requestLogger'

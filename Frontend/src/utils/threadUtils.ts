@@ -1,18 +1,55 @@
 import type { Message } from '../Context/ChatContext'
 
-/** Direct replies to an anchor — each starts a separate thread conversation. */
+/** Get effective threadHeadId for a message. */
+export function getEffectiveThreadHeadId(messages: Message[], msg: Message): string | null {
+  if (!msg.threadRootId) return null
+  if (msg.threadHeadId) return msg.threadHeadId
+
+  let curr: Message | undefined = msg
+  while (curr) {
+    if (String(curr.parentId) === String(msg.threadRootId) || !curr.parentId) {
+      return curr.threadHeadId || curr._id
+    }
+    const parentId: string | null = curr.parentId ?? null
+    if (!parentId) break
+    const parent: Message | undefined = messages.find((m) => String(m._id) === String(parentId))
+    if (!parent || String(parent.threadRootId) !== String(msg.threadRootId)) {
+      return curr.threadHeadId || curr._id
+    }
+    curr = parent
+  }
+  return msg._id
+}
+
+/** Distinct thread heads for an anchor — each represents a separate thread conversation. */
 export function getThreadHeads(messages: Message[], anchorId: string): Message[] {
-  return messages
-    .filter((m) => m.threadRootId === anchorId && m.parentId === anchorId)
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+  const threadMsgs = messages.filter((m) => String(m.threadRootId) === String(anchorId))
+  const headMap = new Map<string, Message>()
+
+  for (const m of threadMsgs) {
+    const headId = getEffectiveThreadHeadId(messages, m)
+    if (!headId) continue
+    if (!headMap.has(headId)) {
+      const headMsg = messages.find((x) => String(x._id) === String(headId)) || m
+      headMap.set(headId, headMsg)
+    }
+  }
+
+  return Array.from(headMap.values()).sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  )
 }
 
 /** Walk to the leaf descendant within a thread subtree. */
 export function getThreadLeafId(messages: Message[], startId: string, threadRootId: string): string {
-  const threadMsgs = messages.filter((m) => m.threadRootId === threadRootId)
+  const headId = getEffectiveThreadHeadId(messages, messages.find(m => m._id === startId) || { _id: startId, threadRootId } as Message)
+  const threadMsgs = messages.filter((m) =>
+    String(m.threadRootId) === String(threadRootId) &&
+    getEffectiveThreadHeadId(messages, m) === headId
+  )
   let currentId = startId
   while (true) {
-    const children = threadMsgs.filter((m) => m.parentId === currentId)
+    const children = threadMsgs.filter((m) => String(m.parentId) === String(currentId))
     if (children.length === 0) break
     currentId = children[children.length - 1]._id
   }
@@ -25,24 +62,30 @@ export function getThreadPath(
   threadHeadId: string,
   activeNodeId?: string | null
 ): Message[] {
-  const head = messages.find((m) => m._id === threadHeadId)
+  const head = messages.find((m) => String(m._id) === String(threadHeadId))
   if (!head?.threadRootId) return []
 
-  const threadRootId = head.threadRootId
-  const threadMsgs = messages.filter((m) => m.threadRootId === threadRootId)
+  const threadRootId = String(head.threadRootId)
+  const effectiveHeadId = getEffectiveThreadHeadId(messages, head) || threadHeadId
+
+  const threadMsgs = messages.filter(
+    (m) => String(m.threadRootId) === threadRootId && getEffectiveThreadHeadId(messages, m) === effectiveHeadId
+  )
+
+  if (threadMsgs.length === 0) return []
 
   let leafId = activeNodeId
-  if (!leafId || !threadMsgs.some((m) => m._id === leafId)) {
+  if (!leafId || !threadMsgs.some((m) => String(m._id) === String(leafId))) {
     leafId = getThreadLeafId(messages, threadHeadId, threadRootId)
   }
 
   const path: Message[] = []
   let currentId: string | null = leafId
   while (currentId) {
-    const msg = threadMsgs.find((m) => m._id === currentId)
+    const msg = threadMsgs.find((m) => String(m._id) === String(currentId))
     if (!msg) break
     path.unshift(msg)
-    if (currentId === threadHeadId) break
+    if (String(msg._id) === String(effectiveHeadId) || String(msg.parentId) === threadRootId) break
     currentId = msg.parentId ?? null
   }
   return path

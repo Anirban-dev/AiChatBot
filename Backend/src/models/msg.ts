@@ -1,54 +1,98 @@
-// src/models/Message.ts
-import mongoose from 'mongoose'
+// src/models/msg.ts
+// Message model for chat interactions
+import mongoose, { Document, Schema } from 'mongoose'
 
-const messageSchema = new mongoose.Schema({
-  chatId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Chat',
-    required: true,
-  },
-  role: {
-    type: String,
-    enum: ['user', 'assistant'],
-    required: true,
-  },
-  content: {
-    type: String,
-    required: true,
-  },
-  reasoning: {
-    type: String,
-  },
-  fileInfo: {
-    name: String,
-    size: Number,
-    mimeType: String,
-    extension: String,
-  },
-  file: { 
-    type: String,
-  },
-  toolCalls: [{
-    id: String,
-    name: String,
-    status: { type: String, enum: ['running', 'completed', 'failed'] },
-    result: String,
-    error: String,
-  }],
-  parentId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Message',
-    default: null,
-  },
-  threadRootId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Message',
-    default: null,
-  },
-  isEdited: {
-    type: Boolean,
-    default: false,
-  },
-}, { timestamps: true })
+export interface FileMetadata {
+  name: string
+  size: number
+  mimeType: string
+  extension: string
+}
 
-export const Message = mongoose.model('Message', messageSchema)
+export interface ToolCall {
+  id: string
+  name: string
+  status: 'running' | 'completed' | 'failed'
+  result?: string
+  error?: string
+}
+
+export interface MessageDocument extends Document {
+  chatId: Schema.Types.ObjectId
+  role: 'user' | 'assistant'
+  content: string
+  reasoning?: string
+  fileInfo?: FileMetadata
+  file?: string
+  toolCalls?: ToolCall[]
+  parentId?: Schema.Types.ObjectId | null
+  threadRootId?: Schema.Types.ObjectId | null
+  threadHeadId?: Schema.Types.ObjectId | null
+  createdAt: Date
+}
+
+const MessageSchema = new Schema<MessageDocument>(
+  {
+    chatId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Chat',
+      required: true,
+      index: true,
+    },
+    role: {
+      type: String,
+      enum: ['user', 'assistant'],
+      required: true,
+    },
+    content: {
+      type: String,
+      required: true,
+    },
+    reasoning: {
+      type: String,
+    },
+    fileInfo: {
+      name: { type: String },
+      size: { type: Number },
+      mimeType: { type: String },
+      extension: { type: String },
+    },
+    file: {
+      type: String,
+    },
+    toolCalls: [{
+      id: { type: String, required: true },
+      name: { type: String },
+      status: {
+        type: String,
+        enum: ['running', 'completed', 'failed'],
+      },
+      result: String,
+      error: String,
+    }],
+    parentId: {
+      type: Schema.Types.ObjectId,
+      default: null,
+    },
+    threadRootId: {
+      type: Schema.Types.ObjectId,
+      default: null,
+    },
+    threadHeadId: {
+      type: Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
+      index: true,
+    },
+  },
+  {
+    timestamps: true,
+  }
+)
+
+export const Message = mongoose.model<MessageDocument>('Message', MessageSchema)
+

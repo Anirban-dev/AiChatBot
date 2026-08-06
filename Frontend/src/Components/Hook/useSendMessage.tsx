@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FileText, FileSpreadsheet, Image as ImageIcon, File as FileIcon } from 'lucide-react'
-import { sendMsg, stopMsg } from '../../API/Msg'
+import { sendMsg, stopMsg, branchMsg } from '../../API/Msg'
 import { uploadFile, deleteFileFromRAG } from '../../API/File'
 import { createChat } from '../../API/Chat'
 import { useChatStore } from '../../Context/ChatContext'
@@ -235,7 +235,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
           })
         },
 
-        async (assistantMsg) => {
+        async (assistantMsg: any) => {
           setActiveTool(null)
           updateMessage(targetChatId, streamingId, assistantMsg)
           const isThreadMessage = !!(assistantMsg.threadRootId || customThreadRootId)
@@ -277,6 +277,104 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
       if (optimisticMsgId) removeMessage(targetChatId, optimisticMsgId)
       setLoading(targetChatId, false)
       setLoading(chatId, false)
+    }
+  }
+
+  const branchMessage = async (
+    originalMsgId: string,
+    forcedContent?: string,
+    passedChatId?: string,
+    uploadedFileInfo?: any,
+    uploadedFileContent?: string,
+  ) => {
+    const content = forcedContent ?? input.trim()
+    if (!content && !uploadedFileInfo) return
+
+    setInput('')
+    const targetChatId = passedChatId || chatId
+    setLoading(targetChatId, true)
+    setErrorMessage(null)
+    setActiveTool(null)
+
+    messageAbortControllerRef.current = new AbortController()
+    const streamingId = crypto.randomUUID()
+
+    try {
+      await branchMsg(
+        targetChatId,
+        originalMsgId,
+        content,
+        selectedModel,
+
+        (token: string) => {
+          setActiveTool(null)
+          appendToken(targetChatId, streamingId, token)
+        },
+
+        (userMsg: any) => {
+          const confirmedMsg = {
+            _id: userMsg._id || crypto.randomUUID(),
+            role: 'user' as const,
+            content: userMsg.content || content,
+            fileInfo: userMsg.fileInfo,
+            file: userMsg.file ?? uploadedFileContent,
+            parentId: userMsg.parentId || null,
+            threadRootId: userMsg.threadRootId || null,
+            createdAt: userMsg.createdAt || new Date().toISOString()
+          }
+          appendMessage(targetChatId, confirmedMsg)
+          if (!confirmedMsg.threadRootId) {
+            setActiveNodeId(targetChatId, confirmedMsg._id)
+          }
+        },
+
+        (toolPayload: any) => {
+          const tool = toolPayload?.tool_call ?? toolPayload
+          const toolName = tool?.name ?? tool?.tool ?? 'unknown'
+          const toolId = tool?.id ?? toolName
+          const status = toolPayload?.status ?? 'running'
+          if (status === 'running') setActiveTool(toolName)
+          else setActiveTool(null)
+          updateToolCall(targetChatId, streamingId, {
+            id: toolId, name: toolName,
+            status: status as 'running' | 'completed' | 'failed',
+            result: toolPayload?.result, error: toolPayload?.error,
+          })
+        },
+
+        async (assistantMsg: any) => {
+          setActiveTool(null)
+          updateMessage(targetChatId, streamingId, assistantMsg)
+          if (!assistantMsg.threadRootId && targetChatId === chatId) {
+            setActiveNodeId(targetChatId, assistantMsg._id)
+          }
+          setLoading(targetChatId, false)
+        },
+
+        (errData: { type?: string; message: string }) => {
+          setActiveTool(null)
+          removeMessage(targetChatId, streamingId)
+          setErrorMessage(errData.message || 'Branch streaming error.')
+          setLoading(targetChatId, false)
+        },
+
+        messageAbortControllerRef.current.signal,
+
+        (reasoningToken: string) => {
+          setActiveTool(null)
+          appendReasoningToken(targetChatId, streamingId, reasoningToken)
+        },
+
+        uploadedFileInfo,
+        uploadedFileContent,
+      )
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        console.error(err)
+        setErrorMessage(err.message || 'An unexpected branch error occurred.')
+      }
+      setActiveTool(null)
+      setLoading(targetChatId, false)
     }
   }
 
@@ -496,7 +594,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
   }, [input])
 
   return {
-    input, setInput, sendMessage, stopGeneration, handleFileUpload, loading, uploading, runCode, isPythonReady,
+    input, setInput, sendMessage, branchMessage, stopGeneration, handleFileUpload, loading, uploading, runCode, isPythonReady,
     pendingFile, previewUrl, clearStaging, handleSendAction, handleKeyDown, pendingCode, setCodeContext,
     handlePaste, handleTextPaste, countTokens, onFileSelect, formatFileSize, getFileIcon, formatTime,
     activeTool, setActiveTool, errorMessage, setErrorMessage, selectedModel, setSelectedModel, clearError,

@@ -27,6 +27,7 @@ export interface Message {
   createdAt: string
   parentId?: string | null
   threadRootId?: string | null
+  threadHeadId?: string | null
   threadReplyCount?: number
 }
 
@@ -36,6 +37,7 @@ interface ChatContextType {
   appendMessage: (chatId: string, msg: Message) => void
   updateMessage: (chatId: string, msgId: string, update: Partial<Message>) => void
   removeMessage: (chatId: string, msgId: string) => void
+  removeMessages: (chatId: string, msgIds: string[]) => void
   appendToken: (chatId: string, msgId: string, token: string) => void
   appendReasoningToken: (chatId: string, msgId: string, token: string) => void
   updateToolCall: (chatId: string, msgId: string, toolCall: ToolCall) => void
@@ -98,6 +100,14 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
     setStore(prev => ({
       ...prev,
       [chatId]: (prev[chatId] || []).filter(m => m._id !== msgId)
+    }))
+  }
+
+  const removeMessages = (chatId: string, msgIds: string[]) => {
+    const setIds = new Set(msgIds)
+    setStore(prev => ({
+      ...prev,
+      [chatId]: (prev[chatId] || []).filter(m => !setIds.has(m._id))
     }))
   }
 
@@ -186,8 +196,9 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
   const getActivePath = (chatId: string, activeNodeId: string): Message[] => {
     const msgs = store[chatId] || []
     if (!activeNodeId) {
-      if (msgs.length === 0) return []
-      const lastMsg = msgs[msgs.length - 1]
+      const mainMsgs = msgs.filter(m => !m.threadRootId)
+      if (mainMsgs.length === 0) return []
+      const lastMsg = mainMsgs[mainMsgs.length - 1]
       return getActivePath(chatId, lastMsg._id)
     }
     
@@ -198,7 +209,10 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
       const msg = msgs.find(m => m._id === currentId)
       if (!msg) break
       
-      path.unshift(msg)
+      // Do not include thread messages in main timeline active path
+      if (!msg.threadRootId) {
+        path.unshift(msg)
+      }
       currentId = msg.parentId || null
     }
     
@@ -207,8 +221,12 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
 
   const sameScope = (a: Message, b: Message, scopeThreadRootId?: string | null) => {
     if (scopeThreadRootId) {
+      const sameHead = (a.threadHeadId && b.threadHeadId)
+        ? String(a.threadHeadId) === String(b.threadHeadId)
+        : true
       return String(a.threadRootId) === String(scopeThreadRootId) &&
-        String(b.threadRootId) === String(scopeThreadRootId)
+        String(b.threadRootId) === String(scopeThreadRootId) &&
+        sameHead
     }
     return !a.threadRootId && !b.threadRootId
   }
@@ -290,7 +308,7 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
   return (
     <ChatContext.Provider value={{
       getMessages, setMessages, appendMessage,
-      updateMessage, removeMessage, appendToken, appendReasoningToken, updateToolCall, setLoading, isLoading,
+      updateMessage, removeMessage, removeMessages, appendToken, appendReasoningToken, updateToolCall, setLoading, isLoading,
       getActivePath, setActiveNodeId, activeNodeId, getBranchInfo, switchBranch,
       setPendingActiveMsgId, pendingActiveMsgId, clearPendingActiveMsgId
     }}>

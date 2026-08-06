@@ -98,7 +98,7 @@ router.get('/', midLimiter, async (req: AdminRequest, res: Response) => {
       ])
 
       const messagesCount = await Message.countDocuments({
-        chatId: { $in: userChats.map(c => c._id) },
+        chatId: { $in: userChats.map(c => c._id.toString()) },
       })
 
       return {
@@ -349,7 +349,7 @@ router.delete('/:userId', midLimiter, async (req: AdminRequest & { params: { use
     if (!user) return res.status(404).json({ error: 'User not found' })
 
     const chats   = await Chat.find({ userId }).select('_id')
-    const chatIds = chats.map(c => c._id)
+    const chatIds = chats.map(c => c._id.toString())
     await Message.deleteMany({ chatId: { $in: chatIds } })
     await Chat.deleteMany({ userId })
 

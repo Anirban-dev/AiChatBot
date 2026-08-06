@@ -156,7 +156,7 @@ router.get('/search/query', genLimiter, async (req: AuthRequest, res: Response) 
     if (!q || !q.trim()) return res.json([])
 
     const userChats = await Chat.find({ userId: req.userId })
-    const chatIds = userChats.map(c => c._id)
+    const chatIds = userChats.map(c => c._id.toString())
 
     const messages = await Message.find({
       chatId: { $in: chatIds },
