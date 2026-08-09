@@ -38,9 +38,9 @@ interface ChatContextType {
   updateMessage: (chatId: string, msgId: string, update: Partial<Message>) => void
   removeMessage: (chatId: string, msgId: string) => void
   removeMessages: (chatId: string, msgIds: string[]) => void
-  appendToken: (chatId: string, msgId: string, token: string) => void
-  appendReasoningToken: (chatId: string, msgId: string, token: string) => void
-  updateToolCall: (chatId: string, msgId: string, toolCall: ToolCall) => void
+  appendToken: (chatId: string, msgId: string, token: string, threadRootId?: string | null, parentId?: string | null) => void
+  appendReasoningToken: (chatId: string, msgId: string, token: string, threadRootId?: string | null, parentId?: string | null) => void
+  updateToolCall: (chatId: string, msgId: string, toolCall: ToolCall, threadRootId?: string | null, parentId?: string | null) => void
   setLoading: (chatId: string, val: boolean) => void
   isLoading: (chatId: string) => boolean
   getActivePath: (chatId: string, activeNodeId: string) => Message[]
@@ -61,99 +61,186 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
   const [activeNodeIds, setActiveNodeIds] = useState<Record<string, string | null>>({})
   const [pendingActiveMsgIds, setPendingActiveMsgIds] = useState<Record<string, string | null>>({})
   
+  // Initialize messages from localStorage or use empty object
+  const [store, setStore] = useState<Record<string, any>>(() => {
+    try {
+      const saved = localStorage.getItem('chatMessages')
+      return saved ? JSON.parse(saved) : {}
+    } catch (error) {
+      console.error('Failed to load messages from localStorage:', error)
+      return {}
+    }
+  })
+  
+  // Re-export the Message type for backward compatibility
+  type MessageType = {
+    _id: string
+    role: 'user' | 'assistant'
+    content: string
+    reasoning?: string
+    fileInfo?: {
+      name: string
+      size: number
+      mimeType: string
+      extension: string
+    }
+    file?: string
+    toolCalls?: Array<{
+      id: string
+      name: string
+      status: 'running' | 'completed' | 'failed'
+      result?: string
+      error?: string
+    }>
+    createdAt: string
+    parentId?: string | null
+    threadRootId?: string | null
+    threadHeadId?: string | null
+    threadReplyCount?: number
+  }
+  
   const setLoading = (chatId: string, val: boolean) => {
     setLoadingChats(prev => ({ ...prev, [chatId]: val }))
   }
   
   const isLoading = (chatId: string) => loadingChats[chatId] || false
 
-  const [store, setStore] = useState<Record<string, Message[]>>({})
-
-  const getMessages = (chatId: string) => store[chatId] || []
-
-  const setMessages = (chatId: string, msgs: Message[]) => {
-    setStore(prev => ({ ...prev, [chatId]: msgs }))
-    if (msgs.length > 0) {
-      const mainMsgs = msgs.filter(m => !m.threadRootId)
-      const target = mainMsgs.length > 0 ? mainMsgs[mainMsgs.length - 1] : msgs[msgs.length - 1]
-      setActiveNodeIds(prev => ({ ...prev, [chatId]: target._id }))
+  const getMessages = (chatId: string) => (store[chatId] as any) || []
+  
+  const saveToLocalStorage = () => {
+    try {
+      localStorage.setItem('chatMessages', JSON.stringify(store))
+    } catch (error) {
+      console.error('Failed to save messages to localStorage:', error)
     }
   }
 
-  const appendMessage = (chatId: string, msg: Message) => {
-    setStore(prev => ({
-      ...prev,
-      [chatId]: [...(prev[chatId] || []), msg]
-    }))
+  const setMessages = (chatId: string, msgs: any[]) => {
+    setStore(prev => {
+      const updated = { ...prev, [chatId]: msgs }
+      saveToLocalStorage()
+      return updated
+    })
+    if (msgs.length > 0) {
+      const mainMsgs = msgs.filter((m: any) => !m.threadRootId)
+      const target = mainMsgs.length > 0 ? mainMsgs[mainMsgs.length - 1] : msgs[msgs.length - 1]
+      setActiveNodeIds((prev: any) => ({ ...prev, [chatId]: target._id }))
+    }
   }
 
-  const updateMessage = (chatId: string, msgId: string, update: Partial<Message>) => {
-    setStore(prev => ({
-      ...prev,
-      [chatId]: (prev[chatId] || []).map(m =>
-        m._id === msgId ? { ...m, ...update } : m
-      )
-    }))
+  const appendMessage = (chatId: string, msg: any) => {
+    setStore(prev => {
+      const updated = {
+        ...prev,
+        [chatId]: [...(prev[chatId] || []), msg]
+      }
+      saveToLocalStorage()
+      return updated
+    })
+  }
+
+  const updateMessage = (chatId: string, msgId: string, update: any) => {
+    setStore(prev => {
+      const updated = {
+        ...prev,
+        [chatId]: (prev[chatId] || []).map((m: any) =>
+          m._id === msgId ? { ...m, ...update } : m
+        )
+      }
+      saveToLocalStorage()
+      return updated
+    })
   }
 
   const removeMessage = (chatId: string, msgId: string) => {
-    setStore(prev => ({
-      ...prev,
-      [chatId]: (prev[chatId] || []).filter(m => m._id !== msgId)
-    }))
+    setStore(prev => {
+      const updated = {
+        ...prev,
+        [chatId]: (prev[chatId] || []).filter((m: any) => m._id !== msgId)
+      }
+      saveToLocalStorage()
+      return updated
+    })
   }
 
   const removeMessages = (chatId: string, msgIds: string[]) => {
     const setIds = new Set(msgIds)
-    setStore(prev => ({
-      ...prev,
-      [chatId]: (prev[chatId] || []).filter(m => !setIds.has(m._id))
-    }))
+    setStore(prev => {
+      const updated = {
+        ...prev,
+        [chatId]: (prev[chatId] || []).filter((m: any) => !setIds.has(m._id))
+      }
+      saveToLocalStorage()
+      return updated
+    })
   }
 
-  const appendToken = (chatId: string, msgId: string, token: string) => {
+  const appendToken = (
+    chatId: string,
+    msgId: string,
+    token: string,
+    explicitThreadRootId?: string | null,
+    explicitParentId?: string | null
+  ) => {
+    let isThread = false
     setStore(prev => {
       const msgs = prev[chatId] || []
-      const exists = msgs.find(m => m._id === msgId)
+      const exists = msgs.find((m: MessageType) => m._id === msgId)
       if (exists) {
+        isThread = !!exists.threadRootId
         return {
           ...prev,
-          [chatId]: msgs.map(m =>
+          [chatId]: msgs.map((m: MessageType) =>
             m._id === msgId ? { ...m, content: m.content + token } : m
           )
         }
       } else {
-        // Find preceding user message to infer threadRootId
         const lastMsg = msgs[msgs.length - 1]
-        const threadRootId = lastMsg?.threadRootId || null
+        const threadRootId = explicitThreadRootId !== undefined ? explicitThreadRootId : (lastMsg?.threadRootId || null)
+        const parentId = explicitParentId !== undefined ? explicitParentId : (lastMsg ? lastMsg._id : null)
+        isThread = !!threadRootId
         return {
           ...prev,
           [chatId]: [...msgs, {
             _id: msgId,
             role: 'assistant',
             content: token,
+            parentId,
             threadRootId,
             createdAt: new Date().toISOString(),
           }]
         }
       }
     })
+    if (!isThread) {
+      setActiveNodeIds(prev => ({ ...prev, [chatId]: msgId }))
+    }
   }
 
-  const appendReasoningToken = (chatId: string, msgId: string, token: string) => {
+  const appendReasoningToken = (
+    chatId: string,
+    msgId: string,
+    token: string,
+    explicitThreadRootId?: string | null,
+    explicitParentId?: string | null
+  ) => {
+    let isThread = false
     setStore(prev => {
       const msgs = prev[chatId] || []
-      const exists = msgs.find(m => m._id === msgId)
+      const exists = msgs.find((m: MessageType) => m._id === msgId)
       if (exists) {
+        isThread = !!exists.threadRootId
         return {
           ...prev,
-          [chatId]: msgs.map(m =>
+          [chatId]: msgs.map((m: MessageType) =>
             m._id === msgId ? { ...m, reasoning: (m.reasoning || '') + token } : m
           )
         }
       } else {
         const lastMsg = msgs[msgs.length - 1]
-        const threadRootId = lastMsg?.threadRootId || null
+        const threadRootId = explicitThreadRootId !== undefined ? explicitThreadRootId : (lastMsg?.threadRootId || null)
+        const parentId = explicitParentId !== undefined ? explicitParentId : (lastMsg ? lastMsg._id : null)
+        isThread = !!threadRootId
         return {
           ...prev,
           [chatId]: [...msgs, {
@@ -161,30 +248,65 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
             role: 'assistant',
             content: '',
             reasoning: token,
+            parentId,
             threadRootId,
             createdAt: new Date().toISOString(),
           }]
         }
       }
     })
+    if (!isThread) {
+      setActiveNodeIds(prev => ({ ...prev, [chatId]: msgId }))
+    }
   }
 
-  const updateToolCall = (chatId: string, msgId: string, toolCall: ToolCall) => {
+  const updateToolCall = (
+    chatId: string,
+    msgId: string,
+    toolCall: ToolCall,
+    explicitThreadRootId?: string | null,
+    explicitParentId?: string | null
+  ) => {
+    let isThread = false
     setStore(prev => {
       const msgs = prev[chatId] || []
-      return {
-        ...prev,
-        [chatId]: msgs.map(m => {
-          if (m._id !== msgId) return m
-          const existingCalls = m.toolCalls || []
-          const existingIdx = existingCalls.findIndex(tc => tc.id === toolCall.id)
-          const updatedCalls = existingIdx > -1
-            ? existingCalls.map((tc, i) => i === existingIdx ? toolCall : tc)
-            : [...existingCalls, toolCall]
-          return { ...m, toolCalls: updatedCalls }
-        })
+      const existingIdx = msgs.findIndex((m: MessageType) => m._id === msgId)
+      if (existingIdx > -1) {
+        isThread = !!msgs[existingIdx].threadRootId
+        return {
+          ...prev,
+          [chatId]: msgs.map((m: MessageType) => {
+            if (m._id !== msgId) return m
+            const existingCalls = m.toolCalls || []
+            const tcIdx = existingCalls.findIndex((tc: ToolCall) => tc.id === toolCall.id)
+            const updatedCalls = tcIdx > -1
+              ? existingCalls.map((tc: ToolCall, i: number) => i === tcIdx ? toolCall : tc)
+              : [...existingCalls, toolCall]
+            return { ...m, toolCalls: updatedCalls }
+          })
+        }
+      } else {
+        const lastMsg = msgs[msgs.length - 1]
+        const threadRootId = explicitThreadRootId !== undefined ? explicitThreadRootId : (lastMsg?.threadRootId || null)
+        const parentId = explicitParentId !== undefined ? explicitParentId : (lastMsg ? lastMsg._id : null)
+        isThread = !!threadRootId
+        return {
+          ...prev,
+          [chatId]: [...msgs, {
+            _id: msgId,
+            role: 'assistant',
+            content: '',
+            parentId,
+            threadRootId,
+            toolCalls: [toolCall],
+            createdAt: new Date().toISOString(),
+          }]
+        }
       }
     })
+    if (!isThread) {
+      setActiveNodeIds(prev => ({ ...prev, [chatId]: msgId }))
+    }
   }
 
   const setActiveNodeId = (chatId: string, nodeId: string) => {
@@ -196,7 +318,7 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
   const getActivePath = (chatId: string, activeNodeId: string): Message[] => {
     const msgs = store[chatId] || []
     if (!activeNodeId) {
-      const mainMsgs = msgs.filter(m => !m.threadRootId)
+      const mainMsgs = msgs.filter((m: MessageType) => !m.threadRootId)
       if (mainMsgs.length === 0) return []
       const lastMsg = mainMsgs[mainMsgs.length - 1]
       return getActivePath(chatId, lastMsg._id)
@@ -206,7 +328,7 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
     let currentId: string | null = activeNodeId
     
     while (currentId) {
-      const msg = msgs.find(m => m._id === currentId)
+      const msg = msgs.find((m: MessageType) => m._id === currentId)
       if (!msg) break
       
       // Do not include thread messages in main timeline active path
@@ -237,10 +359,10 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
     scopeThreadRootId?: string | null
   ): { branchCount: number; currentIndex: number } => {
     const msgs = store[chatId] || []
-    const msg = msgs.find(m => m._id === nodeId)
+    const msg = msgs.find((m: MessageType) => m._id === nodeId)
     if (!msg) return { branchCount: 0, currentIndex: 0 }
 
-    const siblings = msgs.filter(m =>
+    const siblings = msgs.filter((m: MessageType) =>
       m.role === msg.role &&
       (m.parentId === msg.parentId || (!m.parentId && !msg.parentId)) &&
       sameScope(m, msg, scopeThreadRootId)
@@ -249,7 +371,7 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
       return { branchCount: 0, currentIndex: 0 }
     }
 
-    const currentIndex = siblings.findIndex(s => s._id === nodeId)
+    const currentIndex = siblings.findIndex((s: MessageType) => s._id === nodeId)
     return {
       branchCount: siblings.length,
       currentIndex: currentIndex + 1
@@ -263,17 +385,17 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
     scopeThreadRootId?: string | null
   ) => {
     const msgs = store[chatId] || []
-    const msg = msgs.find(m => m._id === currentMsgId)
+    const msg = msgs.find((m: MessageType) => m._id === currentMsgId)
     if (!msg) return
 
-    const siblings = msgs.filter(m =>
+    const siblings = msgs.filter((m: MessageType) =>
       m.role === msg.role &&
       (m.parentId === msg.parentId || (!m.parentId && !msg.parentId)) &&
       sameScope(m, msg, scopeThreadRootId)
     )
     if (siblings.length <= 1) return
 
-    const currentIndex = siblings.findIndex(s => s._id === currentMsgId)
+    const currentIndex = siblings.findIndex((s: MessageType) => s._id === currentMsgId)
     let newIndex = currentIndex
 
     if (direction === 'prev') {
@@ -286,7 +408,7 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
 
     let currentId = targetSibling._id
     while (true) {
-      const children = msgs.filter(m =>
+      const children = msgs.filter((m: MessageType) =>
         m.parentId === currentId && sameScope(m, targetSibling, scopeThreadRootId)
       )
       if (children.length === 0) break

@@ -95,18 +95,15 @@ async def search(query: str, chat_id: str, k: int = TOP_K_RESULTS) -> list[Docum
     if store is None:
         return []
 
-    fetch_k = k * 3
-    text_task = asyncio.to_thread(store.similarity_search, query, k=fetch_k, filter=type_filter("content"))
-    image_task = asyncio.to_thread(store.similarity_search, query, k=fetch_k, filter=type_filter("embedded_image"))
+    text_task = asyncio.to_thread(store.similarity_search, query, k=k, filter=type_filter("content"))
+    image_task = asyncio.to_thread(store.similarity_search, query, k=k, filter=type_filter("embedded_image"))
 
     text_chunks, image_chunks = await asyncio.gather(text_task, image_task)
 
     if _is_visual_query(query):
         merged = (image_chunks + text_chunks)[:k]
-        print(f"[VectorStore] Visual query → prioritizing image nodes ({len(image_chunks)} matched)")
     else:
         merged = (text_chunks + image_chunks)[:k]
-        print(f"[VectorStore] Text query → prioritizing text nodes ({len(text_chunks)} matched)")
 
     return merged
 

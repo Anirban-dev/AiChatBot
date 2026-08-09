@@ -18,16 +18,16 @@ export interface ToolCall {
 }
 
 export interface MessageDocument extends Document {
-  chatId: Schema.Types.ObjectId
+  chatId: mongoose.Types.ObjectId
   role: 'user' | 'assistant'
   content: string
   reasoning?: string
   fileInfo?: FileMetadata
   file?: string
   toolCalls?: ToolCall[]
-  parentId?: Schema.Types.ObjectId | null
-  threadRootId?: Schema.Types.ObjectId | null
-  threadHeadId?: Schema.Types.ObjectId | null
+  parentId?: mongoose.Types.ObjectId | null
+  threadRootId?: mongoose.Types.ObjectId | null
+  threadHeadId?: mongoose.Types.ObjectId | null
   createdAt: Date
 }
 

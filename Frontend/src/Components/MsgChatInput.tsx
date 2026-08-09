@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react'
-import { Send, Square, Paperclip, X, AlertTriangle, Cpu, Image, FileText, Camera, Video, Code } from 'lucide-react'
+import { Send, Square, Paperclip, X, AlertTriangle, Cpu, Image, FileText, Camera, Code } from 'lucide-react'
 import { ModelSelector } from './ModelSelector'
 
 interface MsgChatInputProps {
@@ -253,11 +253,6 @@ export const MsgChatInput = ({
                 <button onClick={startCamera} className="w-full px-3 py-2 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/60 flex items-center gap-2.5 transition-colors cursor-pointer">
                   <Camera size={15} className="text-emerald-500" />
                   <span>Photo (Camera snap)</span>
-                </button>
-                <button onClick={() => { setIsMenuOpen(false); alert("Live context video stream execution is coming soon!"); }} className="w-full px-3 py-2 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/60 flex items-center gap-2.5 opacity-60 transition-colors cursor-not-allowed">
-                  <Video size={15} className="text-orange-500" />
-                  <span className="flex-1">Video Live</span>
-                  <span className="text-[9px] font-bold bg-gray-100 dark:bg-gray-900 px-1 py-0.5 rounded text-gray-400">UI ONLY</span>
                 </button>
                 <div className="h-px bg-gray-100 dark:bg-gray-700/60 my-1" />
                 <button onClick={() => { setIsMenuOpen(false); setIsCodeModalOpen(true); }} className="w-full px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/60 flex items-center gap-2.5 transition-colors cursor-pointer">

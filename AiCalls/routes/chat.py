@@ -396,12 +396,7 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                         full_text,
                         re.DOTALL,
                     )
-                    # Also match standard tool calls like "Use web_search to find..."
                     tool_names_known = set(tool_manager.get_tools().keys())
-                    inline_calls = []
-                    for match_name in re.findall(r"\b([a-zA-Z_0-9]+)\b", full_text):
-                        if match_name in tool_names_known and match_name not in inline_calls:
-                            inline_calls.append(match_name)
 
                     if "<function>" in full_text or "<tool_call>" in full_text:
                         func_matches = re.findall(

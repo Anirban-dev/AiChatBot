@@ -42,31 +42,26 @@ async def vector_db_search(
         # Check if embeddings are available
         embeddings = get_embeddings()
         
-        # Perform vector search using vector_store for better features (visual query handling, caching, etc.)
+        # Perform vector search using vector_store for optimized top-2 retrieval
         results = await vector_store_search(
             query=query,
             chat_id=chat_id,
-            k=k
+            k=min(k, 2)
         )
         
         if not results:
             return "No relevant documents found in the uploaded files for this chat."
         
-        # Format results
+        # Format results (compact to minimize context window & RAM overhead on CPU)
         formatted = []
-        formatted.append(f"Found {len(results)} relevant document(s):")
-        formatted.append("=" * 50)
+        formatted.append(f"Found {len(results)} relevant snippet(s):")
         
         for i, doc in enumerate(results, 1):
             metadata = doc.metadata or {}
-            page_content = doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content
-            
-            formatted.append(f"\n[{i}] Source: {metadata.get('source', 'Unknown')}")
-            formatted.append(f"Type: {metadata.get('type', 'Unknown')}")
-            formatted.append(f"Content Preview:\n{page_content}")
-            formatted.append("-" * 50)
+            page_content = doc.page_content[:350] + "..." if len(doc.page_content) > 350 else doc.page_content
+            formatted.append(f"[{i}] Source: {metadata.get('source', 'Unknown')} | Content:\n{page_content}")
         
-        return "\n".join(formatted)
+        return "\n\n".join(formatted)
         
     except Exception as e:
         _log.error(f"Vector DB search error: {e}")

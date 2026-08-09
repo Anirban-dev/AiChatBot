@@ -177,8 +177,24 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
     setErrorMessage(null)
     setActiveTool(null)
 
+    let effectiveOptimisticId = optimisticMsgId
+    if (!effectiveOptimisticId && customThreadRootId) {
+      effectiveOptimisticId = crypto.randomUUID()
+      appendMessage(targetChatId, {
+        _id: effectiveOptimisticId,
+        role: 'user',
+        content: content || '',
+        fileInfo: uploadedFileInfo,
+        file: uploadedFileContent,
+        parentId: customParentId || null,
+        threadRootId: customThreadRootId,
+        createdAt: new Date().toISOString()
+      })
+    }
+
     messageAbortControllerRef.current = new AbortController()
     const streamingId = crypto.randomUUID()
+    const threadParentId = effectiveOptimisticId || customParentId
 
     try {
       await sendMsg(
@@ -188,7 +204,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
 
         (token: string) => {
           setActiveTool(null)
-          appendToken(targetChatId, streamingId, token)
+          appendToken(targetChatId, streamingId, token, customThreadRootId, threadParentId)
         },
 
         (userMsg: any) => {
@@ -199,12 +215,12 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
             text: userMsg.text,
             fileInfo: userMsg.fileInfo,
             file: userMsg.file ?? uploadedFileContent,
-            parentId: userMsg.parentId || null,
+            parentId: userMsg.parentId || customParentId || null,
             threadRootId: userMsg.threadRootId || customThreadRootId || null,
             createdAt: userMsg.createdAt || new Date().toISOString()
           }
-          if (optimisticMsgId) {
-            updateMessage(targetChatId, optimisticMsgId, confirmedMsg)
+          if (effectiveOptimisticId) {
+            updateMessage(targetChatId, effectiveOptimisticId, confirmedMsg)
           } else {
             appendMessage(targetChatId, confirmedMsg)
           }
@@ -232,7 +248,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
             status: status as 'running' | 'completed' | 'failed',
             result: toolPayload?.result,
             error: toolPayload?.error,
-          })
+          }, customThreadRootId, threadParentId)
         },
 
         async (assistantMsg: any) => {
@@ -248,7 +264,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         (errData: { type?: string; message: string; threadRootId?: string | null }) => {
           setActiveTool(null)
           removeMessage(targetChatId, streamingId)
-          if (optimisticMsgId) removeMessage(targetChatId, optimisticMsgId)
+          if (effectiveOptimisticId) removeMessage(targetChatId, effectiveOptimisticId)
           setErrorMessage(errData.message || 'A streaming worker pipeline exception occurred.')
           setLoading(targetChatId, false)
           if (targetChatId === chatId) {
@@ -260,7 +276,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
 
         (reasoningToken: string) => {
           setActiveTool(null)
-          appendReasoningToken(targetChatId, streamingId, reasoningToken)
+          appendReasoningToken(targetChatId, streamingId, reasoningToken, customThreadRootId, threadParentId)
         },
 
         uploadedFileInfo,
@@ -274,7 +290,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         setErrorMessage(err.message || 'An unexpected engine execution fault occurred.')
       }
       setActiveTool(null)
-      if (optimisticMsgId) removeMessage(targetChatId, optimisticMsgId)
+      if (effectiveOptimisticId) removeMessage(targetChatId, effectiveOptimisticId)
       setLoading(targetChatId, false)
       setLoading(chatId, false)
     }
