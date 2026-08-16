@@ -40,7 +40,7 @@ export const createRateLimiter = ({
     standardHeaders: 'draft-7',
     legacyHeaders: false,
 
-    message: { error: message ?? 'Too many requests. Please slow down.' },
+    message: { error: message ?? 'Rate limit exceeded. Please wait and try again.' },
 
     handler: (req, res, _next, options) => {
       res.status(options.statusCode).json({

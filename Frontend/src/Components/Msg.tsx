@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
-import { Cpu, Loader2, Camera, X } from 'lucide-react'
+import { Cpu, Loader2, Camera, X, Info } from 'lucide-react'
 import { getMsgs } from '../API/Msg'
+import api from '../Auth/AxiosHelper'
 import { useSendMessage } from './Hook/useSendMessage'
 import { useChatStore } from '../Context/ChatContext'
 import { CodeRagModal } from './CodeRag'
@@ -26,6 +27,22 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
   const [activeThreadHeadId, setActiveThreadHeadId] = useState<string | null>(null)
   const [isComposingNewThread, setIsComposingNewThread] = useState(false)
   const [threadBrowseIndex, setThreadBrowseIndex] = useState<Record<string, number>>({})
+  const [apiConfigured, setApiConfigured] = useState<boolean | null>(null)
+
+  // Probe whether the admin has enabled any AI provider so we can show an
+  // actionable notice instead of a cryptic error when the user first sends.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await api.get('/config-status')
+        if (!cancelled) setApiConfigured(res.data?.configured ?? true)
+      } catch {
+        if (!cancelled) setApiConfigured(null) // unknown → don't block the UI
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
   
   // Build thread count map: anchorMessageId -> number of threads
   const threadCountMap = useMemo(() => {
@@ -420,6 +437,17 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
         )}
           <div ref={bottomRef} />
         </div>
+
+        {/* Proactive notice: no AI provider configured */}
+        {apiConfigured === false && (
+          <div className="mb-3 flex items-start gap-2.5 p-3.5 rounded-xl border border-amber-200 bg-amber-50/70 dark:bg-amber-950/20 dark:border-amber-800/40 text-amber-800 dark:text-amber-300">
+            <Info size={16} className="mt-0.5 shrink-0 text-amber-500" />
+            <p className="text-xs leading-relaxed">
+              AI APIs have not been configured yet. Ask your administrator to add provider API keys in
+              <span className="font-semibold"> Admin → AI APIs</span>. You won't be able to get responses until one is set up.
+            </p>
+          </div>
+        )}
 
         <MsgChatInput
           input={sendHook.input}

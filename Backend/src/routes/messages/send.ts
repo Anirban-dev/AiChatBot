@@ -10,6 +10,7 @@ import { redis }      from '../../utils/redis'
 import { getEffectiveUserLimits } from '../admin/users'
 import { getWindowStamp, getWindowTTLSeconds, formatPeriodLabel } from '../../utils/windowHelper'
 import { LlmLog } from '../../models/llmLog'
+import { AiProvider } from '../../models/aiProvider'
 import mongoose from 'mongoose'
 
 const router = Router({ mergeParams: true })
@@ -65,6 +66,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     const periodLabel = formatPeriodLabel(modelPeriod)
 
     if (modelRequestsUsed >= modelLimit.rpm) {
+      const retryAfter = await redis.ttl(modelRpmKey) || null
       await writeLog({
         userId, action: 'AI_CHAT', status: 'failed', method: 'POST',
         path: `/api/chats/${chatId}/msgs`,
@@ -72,10 +74,19 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
         latency: Date.now() - startTime,
         details: { chatId, model: targetTier, reason: `Request limit reached for ${targetTier} model (${modelPeriod})`, limit: modelLimit.rpm, used: modelRequestsUsed },
       })
-      return res.status(429).json({ error: `${modelPeriod.charAt(0).toUpperCase() + modelPeriod.slice(1)} request limit reached for the '${targetTier}' model (${modelLimit.rpm} requests/${periodLabel}). Please wait or switch models.` })
+      const periodLabel = formatPeriodLabel(modelPeriod)
+      const retryMsg = retryAfter
+        ? `${retryAfter > 3600 ? Math.ceil(retryAfter / 3600) : Math.ceil(retryAfter / 60)} ${
+            retryAfter > 3600
+              ? Math.ceil(retryAfter / 3600) === 1 ? 'hour' : 'hours'
+              : Math.ceil(retryAfter / 60) === 1 ? 'minute' : 'minutes'
+          } ${retryAfter > 3600 ? '' : 'about'}`
+        : 'Please wait or switch models.'
+      return res.status(429).json({ error: `${modelPeriod.charAt(0).toUpperCase() + modelPeriod.slice(1)} request limit reached for the '${targetTier}' model (${modelLimit.rpm} requests/${periodLabel}). ${retryMsg}` })
     }
 
     if (modelTokensUsed >= modelLimit.tpm) {
+      const retryAfter = await redis.ttl(modelTpmKey) || null
       await writeLog({
         userId, action: 'AI_CHAT', status: 'failed', method: 'POST',
         path: `/api/chats/${chatId}/msgs`,
@@ -83,10 +94,53 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
         latency: Date.now() - startTime,
         details: { chatId, model: targetTier, reason: `Token quota reached for ${targetTier} model (${modelPeriod})`, limit: modelLimit.tpm, used: modelTokensUsed },
       })
-      return res.status(429).json({ error: `${modelPeriod.charAt(0).toUpperCase() + modelPeriod.slice(1)} token quota reached for the '${targetTier}' model (${modelLimit.tpm.toLocaleString()} tokens/${periodLabel}). Please wait or switch models.` })
-    }
+      const periodLabel = formatPeriodLabel(modelPeriod)
+      const retryMsg = retryAfter
+        ? `${retryAfter > 3600 ? Math.ceil(retryAfter / 3600) : Math.ceil(retryAfter / 60)} ${
+            retryAfter > 3600
+              ? Math.ceil(retryAfter / 3600) === 1 ? 'hour' : 'hours'
+              : Math.ceil(retryAfter / 60) === 1 ? 'minute' : 'minutes'
+          } ${retryAfter > 3600 ? '' : 'about'}`
+        : 'Please wait or switch models.'
+    return res.status(429).json({ error: `${modelPeriod.charAt(0).toUpperCase() + modelPeriod.slice(1)} token quota reached for the '${targetTier}' model (${modelLimit.tpm.toLocaleString()} tokens/${periodLabel}). ${retryMsg}` })
+  }
 
-    // ─── Build context window ──────────────────────────────────────────────────
+  // ─── AI provider configuration check ──────────────────────────────────────
+  // If the admin hasn't enabled any AI API keys yet, surface an actionable
+  // error instead of forwarding a confusing litellm "no healthy deployments".
+  let enabledProviderCount: number | null = null
+  try {
+    enabledProviderCount = await AiProvider.countDocuments({ enabled: true })
+  } catch (err: any) {
+    console.error('[send] Failed to count AI providers:', err)
+  }
+
+  if (enabledProviderCount === 0) {
+    await writeLog({
+      userId, action: 'AI_CHAT', status: 'failed', method: 'POST',
+      path: `/api/chats/${chatId}/msgs`,
+      ipAddress: req.ip ?? req.socket.remoteAddress, userAgent: req.headers['user-agent'],
+      latency: Date.now() - startTime,
+      details: { chatId, stage: 'ai_not_configured', targetTier, enabledProviderCount: 0 },
+    })
+    LlmLog.create({
+      type: 'failure',
+      userId: new mongoose.Types.ObjectId(userId),
+      chatId: new mongoose.Types.ObjectId(chatId),
+      virtual_model: targetTier,
+      mode: targetTier,
+      latency_ms: Date.now() - startTime,
+      error: `FAILURE tier=${targetTier} user=${userId} chat=${chatId} stage=ai_not_configured`,
+      timestamp: new Date(),
+    }).catch((e: any) => console.error('[LlmLog] Failed to write not-configured log:', e))
+
+    isFinished = true
+    return res.status(503).json({
+      error: "AI APIs are not configured yet. Ask an administrator to add API keys in the Admin Dashboard → AI APIs.",
+    })
+  }
+
+  // ─── Build context window ──────────────────────────────────────────────────
     //
     // THREAD MESSAGE:
     //   a) Walk this thread's own parentId chain back to the thread root anchor.

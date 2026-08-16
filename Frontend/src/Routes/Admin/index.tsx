@@ -8,8 +8,9 @@ import UsersTab from './UsersTab'
 import TiersTab from './TiersTab'
 import LogsTab from './LogsTab'
 import LLMTab from './Litellm'
+import AiProvidersTab from './AiProvidersTab'
 
-type Tab = 'overview' | 'users' | 'tiers' | 'logs' | 'llm'
+type Tab = 'overview' | 'users' | 'tiers' | 'logs' | 'llm' | 'ai'
 
 const AdminDashboard = () => {
   const navigate = useNavigate()
@@ -53,6 +54,7 @@ const AdminDashboard = () => {
     { id: 'overview', label: 'Overview' },
     { id: 'users',    label: 'Users' },
     { id: 'tiers',    label: 'Tiers' },
+    { id: 'ai',       label: 'AI APIs' },
     { id: 'logs',     label: 'Activity Logs' },
     { id: 'llm',      label: 'LLM Logs' }
   ]
@@ -145,6 +147,7 @@ const AdminDashboard = () => {
           {tab === 'overview' && <OverviewTab onExpired={handleExpired} />}
           {tab === 'users'    && <UsersTab    onExpired={handleExpired} />}
           {tab === 'tiers'    && <TiersTab    onExpired={handleExpired} />}
+          {tab === 'ai'       && <AiProvidersTab onExpired={handleExpired} />}
           {tab === 'logs'     && <LogsTab     onExpired={handleExpired} />}
           {tab === 'llm'      && <LLMTab      onExpired={handleExpired} />}
         </main>

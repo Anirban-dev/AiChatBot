@@ -55,7 +55,15 @@ const llmLogSchema = new Schema<ILlmLog>({
   collection:  'llmlogs',
 })
 
-// Compound index for efficient per-user and per-chat queries
+// ─── TTL Index: Automatically delete logs after 30 days ─────────────────────
+// Mongoose will create a TTL index on the `timestamp` field.
+// MongoDB will delete documents where timestamp + expireAfterSeconds < new Date()
+//
+// Note: expireAfterSeconds must be set BEFORE the model is compiled,
+// otherwise the TTL index won't be created.
+llmLogSchema.options.expireAfterSeconds = 30 * 24 * 60 * 60 // 30 days in seconds
+
+// Re-apply indexes after setting expireAfterSeconds
 llmLogSchema.index({ userId: 1, timestamp: -1 })
 llmLogSchema.index({ chatId: 1, timestamp: -1 })
 llmLogSchema.index({ type: 1, timestamp: -1 })

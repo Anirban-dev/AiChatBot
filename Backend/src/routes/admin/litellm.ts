@@ -14,6 +14,12 @@ let _modelCache: any[] | null = null
 let _modelCacheAt  = 0
 const MODEL_CACHE_TTL = 60_000  // 60 seconds
 
+/** Invalidate the cached model list (call after provider changes + reload). */
+export function bustModelCache() {
+  _modelCache = null
+  _modelCacheAt = 0
+}
+
 async function getModels(): Promise<any[]> {
   if (_modelCache && Date.now() - _modelCacheAt < MODEL_CACHE_TTL) {
     return _modelCache

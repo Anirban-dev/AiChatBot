@@ -37,6 +37,7 @@ litellm.exceptions.MidStreamFallbackError.__init__ = _patched_midstream_init
 
 from litellm import Router
 from lib.mongodb import llm_logs
+from lib.crypto import decrypt
 
 os.environ['LITELLM_LOG'] = 'ERROR'
 
@@ -111,24 +112,91 @@ def _schedule_log(**kwargs):
 
 
 # ── Router factory ────────────────────────────────────────────────────────────
-def _make_router():
-    from litellm_models import LITELLM_ROUTER_MODELS
+def _build_router(config: dict):
+    """Build a litellm Router from a config dict, without touching Redis env."""
     import copy
     # Strip REDIS env vars so litellm Router doesn't try to connect to Redis
     redis_url_backup  = os.environ.pop("REDIS_URL",  None)
     redis_host_backup = os.environ.pop("REDIS_HOST", None)
     redis_port_backup = os.environ.pop("REDIS_PORT", None)
     try:
-        config = copy.deepcopy(LITELLM_ROUTER_MODELS)
-        config["routing_strategy"] = "simple-shuffle"
-        return Router(**config, enable_health_check_routing=False)
+        cfg = copy.deepcopy(config)
+        cfg["routing_strategy"] = "simple-shuffle"
+        return Router(**cfg, enable_health_check_routing=False)
     finally:
         if redis_url_backup  is not None: os.environ["REDIS_URL"]  = redis_url_backup
         if redis_host_backup is not None: os.environ["REDIS_HOST"] = redis_host_backup
         if redis_port_backup is not None: os.environ["REDIS_PORT"] = redis_port_backup
 
 
-router = _make_router()
+async def _fetch_provider_config() -> dict:
+    """Load admin-managed AI provider configs from the `aiproviders` collection.
+
+    Returns a litellm router config dict, or None when there are no enabled
+    providers configured (or the database is unreachable). None → the router
+    is built empty; the app requires the admin to configure at least one API.
+    """
+    from lib.mongodb import db
+    try:
+        cursor = db["aiproviders"].find({"enabled": True}).sort("priority", 1)
+        docs   = []
+        async for doc in cursor:
+            docs.append(doc)
+    except Exception as exc:
+        _llm_log.error(f"[RouterConfig] MongoDB read failed: {exc}")
+        return None
+
+    model_list = []
+    for doc in docs:
+        tier  = doc.get("tier")
+        model = doc.get("model")
+        if not tier or not model:
+            continue
+
+        params: dict = {"model": model}
+        provider = (doc.get("provider") or "openai").strip().lower()
+        # 'custom' means the admin typed the full litellm string (e.g. openai/gpt-4o)
+        if provider and provider != "custom" and provider not in model:
+            params["model"] = f"{provider}/{model}"
+        if doc.get("api_base"):
+            params["api_base"] = doc["api_base"]
+        if doc.get("api_key"):
+            # api_key is stored AES-256-GCM encrypted; decrypt before handing
+            # to litellm. Plaintext legacy values pass through unchanged.
+            params["api_key"] = decrypt(doc["api_key"])
+
+        model_list.append({"model_name": tier, "litellm_params": params})
+
+    if not model_list:
+        return None
+
+    return {
+        "model_list":        model_list,
+        "routing_strategy":  "latency-based-routing",
+        "num_retries":       3,
+        "allowed_fails":     2,
+        "cooldown_time":     60,
+    }
+
+
+CURRENT_CONFIG: dict = {"model_list": []}
+
+
+async def reload_router():
+    """Rebuild the live litellm Router from admin-managed provider configs."""
+    global router, CURRENT_CONFIG
+    config = await _fetch_provider_config() or {"model_list": []}
+    router = _build_router(config)
+    CURRENT_CONFIG = config
+    _llm_log.info(f"[Router] Reloaded: {len(config['model_list'])} model(s) routed")
+
+
+def get_current_config() -> dict:
+    """Current router config — source of truth for /agent/models & friends."""
+    return CURRENT_CONFIG
+
+
+router = _build_router({"model_list": []})
 
 
 # ── Shared failure logger ─────────────────────────────────────────────────────

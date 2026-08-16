@@ -47,7 +47,7 @@ TOP_K_RESULTS = 4   # Quantities of context chunks pulled forward per query exec
 # ── Primary Routing Clients & Orchestration Tiers ─────────────────────────────
 client = CompatibilityClient()
 
-# Core tier mappings aligned directly to new litellm_models routing profiles
+# Core tier mappings aligned to the DB-driven litellm routing profiles (ai_providers)
 LLM_SMALL_MODEL     = "small"
 LLM_HIGH_MODEL    = "large"
 LLM_THINKING_MODEL = "thinking"

@@ -14,6 +14,8 @@ if not hasattr(Pregel, "aget_schemas"):
     async def _aget_schemas(self): return {}
     Pregel.aget_schemas = _aget_schemas
 
+from lib.ratelimit import register_rate_limiter
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # runs on startup
@@ -21,10 +23,17 @@ async def lifespan(app: FastAPI):
     emb  = get_embeddings()
     test = emb.embed_query("hello world")
     print(f"[Startup] Embeddings OK — vector dim: {len(test)}, expected: {EMBED_DIM}")
+
+    # Build the LLM router from admin-managed provider configs (MongoDB)
+    from lib.litellm_config import reload_router
+    await reload_router()
     yield
     # anything after yield runs on shutdown (nothing needed here)
 
 app = FastAPI(title="ChatAI Agent", lifespan=lifespan)
+
+# Every request through the FastAPI app is rate limited
+register_rate_limiter(app)
 
 app.include_router(upload_router)
 app.include_router(chat_router)

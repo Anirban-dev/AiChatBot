@@ -6,7 +6,7 @@ import { User } from '../models/user'
 import { OAuth2Client } from 'google-auth-library'
 import { redis } from '../utils/redis'
 import { sendOTP } from '../utils/email'
-import { googleLoginLimiter, refreshLimiter } from '../utils/ratelimitHelper'
+import { googleLoginLimiter, refreshLimiter, authIpLimiter } from '../utils/ratelimitHelper'
 import { writeLog } from '../utils/logger'
 
 const router = Router()
@@ -159,7 +159,7 @@ router.post('/google-login', googleLoginLimiter,  async (req: Request, res: Resp
 })
 
 // ── Send OTP ─────────────────────────────────────────────────────────────────
-router.post('/send-otp', async (req: Request, res: Response) => {
+router.post('/send-otp', authIpLimiter, async (req: Request, res: Response) => {
   const { email } = req.body
 
   if (!email) {
@@ -239,7 +239,7 @@ router.post('/send-otp', async (req: Request, res: Response) => {
 })
 
 // ── Signup ───────────────────────────────────────────────────────────────────
-router.post('/signup', async (req: Request, res: Response) => {
+router.post('/signup', authIpLimiter, async (req: Request, res: Response) => {
   const { name, email, password, otp } = req.body
 
   if (!name || !email || !password || !otp) {
@@ -344,7 +344,7 @@ router.post('/signup', async (req: Request, res: Response) => {
 })
 
 // ── Login ────────────────────────────────────────────────────────────────────
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', authIpLimiter, async (req: Request, res: Response) => {
   const { email, password } = req.body
 
   if (!email || !password) {
@@ -510,7 +510,7 @@ router.post('/refresh', refreshLimiter, async (req: Request, res: Response) => {
 })
 
 // ── Logout ────────────────────────────────────────────────────────────────────
-router.post('/logout', async (req: Request, res: Response) => {
+router.post('/logout', authIpLimiter, async (req: Request, res: Response) => {
   const { refreshToken } = req.body
 
   if (!refreshToken) {

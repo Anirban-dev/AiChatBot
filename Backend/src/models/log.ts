@@ -23,7 +23,7 @@ const logSchema = new Schema<ILog>({
   ipAddress: { type: String },
   userAgent: { type: String },
   latency: { type: Number },
-  details: { type: Schema.Types.Mixed },
-}, { timestamps: { createdAt: true, updatedAt: false } })
+  details: { type: Schema.Types.Mixed }
+}, { timestamps: true, expireAfterSeconds: 30 * 24 * 60 * 60 }) // 30-day TTL
 
 export const Log = mongoose.model<ILog>('Log', logSchema)

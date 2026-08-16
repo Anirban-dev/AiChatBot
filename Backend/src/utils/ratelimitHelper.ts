@@ -111,3 +111,26 @@ export const refreshLimiter = createRateLimiter({
   max:       30,
   keyFn:     (req: any) => req.body?.refreshToken?.slice(-16) ?? req.ip,
 })
+
+// ─── Global flood gate (every single request) ─────────────────────────────────
+// Applied in app.ts to ALL routes as a coarse per-IP safety net. Tight per-user
+// limiters (vgen/gen/mid/strict) still apply on top; this only stops floods /
+// DDoS bursts that never resolve to a user yet. The per-user route limiters
+// are the primary control — this is the last line of defense for unauthenticated
+// and any missed routes, backed by nginx limit_req at the edge.
+export const globalIpLimiter = createRateLimiter({
+  keyPrefix: 'global_ip',
+  windowSec: 60,
+  max:       300,
+  message:   'Too many requests from your network. Please slow down.',
+})
+
+// ─── Unauthenticated auth endpoints (login/signup/send-otp/logout) ────────────
+// Per-IP coarse flood protection on top of the in-route brute-force counters
+// (per-email attempt tracking + lockout already live in login.ts).
+export const authIpLimiter = createRateLimiter({
+  keyPrefix: 'auth_ip',
+  windowSec: 15 * 60,
+  max:       30,
+  message:   'Too many attempts. Try again later.',
+})

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Sun, Moon, Menu, ChevronDown } from 'lucide-react'
 import { logout } from '../API/Login'
 import AccountModal from './AccModal'
@@ -15,6 +16,7 @@ interface NavbarProps {
 type Tab = 'details' | 'credentials' | 'accounts'
 
 const Navbar = ({ dark, setDark, toggleSidebar, chatTitle }: NavbarProps) => {
+  const navigate = useNavigate()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [modalInitialTab, setModalInitialTab] = useState<Tab>('details')
@@ -140,6 +142,17 @@ const Navbar = ({ dark, setDark, toggleSidebar, chatTitle }: NavbarProps) => {
                   </button>
                 </div>
 
+                <div className="py-1">
+                  <button
+                    onClick={() => { setDropdownOpen(false); navigate('/user') }}
+                    className="w-full text-left px-4 py-2 text-sm transition-colors cursor-pointer"
+                    style={{ color: 'var(--text-primary)' }}
+                    onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'var(--border-light)')}
+                    onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    Usage
+                  </button>
+                </div>
                 <div className="py-1" style={{ borderTop: '1px solid var(--border-light)' }}>
                   <button
                     onClick={() => { setDropdownOpen(false); logout() }}

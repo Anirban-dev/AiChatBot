@@ -2,20 +2,24 @@
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Query
 from lib.mongodb import llm_logs
-from litellm_models import LITELLM_ROUTER_MODELS
+from lib.litellm_config import get_current_config, reload_router
 
 router = APIRouter()
 
-# Build a canonical model list from the Python source of truth
-_MODEL_LIST = [
-    {
-        "model":      entry["litellm_params"]["model"],
-        "tier":       entry["model_name"],
-        "api_base":   entry["litellm_params"].get("api_base"),
-        "provider":   entry["litellm_params"].get("custom_llm_provider"),
-    }
-    for entry in LITELLM_ROUTER_MODELS["model_list"]
-]
+
+def _live_model_list() -> list:
+    """Build a canonical model list from the live router config (DB-driven)."""
+    result = []
+    for entry in get_current_config().get("model_list", []):
+        params = entry.get("litellm_params", {})
+        model  = params.get("model", "")
+        result.append({
+            "model":    model,
+            "tier":     entry.get("model_name"),
+            "api_base": params.get("api_base"),
+            "provider": model.split("/", 1)[0] if "/" in model else None,
+        })
+    return result
 
 
 # ── GET /agent/models — live model/tier list ───────────────────────────────────
@@ -23,13 +27,25 @@ _MODEL_LIST = [
 async def get_model_list():
     """Return the full canonical model list as known by the Python router.
     Admin frontend should use this instead of any hardcoded list."""
-    return {"models": _MODEL_LIST, "total": len(_MODEL_LIST)}
+    models = _live_model_list()
+    return {"models": models, "total": len(models)}
+
+
+# ── POST /agent/reload-models — rebuild router from MongoDB config ─────────────
+@router.post("/agent/reload-models")
+async def reload_models():
+    """Rebuild the litellm Router from admin-managed provider configs.
+    Called by the Node admin API immediately after providers change."""
+    await reload_router()
+    models = _live_model_list()
+    return {"applied": True, "models": models, "total": len(models)}
 
 
 # ── GET /agent/status — aggregate metrics ─────────────────────────────────────
 @router.get("/agent/status")
 async def get_llm_status():
-    all_tiers = list({d["model_name"] for d in LITELLM_ROUTER_MODELS["model_list"]})
+    live_models = _live_model_list()
+    all_tiers   = list({m["tier"] for m in live_models})
 
     # Aggregate metrics from MongoDB
     pipeline = [
@@ -97,9 +113,9 @@ async def get_llm_status():
 
     # Build model_stats for every known model (even if they have no logs)
     model_stats = {}
-    for item in LITELLM_ROUTER_MODELS["model_list"]:
-        m    = item["litellm_params"]["model"]
-        tier = item["model_name"]
+    for item in live_models:
+        m    = item["model"]
+        tier = item["tier"]
         if m in db_stats:
             model_stats[m] = {**db_stats[m], "tier": tier}
         else:
@@ -185,9 +201,9 @@ async def get_model_health():
             stats_24[doc["_id"]] = doc
 
     result = []
-    for item in LITELLM_ROUTER_MODELS["model_list"]:
-        m    = item["litellm_params"]["model"]
-        tier = item["model_name"]
+    for item in _live_model_list():
+        m    = item["model"]
+        tier = item["tier"]
         s    = stats_24.get(m)
 
         if s is None:
