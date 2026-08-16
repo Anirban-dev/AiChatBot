@@ -1,12 +1,25 @@
 import React, { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Play, Loader2, Copy, Check, Trash2 } from 'lucide-react'
+import { Play, Loader2, Copy, Check, Trash2, ChevronDown, ChevronRight, Code2 } from 'lucide-react'
 
 interface MarkdownRendererProps {
   content: string
   isUser: boolean
   runCode?: (code: string) => Promise<any>
+}
+
+// Heuristic: does the message content suggest the user explicitly asked for code?
+// Looks for keywords in the content surrounding a python block.
+const EXPLICIT_CODE_PATTERNS = [
+  /\b(write|create|give me|show me|generate|make|build|produce|draft|implement)\b.*\b(code|script|function|program|snippet|class|module)\b/i,
+  /\b(code|script|function|program|snippet|class|module)\b.*\b(for|to|that|which|in python)\b/i,
+  /```python/i,
+  /python (code|script|function|program)/i,
+]
+
+function isExplicitlyRequestedCode(fullContent: string): boolean {
+  return EXPLICIT_CODE_PATTERNS.some(p => p.test(fullContent))
 }
 
 // Opaque & blurred floating copy action button
@@ -36,7 +49,7 @@ const CopyButton = ({ text }: { text: string }) => {
 }
 
 // 1. Python Execution Terminal Component
-const PythonTerminal = ({ code, runCode }: { code: string; runCode?: (code: string) => Promise<any> }) => {
+const PythonTerminalBody = ({ code, runCode }: { code: string; runCode?: (code: string) => Promise<any> }) => {
   const [result, setResult] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
 
@@ -54,7 +67,7 @@ const PythonTerminal = ({ code, runCode }: { code: string; runCode?: (code: stri
   }
 
   return (
-    <div className="my-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0d1117] shadow-sm">
+    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#0d1117] shadow-sm">
       {/* Top element bar layer */}
       <div className="flex items-center justify-between bg-gray-100 dark:bg-[#161b22] px-3 py-2 border-b border-gray-200 dark:border-gray-700 rounded-t-lg">
         <span className="text-gray-500 text-[11px] font-mono uppercase tracking-wider font-bold">python</span>
@@ -67,13 +80,13 @@ const PythonTerminal = ({ code, runCode }: { code: string; runCode?: (code: stri
           Run Code
         </button>
       </div>
-      
+
       {/* Code viewport with tracking right sidebar for the copy button */}
       <div className="relative flex flex-col">
         <div className="px-4 py-3 overflow-x-auto bg-gray-50 dark:bg-gray-900/50">
           <code className="text-[12.5px] font-mono text-gray-700 dark:text-gray-300 whitespace-pre">{code}</code>
         </div>
-        
+
         {/* Invisible scroll-bound structural track element */}
         <div className="absolute inset-y-0 right-0 w-20 pointer-events-none flex flex-col items-end pt-2 pr-2">
           <div className="sticky top-3 pointer-events-auto">
@@ -97,7 +110,7 @@ const PythonTerminal = ({ code, runCode }: { code: string; runCode?: (code: stri
             </button>
           )}
         </div>
-        
+
         <div className="flex flex-col justify-center">
           {isRunning ? (
             <div className="text-[12px] font-mono text-blue-500 flex items-center gap-2 animate-pulse">
@@ -106,10 +119,51 @@ const PythonTerminal = ({ code, runCode }: { code: string; runCode?: (code: stri
             </div>
           ) : result !== null ? (
             <pre className="text-[12px] font-mono text-green-600 dark:text-green-400 whitespace-pre-wrap leading-relaxed">{result}</pre>
-          ) : (<div />
-          )}
+          ) : (<div />)}
         </div>
       </div>
+    </div>
+  )
+}
+
+// Wrapper: expanded when explicitly requested, collapsed (details/summary) when auto-generated
+const PythonTerminal = ({
+  code,
+  runCode,
+  expandedByDefault = true,
+}: {
+  code: string
+  runCode?: (code: string) => Promise<any>
+  expandedByDefault?: boolean
+}) => {
+  const [open, setOpen] = useState(expandedByDefault)
+
+  if (expandedByDefault) {
+    return (
+      <div className="my-3">
+        <PythonTerminalBody code={code} runCode={runCode} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="my-2">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800/60 hover:bg-gray-200 dark:hover:bg-gray-700/60 border border-gray-200 dark:border-gray-700 rounded-lg transition-all cursor-pointer select-none"
+        title={open ? 'Hide computation' : 'Show computation'}
+      >
+        {open
+          ? <ChevronDown size={11} />
+          : <ChevronRight size={11} />}
+        <Code2 size={11} />
+        <span>Python computation</span>
+      </button>
+      {open && (
+        <div className="mt-1.5">
+          <PythonTerminalBody code={code} runCode={runCode} />
+        </div>
+      )}
     </div>
   )
 }
@@ -194,6 +248,8 @@ const preprocessContent = (rawText: string) => {
 const MarkdownRenderer = ({ content, isUser, runCode }: MarkdownRendererProps) => {
   const baseText = isUser ? 'text-white' : 'text-gray-800 dark:text-gray-100'
   const cleanedContent = preprocessContent(content)
+  // Determine once per message whether the user explicitly asked for code
+  const explicitCode = isExplicitlyRequestedCode(content)
 
   return (
     <div className={`text-sm leading-relaxed ${baseText}`}>
@@ -212,7 +268,13 @@ const MarkdownRenderer = ({ content, isUser, runCode }: MarkdownRendererProps) =
             }
 
             if (language === 'python') {
-              return <PythonTerminal code={codeText} runCode={runCode} />
+              return (
+                <PythonTerminal
+                  code={codeText}
+                  runCode={runCode}
+                  expandedByDefault={explicitCode}
+                />
+              )
             }
 
             return (

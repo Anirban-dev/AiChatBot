@@ -1,8 +1,9 @@
 // src/routes/admin/users.ts
 import { Router, Response } from 'express'
-import { User }    from '../../models/user'
-import { Chat }    from '../../models/chat'
-import { Message } from '../../models/msg'
+import { User }       from '../../models/user'
+import { Chat }       from '../../models/chat'
+import { Message }    from '../../models/msg'
+import { TierConfig, ITierConfig } from '../../models/tier'
 import { adminAuthMiddleware, AdminRequest } from '../../middleware/auth'
 import { writeLog } from '../../utils/logger'
 import { midLimiter } from '../../utils/ratelimitHelper'
@@ -11,52 +12,237 @@ import { redis } from '../../utils/redis'
 const router = Router()
 router.use(adminAuthMiddleware)
 
-// ─── Tier definitions (single source of truth) ────────────────────────────────
-export const TIER_DEFAULTS: Record<string, { tpm: number; rpm: number }> = {
-  free:       { tpm: 15_000,  rpm: 10  },
-  premium:    { tpm: 90_000,  rpm: 40  },
-  enterprise: { tpm: 500_000, rpm: 200 },
+// // ─── DB-backed Tier Config Helpers ────────────────────────────────────────────
+import { getWindowStamp, WindowPeriod } from '../../utils/windowHelper'
+
+export interface ModelLimitConfig {
+  rpm: number
+  tpm: number
+  period?: WindowPeriod
+}
+
+export interface UploadLimitConfig {
+  max: number
+  windowSec: number
+  label: string
+  period?: WindowPeriod
+}
+
+export interface TierFullConfig {
+  models: {
+    small:    ModelLimitConfig
+    large:    ModelLimitConfig
+    thinking: ModelLimitConfig
+    critiq:   ModelLimitConfig
+  }
+  uploads: {
+    image: UploadLimitConfig
+    video: UploadLimitConfig
+    other: UploadLimitConfig
+  }
+}
+
+/** Fetch tier config from DB with a short Redis cache (60 s). Falls back to free tier. */
+export async function getTierConfig(tierName: string): Promise<TierFullConfig> {
+  const cacheKey = `tier_config:${tierName}`
+  const cached = await redis.get(cacheKey)
+  if (cached) {
+    try { return JSON.parse(cached) } catch {}
+  }
+
+  const doc = await TierConfig.findOne({ name: tierName }).lean() as ITierConfig | null
+  if (doc) {
+    const config: TierFullConfig = {
+      models:  doc.models  as any,
+      uploads: doc.uploads as any,
+    }
+    await redis.set(cacheKey, JSON.stringify(config), 'EX', 60)
+    return config
+  }
+
+  // Fallback: fetch the free tier from DB
+  const free = await TierConfig.findOne({ name: 'free' }).lean() as ITierConfig | null
+  const fallback: TierFullConfig = free
+    ? { models: free.models as any, uploads: free.uploads as any }
+    : {
+        models: {
+          small:    { rpm: 30,  tpm: 40_000, period: 'hourly' },
+          large:    { rpm: 10,  tpm: 15_000, period: 'hourly' },
+          thinking: { rpm: 5,   tpm: 10_000, period: 'hourly' },
+          critiq:   { rpm: 5,   tpm: 10_000, period: 'hourly' },
+        },
+        uploads: {
+          image: { max: 10, windowSec: 3600,  label: 'image', period: 'hourly' },
+          video: { max: 1,  windowSec: 86400, label: 'video', period: 'daily'  },
+          other: { max: 5,  windowSec: 3600,  label: 'file',  period: 'hourly' },
+        },
+      }
+  await redis.set(cacheKey, JSON.stringify(fallback), 'EX', 60)
+  return fallback
 }
 
 /**
- * Returns the effective limits for a user.
- * Manual overrides are stored in Redis under:  user_limits:{userId}  →  JSON { tpm, rpm }
- * Also returns whether an override is active so callers avoid a second Redis round-trip.
+ * Returns full effective multi-dimensional limits for a user (models + uploads).
  */
-async function getEffectiveLimits(
+export async function getEffectiveUserLimits(
   userId: string,
   tier: string
-): Promise<{ tpm: number; rpm: number; isOverridden: boolean }> {
-  const user = await User.findById(userId).select('tpm rpm tier')
-  const defaults = TIER_DEFAULTS[tier] ?? TIER_DEFAULTS.free
-  if (user) {
-    const tpm = (user as any).tpm !== undefined ? (user as any).tpm : defaults.tpm
-    const rpm = (user as any).rpm !== undefined ? (user as any).rpm : defaults.rpm
-    const isOverridden = (tpm !== defaults.tpm || rpm !== defaults.rpm)
-    return { tpm, rpm, isOverridden }
+): Promise<{
+  models: {
+    small: ModelLimitConfig
+    large: ModelLimitConfig
+    thinking: ModelLimitConfig
+    critiq: ModelLimitConfig
   }
-  return { ...defaults, isOverridden: false }
+  uploads: {
+    image: UploadLimitConfig
+    video: UploadLimitConfig
+    other: UploadLimitConfig
+  }
+  isOverridden: boolean
+}> {
+  const user = await User.findById(userId).select('tier modelLimits uploadLimits')
+  const defaultTierConfig = await getTierConfig(tier)
+
+  if (!user) {
+    return {
+      models: defaultTierConfig.models,
+      uploads: defaultTierConfig.uploads,
+      isOverridden: false,
+    }
+  }
+
+  const u = user as any
+  let isOverridden = false
+
+  const models = {
+    small: {
+      rpm:    u.modelLimits?.small?.rpm ?? defaultTierConfig.models.small.rpm,
+      tpm:    u.modelLimits?.small?.tpm ?? defaultTierConfig.models.small.tpm,
+      period: u.modelLimits?.small?.period ?? defaultTierConfig.models.small.period ?? 'hourly',
+    },
+    large: {
+      rpm:    u.modelLimits?.large?.rpm ?? defaultTierConfig.models.large.rpm,
+      tpm:    u.modelLimits?.large?.tpm ?? defaultTierConfig.models.large.tpm,
+      period: u.modelLimits?.large?.period ?? defaultTierConfig.models.large.period ?? 'hourly',
+    },
+    thinking: {
+      rpm:    u.modelLimits?.thinking?.rpm ?? defaultTierConfig.models.thinking.rpm,
+      tpm:    u.modelLimits?.thinking?.tpm ?? defaultTierConfig.models.thinking.tpm,
+      period: u.modelLimits?.thinking?.period ?? defaultTierConfig.models.thinking.period ?? 'hourly',
+    },
+    critiq: {
+      rpm:    u.modelLimits?.critiq?.rpm ?? defaultTierConfig.models.critiq.rpm,
+      tpm:    u.modelLimits?.critiq?.tpm ?? defaultTierConfig.models.critiq.tpm,
+      period: u.modelLimits?.critiq?.period ?? defaultTierConfig.models.critiq.period ?? 'hourly',
+    },
+  }
+
+  for (const m of ['small', 'large', 'thinking', 'critiq'] as const) {
+    if (
+      models[m].rpm !== defaultTierConfig.models[m].rpm ||
+      models[m].tpm !== defaultTierConfig.models[m].tpm ||
+      models[m].period !== defaultTierConfig.models[m].period
+    ) isOverridden = true
+  }
+
+  const uploads = {
+    image: {
+      max:       u.uploadLimits?.image?.max ?? defaultTierConfig.uploads.image.max,
+      windowSec: defaultTierConfig.uploads.image.windowSec,
+      label:     defaultTierConfig.uploads.image.label,
+      period:    u.uploadLimits?.image?.period ?? defaultTierConfig.uploads.image.period ?? 'hourly',
+    },
+    video: {
+      max:       u.uploadLimits?.video?.max ?? defaultTierConfig.uploads.video.max,
+      windowSec: defaultTierConfig.uploads.video.windowSec,
+      label:     defaultTierConfig.uploads.video.label,
+      period:    u.uploadLimits?.video?.period ?? defaultTierConfig.uploads.video.period ?? 'daily',
+    },
+    other: {
+      max:       u.uploadLimits?.other?.max ?? defaultTierConfig.uploads.other.max,
+      windowSec: defaultTierConfig.uploads.other.windowSec,
+      label:     defaultTierConfig.uploads.other.label,
+      period:    u.uploadLimits?.other?.period ?? defaultTierConfig.uploads.other.period ?? 'hourly',
+    },
+  }
+
+  for (const cat of ['image', 'video', 'other'] as const) {
+    if (
+      uploads[cat].max !== defaultTierConfig.uploads[cat].max ||
+      uploads[cat].period !== defaultTierConfig.uploads[cat].period
+    ) isOverridden = true
+  }
+
+  return { models, uploads, isOverridden }
 }
 
-async function getCurrentUsage(userId: string): Promise<{ tpmUsed: number; rpmUsed: number }> {
+/**
+ * Returns real-time usage stats for a user across all models and upload categories based on their effective period.
+ */
+export async function getDetailedUserUsage(
+  userId: string,
+  userTier: string = 'free',
+  effective?: Awaited<ReturnType<typeof getEffectiveUserLimits>>
+): Promise<{
+  models: Record<string, { rpmUsed: number; tpmUsed: number }>
+  uploads: Record<string, { used: number }>
+  totalTpmUsed: number
+  totalRpmUsed: number
+}> {
+  const limits = effective ?? (await getEffectiveUserLimits(userId, userTier))
   const now = new Date()
-  const stamp = [
-    now.getUTCFullYear(),
-    String(now.getUTCMonth() + 1).padStart(2, '0'),
-    String(now.getUTCDate()).padStart(2, '0'),
-    String(now.getUTCHours()).padStart(2, '0'), // 🌟 Truncated to the hour boundary
-  ].join('-')
 
-  // Read from the newly updated hourly keys
-  const [tphRaw, rphRaw] = await Promise.all([
-    redis.get(`usage:tph:${userId}:${stamp}`),
-    redis.get(`usage:rph:${userId}:${stamp}`),
+  const modelKeys = ['small', 'large', 'thinking', 'critiq'] as const
+  const uploadKeys = ['image', 'video', 'other'] as const
+
+  const modelUsagePromises = modelKeys.map(async m => {
+    const period = limits.models[m].period || 'hourly'
+    const stamp = getWindowStamp(now, period)
+    const [tpmRaw, rpmRaw] = await Promise.all([
+      redis.get(`usage:tpm:${userId}:${m}:${stamp}`),
+      redis.get(`usage:rpm:${userId}:${m}:${stamp}`),
+    ])
+    return {
+      key: m,
+      tpmUsed: parseInt(tpmRaw ?? '0', 10) || 0,
+      rpmUsed: parseInt(rpmRaw ?? '0', 10) || 0,
+    }
+  })
+
+  const uploadUsagePromises = uploadKeys.map(async cat => {
+    const period = limits.uploads[cat].period || (cat === 'video' ? 'daily' : 'hourly')
+    const stamp = getWindowStamp(now, period)
+    const usedRaw = await redis.get(`rl:upload:${cat}:${userId}:${stamp}`)
+    return {
+      key: cat,
+      used: parseInt(usedRaw ?? '0', 10) || 0,
+    }
+  })
+
+  const [modelResults, uploadResults] = await Promise.all([
+    Promise.all(modelUsagePromises),
+    Promise.all(uploadUsagePromises),
   ])
 
+  const modelsUsage: Record<string, { rpmUsed: number; tpmUsed: number }> = {}
+  for (const r of modelResults) {
+    modelsUsage[r.key] = { rpmUsed: r.rpmUsed, tpmUsed: r.tpmUsed }
+  }
+
+  const uploadsUsage: Record<string, { used: number }> = {}
+  for (const r of uploadResults) {
+    uploadsUsage[r.key] = { used: r.used }
+  }
+
+  const sumModelTpm = Object.values(modelsUsage).reduce((a, b) => a + b.tpmUsed, 0)
+  const sumModelRpm = Object.values(modelsUsage).reduce((a, b) => a + b.rpmUsed, 0)
+
   return {
-    // Mapped directly to existing variables to ensure the Admin frontend doesn't break
-    tpmUsed: parseInt(tphRaw ?? '0', 10) || 0,
-    rpmUsed: parseInt(rphRaw ?? '0', 10) || 0,
+    models: modelsUsage,
+    uploads: uploadsUsage,
+    totalTpmUsed: sumModelTpm,
+    totalRpmUsed: sumModelRpm,
   }
 }
 
@@ -84,7 +270,6 @@ router.get('/', midLimiter, async (req: AdminRequest, res: Response) => {
       const userId = String(u._id)
       const tier   = (u as any).tier || 'free'
 
-      // Run all async lookups concurrently per user — no sequential awaits
       const [
         chatsCount,
         userChats,
@@ -93,8 +278,8 @@ router.get('/', midLimiter, async (req: AdminRequest, res: Response) => {
       ] = await Promise.all([
         Chat.countDocuments({ userId: u._id }),
         Chat.find({ userId: u._id }).select('_id'),
-        getEffectiveLimits(userId, tier),
-        getCurrentUsage(userId),
+        getEffectiveUserLimits(userId, tier),
+        getDetailedUserUsage(userId),
       ])
 
       const messagesCount = await Message.countDocuments({
@@ -112,12 +297,12 @@ router.get('/', midLimiter, async (req: AdminRequest, res: Response) => {
         chatsCount,
         messagesCount,
         limits: {
-          tpm:          effectiveLimits.tpm,
-          rpm:          effectiveLimits.rpm,
-          tpmUsed:      usage.tpmUsed,
-          rpmUsed:      usage.rpmUsed,
-          tpmRemaining: Math.max(0, effectiveLimits.tpm - usage.tpmUsed),
-          rpmRemaining: Math.max(0, effectiveLimits.rpm - usage.rpmUsed),
+          tpmUsed:      usage.totalTpmUsed,
+          rpmUsed:      usage.totalRpmUsed,
+          models:       effectiveLimits.models,
+          uploads:      effectiveLimits.uploads,
+          modelsUsage:  usage.models,
+          uploadsUsage: usage.uploads,
           isOverridden: effectiveLimits.isOverridden,
         },
       }
@@ -125,6 +310,7 @@ router.get('/', midLimiter, async (req: AdminRequest, res: Response) => {
 
     res.json({ total, page, limit, users: augmentedUsers })
   } catch (err) {
+    console.error('Error fetching admin users:', err)
     res.status(500).json({ error: 'Failed to fetch users list' })
   }
 })
@@ -137,53 +323,52 @@ router.get('/:userId/limits', midLimiter, async (req: AdminRequest & { params: {
     if (!user) return res.status(404).json({ error: 'User not found' })
 
     const tier            = (user as any).tier || 'free'
-    const tierDefaults    = TIER_DEFAULTS[tier] ?? TIER_DEFAULTS.free
-    const effectiveLimits = await getEffectiveLimits(userId, tier)
-    const usage           = await getCurrentUsage(userId)
+    const tierDefaults    = await getTierConfig(tier)
+    const effectiveLimits = await getEffectiveUserLimits(userId, tier)
+    const usage           = await getDetailedUserUsage(userId)
 
-    // Reconstruct override separately for the detailed view
-    const isOverridden = (user as any).tpm !== undefined && (user as any).rpm !== undefined &&
-      ((user as any).tpm !== tierDefaults.tpm || (user as any).rpm !== tierDefaults.rpm)
-    const override = isOverridden ? { tpm: (user as any).tpm, rpm: (user as any).rpm } : null
+    // Fetch all tier configs for the modal's "reset to tier defaults" feature
+    const allTierDocs  = await TierConfig.find({}).lean()
+    const allTierDefaults: Record<string, TierFullConfig> = {}
+    for (const t of allTierDocs) {
+      allTierDefaults[t.name] = { models: t.models as any, uploads: t.uploads as any }
+    }
 
     res.json({
       userId,
       tier,
       tierDefaults,
-      override,                              // null if no manual override exists
-      effective: {
-        tpm: effectiveLimits.tpm,
-        rpm: effectiveLimits.rpm,
-      },
+      allTierDefaults,
+      effective: effectiveLimits,
       isOverridden: effectiveLimits.isOverridden,
-      currentMinuteUsage: {
-        tpmUsed:      usage.tpmUsed,
-        rpmUsed:      usage.rpmUsed,
-        tpmRemaining: Math.max(0, effectiveLimits.tpm - usage.tpmUsed),
-        rpmRemaining: Math.max(0, effectiveLimits.rpm - usage.rpmUsed),
-      },
+      usage,
     })
   } catch (err) {
+    console.error('Error fetching user limits details:', err)
     res.status(500).json({ error: 'Failed to fetch user limits' })
   }
 })
 
 // ─── PUT /api/admin/users/:userId/limits ──────────────────────────────────────
-// Send { tpm, rpm } to set an override. Send { clear: true } to remove it.
+// Update limits with support for fine-grained models, uploads, or full reset
 router.put('/:userId/limits', midLimiter, async (req: AdminRequest & { params: { userId: string } }, res: Response) => {
   const { userId } = req.params
-  const { tpm, rpm, clear } = req.body
+  const {
+    clear,
+    tpm,
+    rpm,
+    modelLimits,
+    uploadLimits
+  } = req.body
 
   try {
     const user = await User.findById(userId)
     if (!user) return res.status(404).json({ error: 'User not found' })
 
-    // ── Clear override → revert to tier defaults ───────────────────────────
+    // ── Clear all overrides → revert entirely to tier defaults ────────────
     if (clear === true) {
-      const defaults = TIER_DEFAULTS[(user as any).tier] ?? TIER_DEFAULTS.free
       await User.findByIdAndUpdate(userId, {
-        tpm: defaults.tpm,
-        rpm: defaults.rpm
+        $unset: { modelLimits: 1, uploadLimits: 1 },
       })
       await redis.del(`user_limits:${userId}`)
 
@@ -197,31 +382,49 @@ router.put('/:userId/limits', midLimiter, async (req: AdminRequest & { params: {
         details: { targetUserId: userId, performedBy: req.userId },
       })
 
-      return res.json({ message: 'Limit override cleared. User reverted to tier defaults.' })
+      return res.json({ message: 'All custom limit overrides cleared. User reverted to tier defaults.' })
     }
 
-    // ── Validate ───────────────────────────────────────────────────────────
-    if (tpm !== undefined && (typeof tpm !== 'number' || tpm < 1)) {
-      return res.status(400).json({ error: 'tpm must be a positive integer' })
-    }
-    if (rpm !== undefined && (typeof rpm !== 'number' || rpm < 1)) {
-      return res.status(400).json({ error: 'rpm must be a positive integer' })
-    }
-    if (tpm === undefined && rpm === undefined) {
-      return res.status(400).json({ error: 'Provide at least one of: tpm, rpm, or clear: true' })
+    // ── Prepare updates ───────────────────────────────────────────────────
+    const updateQuery: any = {}
+
+    if (modelLimits && typeof modelLimits === 'object') {
+      for (const m of ['small', 'large', 'thinking', 'critiq'] as const) {
+        if (modelLimits[m]) {
+          if (modelLimits[m].rpm !== undefined) {
+            updateQuery[`modelLimits.${m}.rpm`] = Math.max(1, Number(modelLimits[m].rpm))
+          }
+          if (modelLimits[m].tpm !== undefined) {
+            updateQuery[`modelLimits.${m}.tpm`] = Math.max(1, Number(modelLimits[m].tpm))
+          }
+          if (modelLimits[m].period !== undefined && ['hourly', 'daily', 'weekly', 'monthly'].includes(modelLimits[m].period)) {
+            updateQuery[`modelLimits.${m}.period`] = modelLimits[m].period
+          }
+        }
+      }
     }
 
-    // ── Merge with existing limits in DB ───────────────────────────────────
-    const updated = {
-      tpm: tpm ?? (user as any).tpm ?? (TIER_DEFAULTS[(user as any).tier] ?? TIER_DEFAULTS.free).tpm,
-      rpm: rpm ?? (user as any).rpm ?? (TIER_DEFAULTS[(user as any).tier] ?? TIER_DEFAULTS.free).rpm,
+    if (uploadLimits && typeof uploadLimits === 'object') {
+      for (const cat of ['image', 'video', 'other'] as const) {
+        if (uploadLimits[cat]) {
+          if (uploadLimits[cat].max !== undefined) {
+            updateQuery[`uploadLimits.${cat}.max`] = Math.max(1, Number(uploadLimits[cat].max))
+          }
+          if (uploadLimits[cat].period !== undefined && ['hourly', 'daily', 'weekly', 'monthly'].includes(uploadLimits[cat].period)) {
+            updateQuery[`uploadLimits.${cat}.period`] = uploadLimits[cat].period
+          }
+        }
+      }
     }
 
-    await User.findByIdAndUpdate(userId, {
-      tpm: updated.tpm,
-      rpm: updated.rpm
-    })
+    if (Object.keys(updateQuery).length === 0) {
+      return res.status(400).json({ error: 'No valid limit fields provided to update.' })
+    }
+
+    await User.findByIdAndUpdate(userId, { $set: updateQuery })
     await redis.del(`user_limits:${userId}`)
+
+    const effective = await getEffectiveUserLimits(userId, (user as any).tier || 'free')
 
     await writeLog({
       action: 'UPDATE_USER_LIMITS',
@@ -230,11 +433,12 @@ router.put('/:userId/limits', midLimiter, async (req: AdminRequest & { params: {
       path:   `/api/admin/users/${userId}/limits`,
       ipAddress: req.ip || req.socket.remoteAddress,
       userAgent: req.headers['user-agent'],
-      details: { targetUserId: userId, performedBy: req.userId, updated },
+      details: { targetUserId: userId, performedBy: req.userId, updated: updateQuery },
     })
 
-    res.json({ message: 'User limits updated successfully', effective: updated })
+    res.json({ message: 'User limits updated successfully', effective })
   } catch (err) {
+    console.error('Error updating user limits:', err)
     await writeLog({
       action: 'UPDATE_USER_LIMITS',
       status: 'failed',
@@ -254,22 +458,27 @@ router.put('/:userId/tier', midLimiter, async (req: AdminRequest & { params: { u
   const { tier } = req.body
 
   try {
-    if (!['free', 'premium', 'enterprise'].includes(tier)) {
-      return res.status(400).json({ error: 'Invalid tier. Must be free, premium, or enterprise.' })
+    if (!tier || typeof tier !== 'string') {
+      return res.status(400).json({ error: 'tier is required.' })
     }
 
-    const defaults = TIER_DEFAULTS[tier] ?? TIER_DEFAULTS.free
-    const updatedUser = await User.findByIdAndUpdate(userId, { 
-      tier,
-      tpm: defaults.tpm,
-      rpm: defaults.rpm
+    // Validate against DB
+    const tierDoc = await TierConfig.findOne({ name: tier.toLowerCase() })
+    if (!tierDoc) {
+      return res.status(400).json({ error: `Tier "${tier}" does not exist. Create it first in the Tiers management page.` })
+    }
+
+    const slug = tier.toLowerCase()
+    const updatedUser = await User.findByIdAndUpdate(userId, {
+      tier: slug,
+      $unset: { modelLimits: 1, uploadLimits: 1 },
     }, { returnDocument: 'after' })
     if (!updatedUser) return res.status(404).json({ error: 'User not found' })
 
     // Clear manual limit override and refresh tokens
     await Promise.all([
       redis.del(`user_limits:${userId}`),
-      redis.del(`refresh:${userId}`),       // forces re-login with new tier in token
+      redis.del(`refresh:${userId}`),
     ])
 
     await writeLog({
@@ -279,10 +488,10 @@ router.put('/:userId/tier', midLimiter, async (req: AdminRequest & { params: { u
       path:   `/api/admin/users/${userId}/tier`,
       ipAddress: req.ip || req.socket.remoteAddress,
       userAgent: req.headers['user-agent'],
-      details: { targetUserId: userId, newTier: tier, performedBy: req.userId },
+      details: { targetUserId: userId, newTier: slug, performedBy: req.userId },
     })
 
-    res.json({ message: `User tier updated to ${tier}. User will need to re-login for the new tier to take effect in their token.` })
+    res.json({ message: `User tier updated to ${slug}. User will need to re-login for the new tier to take effect in their token.` })
   } catch (err) {
     await writeLog({
       action: 'UPDATE_USER_TIER',

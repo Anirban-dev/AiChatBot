@@ -166,6 +166,12 @@ router.post('/send-otp', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Email is required' })
   }
 
+  // Check if user already exists
+  const existingUser = await User.findOne({ email })
+  if (existingUser) {
+    return res.status(409).json({ error: 'Email already registered' })
+  }
+
   const ip = req.ip || req.socket.remoteAddress || 'unknown'
   const ipKey = `otp_send_ip:${ip}`
 

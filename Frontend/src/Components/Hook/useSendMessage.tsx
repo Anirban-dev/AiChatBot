@@ -29,6 +29,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
   const navigate = useNavigate()
   const [input, setInput] = useState('')
   const {
+    getMessages,
     appendMessage,
     appendToken,
     appendReasoningToken,
@@ -178,7 +179,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
     setActiveTool(null)
 
     let effectiveOptimisticId = optimisticMsgId
-    if (!effectiveOptimisticId && customThreadRootId) {
+    if (!effectiveOptimisticId) {
       effectiveOptimisticId = crypto.randomUUID()
       appendMessage(targetChatId, {
         _id: effectiveOptimisticId,
@@ -187,14 +188,18 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         fileInfo: uploadedFileInfo,
         file: uploadedFileContent,
         parentId: customParentId || null,
-        threadRootId: customThreadRootId,
+        threadRootId: customThreadRootId || null,
+        threadHeadId: customThreadRootId ? effectiveOptimisticId : null,
         createdAt: new Date().toISOString()
       })
+      if (!customThreadRootId) {
+        setActiveNodeId(targetChatId, effectiveOptimisticId)
+      }
     }
 
     messageAbortControllerRef.current = new AbortController()
     const streamingId = crypto.randomUUID()
-    const threadParentId = effectiveOptimisticId || customParentId
+    let currentUserMsgId = effectiveOptimisticId
 
     try {
       await sendMsg(
@@ -204,19 +209,22 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
 
         (token: string) => {
           setActiveTool(null)
-          appendToken(targetChatId, streamingId, token, customThreadRootId, threadParentId)
+          appendToken(targetChatId, streamingId, token, customThreadRootId, currentUserMsgId)
         },
 
         (userMsg: any) => {
+          const confirmedId = userMsg._id || effectiveOptimisticId || crypto.randomUUID()
+          currentUserMsgId = confirmedId
           const confirmedMsg = {
-            _id: userMsg._id || crypto.randomUUID(),
+            _id: confirmedId,
             role: 'user' as const,
             content: userMsg.content || uploadedFileContent || content,
             text: userMsg.text,
-            fileInfo: userMsg.fileInfo,
+            fileInfo: userMsg.fileInfo || uploadedFileInfo,
             file: userMsg.file ?? uploadedFileContent,
-            parentId: userMsg.parentId || customParentId || null,
-            threadRootId: userMsg.threadRootId || customThreadRootId || null,
+            parentId: userMsg.parentId !== undefined ? userMsg.parentId : (customParentId || null),
+            threadRootId: userMsg.threadRootId !== undefined ? userMsg.threadRootId : (customThreadRootId || null),
+            threadHeadId: userMsg.threadHeadId !== undefined ? userMsg.threadHeadId : (customThreadRootId ? (effectiveOptimisticId || confirmedId) : null),
             createdAt: userMsg.createdAt || new Date().toISOString()
           }
           if (effectiveOptimisticId) {
@@ -224,9 +232,11 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
           } else {
             appendMessage(targetChatId, confirmedMsg)
           }
+          // Update the streaming assistant message's parentId to point to the confirmed user message id
+          updateMessage(targetChatId, streamingId, { parentId: confirmedId })
           const isThreadMessage = !!(userMsg.threadRootId || customThreadRootId)
           if (!isThreadMessage) {
-            setActiveNodeId(targetChatId, confirmedMsg._id)
+            setActiveNodeId(targetChatId, confirmedId)
           }
         },
 
@@ -248,7 +258,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
             status: status as 'running' | 'completed' | 'failed',
             result: toolPayload?.result,
             error: toolPayload?.error,
-          }, customThreadRootId, threadParentId)
+          }, customThreadRootId, currentUserMsgId)
         },
 
         async (assistantMsg: any) => {
@@ -256,7 +266,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
           updateMessage(targetChatId, streamingId, assistantMsg)
           const isThreadMessage = !!(assistantMsg.threadRootId || customThreadRootId)
           if (!isThreadMessage && targetChatId === chatId) {
-            setActiveNodeId(targetChatId, assistantMsg._id)
+            setActiveNodeId(targetChatId, assistantMsg._id || streamingId)
           }
           setLoading(targetChatId, false)
         },
@@ -276,7 +286,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
 
         (reasoningToken: string) => {
           setActiveTool(null)
-          appendReasoningToken(targetChatId, streamingId, reasoningToken, customThreadRootId, threadParentId)
+          appendReasoningToken(targetChatId, streamingId, reasoningToken, customThreadRootId, currentUserMsgId)
         },
 
         uploadedFileInfo,
@@ -312,6 +322,29 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
     setErrorMessage(null)
     setActiveTool(null)
 
+    const allMsgs = getMessages(targetChatId)
+    const origMsg = allMsgs.find((m: any) => m._id === originalMsgId)
+    const branchParentId = origMsg?.parentId || null
+    const threadRootId = origMsg?.threadRootId || null
+
+    const optimisticId = crypto.randomUUID()
+    let currentUserMsgId = optimisticId
+
+    appendMessage(targetChatId, {
+      _id: optimisticId,
+      role: 'user',
+      content: content || '',
+      fileInfo: uploadedFileInfo,
+      file: uploadedFileContent,
+      parentId: branchParentId,
+      threadRootId,
+      createdAt: new Date().toISOString()
+    })
+
+    if (!threadRootId) {
+      setActiveNodeId(targetChatId, optimisticId)
+    }
+
     messageAbortControllerRef.current = new AbortController()
     const streamingId = crypto.randomUUID()
 
@@ -324,23 +357,26 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
 
         (token: string) => {
           setActiveTool(null)
-          appendToken(targetChatId, streamingId, token)
+          appendToken(targetChatId, streamingId, token, threadRootId, currentUserMsgId)
         },
 
         (userMsg: any) => {
+          const confirmedId = userMsg._id || optimisticId || crypto.randomUUID()
+          currentUserMsgId = confirmedId
           const confirmedMsg = {
-            _id: userMsg._id || crypto.randomUUID(),
+            _id: confirmedId,
             role: 'user' as const,
             content: userMsg.content || content,
-            fileInfo: userMsg.fileInfo,
+            fileInfo: userMsg.fileInfo || uploadedFileInfo,
             file: userMsg.file ?? uploadedFileContent,
-            parentId: userMsg.parentId || null,
-            threadRootId: userMsg.threadRootId || null,
+            parentId: userMsg.parentId !== undefined ? userMsg.parentId : branchParentId,
+            threadRootId: userMsg.threadRootId !== undefined ? userMsg.threadRootId : threadRootId,
             createdAt: userMsg.createdAt || new Date().toISOString()
           }
-          appendMessage(targetChatId, confirmedMsg)
+          updateMessage(targetChatId, optimisticId, confirmedMsg)
+          updateMessage(targetChatId, streamingId, { parentId: confirmedId })
           if (!confirmedMsg.threadRootId) {
-            setActiveNodeId(targetChatId, confirmedMsg._id)
+            setActiveNodeId(targetChatId, confirmedId)
           }
         },
 
@@ -355,14 +391,14 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
             id: toolId, name: toolName,
             status: status as 'running' | 'completed' | 'failed',
             result: toolPayload?.result, error: toolPayload?.error,
-          })
+          }, threadRootId, currentUserMsgId)
         },
 
         async (assistantMsg: any) => {
           setActiveTool(null)
           updateMessage(targetChatId, streamingId, assistantMsg)
           if (!assistantMsg.threadRootId && targetChatId === chatId) {
-            setActiveNodeId(targetChatId, assistantMsg._id)
+            setActiveNodeId(targetChatId, assistantMsg._id || streamingId)
           }
           setLoading(targetChatId, false)
         },
@@ -370,6 +406,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         (errData: { type?: string; message: string }) => {
           setActiveTool(null)
           removeMessage(targetChatId, streamingId)
+          removeMessage(targetChatId, optimisticId)
           setErrorMessage(errData.message || 'Branch streaming error.')
           setLoading(targetChatId, false)
         },
@@ -378,7 +415,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
 
         (reasoningToken: string) => {
           setActiveTool(null)
-          appendReasoningToken(targetChatId, streamingId, reasoningToken)
+          appendReasoningToken(targetChatId, streamingId, reasoningToken, threadRootId, currentUserMsgId)
         },
 
         uploadedFileInfo,
@@ -390,6 +427,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         setErrorMessage(err.message || 'An unexpected branch error occurred.')
       }
       setActiveTool(null)
+      removeMessage(targetChatId, optimisticId)
       setLoading(targetChatId, false)
     }
   }
@@ -451,6 +489,9 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         threadRootId: customThreadRootId,
         createdAt: new Date().toISOString()
       } as any)
+      if (!customThreadRootId) {
+        setActiveNodeId(targetChatId, optimisticId)
+      }
 
       clearStaging()
       setInput('')
@@ -486,6 +527,9 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         threadRootId: customThreadRootId,
         createdAt: new Date().toISOString()
       })
+      if (!customThreadRootId) {
+        setActiveNodeId(targetChatId, optimisticId)
+      }
       setInput('')
       await sendMessage(cachedInput, targetChatId, undefined, undefined, optimisticId, customParentId || parentNodeId || undefined, customThreadRootId)
     }

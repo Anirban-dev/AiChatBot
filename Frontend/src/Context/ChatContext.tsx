@@ -107,9 +107,9 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
 
   const getMessages = (chatId: string) => (store[chatId] as any) || []
   
-  const saveToLocalStorage = () => {
+  const saveToLocalStorage = (data: Record<string, any>) => {
     try {
-      localStorage.setItem('chatMessages', JSON.stringify(store))
+      localStorage.setItem('chatMessages', JSON.stringify(data))
     } catch (error) {
       console.error('Failed to save messages to localStorage:', error)
     }
@@ -118,13 +118,20 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
   const setMessages = (chatId: string, msgs: any[]) => {
     setStore(prev => {
       const updated = { ...prev, [chatId]: msgs }
-      saveToLocalStorage()
+      saveToLocalStorage(updated)
       return updated
     })
     if (msgs.length > 0) {
       const mainMsgs = msgs.filter((m: any) => !m.threadRootId)
-      const target = mainMsgs.length > 0 ? mainMsgs[mainMsgs.length - 1] : msgs[msgs.length - 1]
-      setActiveNodeIds((prev: any) => ({ ...prev, [chatId]: target._id }))
+      if (mainMsgs.length > 0) {
+        // Find leaves (messages that are not parents of any other main message)
+        const parentIds = new Set(mainMsgs.map((m: any) => m.parentId ? String(m.parentId) : null).filter(Boolean))
+        const leaves = mainMsgs.filter((m: any) => !parentIds.has(String(m._id)))
+        const activeLeaf = leaves.length > 0 ? leaves[leaves.length - 1] : mainMsgs[mainMsgs.length - 1]
+        setActiveNodeIds((prev: any) => ({ ...prev, [chatId]: String(activeLeaf._id) }))
+      } else {
+        setActiveNodeIds((prev: any) => ({ ...prev, [chatId]: String(msgs[msgs.length - 1]._id) }))
+      }
     }
   }
 
@@ -134,22 +141,38 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
         ...prev,
         [chatId]: [...(prev[chatId] || []), msg]
       }
-      saveToLocalStorage()
+      saveToLocalStorage(updated)
       return updated
     })
   }
 
   const updateMessage = (chatId: string, msgId: string, update: any) => {
     setStore(prev => {
+      const msgs = prev[chatId] || []
+      const newId = update._id && update._id !== msgId ? update._id : null
+      const updatedList = msgs.map((m: any) => {
+        if (m._id === msgId) {
+          return { ...m, ...update }
+        }
+        let item = m
+        if (newId && item.parentId === msgId) {
+          item = { ...item, parentId: newId }
+        }
+        if (newId && item.threadHeadId === msgId) {
+          item = { ...item, threadHeadId: newId }
+        }
+        return item
+      })
       const updated = {
         ...prev,
-        [chatId]: (prev[chatId] || []).map((m: any) =>
-          m._id === msgId ? { ...m, ...update } : m
-        )
+        [chatId]: updatedList
       }
-      saveToLocalStorage()
+      saveToLocalStorage(updated)
       return updated
     })
+    if (update._id && update._id !== msgId) {
+      setActiveNodeIds(prev => prev[chatId] === msgId ? { ...prev, [chatId]: update._id } : prev)
+    }
   }
 
   const removeMessage = (chatId: string, msgId: string) => {
@@ -158,7 +181,7 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
         ...prev,
         [chatId]: (prev[chatId] || []).filter((m: any) => m._id !== msgId)
       }
-      saveToLocalStorage()
+      saveToLocalStorage(updated)
       return updated
     })
   }
@@ -170,7 +193,7 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
         ...prev,
         [chatId]: (prev[chatId] || []).filter((m: any) => !setIds.has(m._id))
       }
-      saveToLocalStorage()
+      saveToLocalStorage(updated)
       return updated
     })
   }
@@ -199,6 +222,8 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
         const threadRootId = explicitThreadRootId !== undefined ? explicitThreadRootId : (lastMsg?.threadRootId || null)
         const parentId = explicitParentId !== undefined ? explicitParentId : (lastMsg ? lastMsg._id : null)
         isThread = !!threadRootId
+        const parentMsg = msgs.find((m: MessageType) => m._id === parentId)
+        const threadHeadId = threadRootId ? (parentMsg?.threadHeadId || (String(parentId) === String(threadRootId) ? msgId : parentId)) : null
         return {
           ...prev,
           [chatId]: [...msgs, {
@@ -207,6 +232,7 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
             content: token,
             parentId,
             threadRootId,
+            threadHeadId,
             createdAt: new Date().toISOString(),
           }]
         }
@@ -241,6 +267,8 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
         const threadRootId = explicitThreadRootId !== undefined ? explicitThreadRootId : (lastMsg?.threadRootId || null)
         const parentId = explicitParentId !== undefined ? explicitParentId : (lastMsg ? lastMsg._id : null)
         isThread = !!threadRootId
+        const parentMsg = msgs.find((m: MessageType) => m._id === parentId)
+        const threadHeadId = threadRootId ? (parentMsg?.threadHeadId || (String(parentId) === String(threadRootId) ? msgId : parentId)) : null
         return {
           ...prev,
           [chatId]: [...msgs, {
@@ -250,6 +278,7 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
             reasoning: token,
             parentId,
             threadRootId,
+            threadHeadId,
             createdAt: new Date().toISOString(),
           }]
         }
@@ -290,6 +319,8 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
         const threadRootId = explicitThreadRootId !== undefined ? explicitThreadRootId : (lastMsg?.threadRootId || null)
         const parentId = explicitParentId !== undefined ? explicitParentId : (lastMsg ? lastMsg._id : null)
         isThread = !!threadRootId
+        const parentMsg = msgs.find((m: MessageType) => m._id === parentId)
+        const threadHeadId = threadRootId ? (parentMsg?.threadHeadId || (String(parentId) === String(threadRootId) ? msgId : parentId)) : null
         return {
           ...prev,
           [chatId]: [...msgs, {
@@ -298,6 +329,7 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
             content: '',
             parentId,
             threadRootId,
+            threadHeadId,
             toolCalls: [toolCall],
             createdAt: new Date().toISOString(),
           }]
@@ -317,17 +349,21 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
 
   const getActivePath = (chatId: string, activeNodeId: string): Message[] => {
     const msgs = store[chatId] || []
-    if (!activeNodeId) {
-      const mainMsgs = msgs.filter((m: MessageType) => !m.threadRootId)
-      if (mainMsgs.length === 0) return []
+    const mainMsgs = msgs.filter((m: MessageType) => !m.threadRootId)
+    if (mainMsgs.length === 0) return []
+
+    let targetId = activeNodeId
+    if (!targetId || !msgs.some((m: MessageType) => m._id === targetId)) {
       const lastMsg = mainMsgs[mainMsgs.length - 1]
-      return getActivePath(chatId, lastMsg._id)
+      targetId = lastMsg._id
     }
     
     const path: Message[] = []
-    let currentId: string | null = activeNodeId
+    const visited = new Set<string>()
+    let currentId: string | null = targetId
     
-    while (currentId) {
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId)
       const msg = msgs.find((m: MessageType) => m._id === currentId)
       if (!msg) break
       
@@ -335,6 +371,7 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
       if (!msg.threadRootId) {
         path.unshift(msg)
       }
+
       currentId = msg.parentId || null
     }
     

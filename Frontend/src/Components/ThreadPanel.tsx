@@ -76,9 +76,16 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
   const threadRootId = rootMessage._id
 
   const threadMessages = useMemo(() => {
-    if (!threadHeadId) return []
+    if (!threadHeadId) {
+      if (isComposingNewThread) return []
+      const heads = getThreadHeads(allMessages, threadRootId)
+      if (heads.length > 0) {
+        return getThreadPath(allMessages, heads[heads.length - 1]._id, threadActiveNodeId)
+      }
+      return []
+    }
     return getThreadPath(allMessages, threadHeadId, threadActiveNodeId)
-  }, [allMessages, threadHeadId, threadActiveNodeId])
+  }, [allMessages, threadHeadId, threadActiveNodeId, threadRootId, isComposingNewThread])
 
   useEffect(() => {
     if (!threadHeadId) {
@@ -92,7 +99,14 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
         } else if (!isComposingNewThread) {
           onThreadHeadCreated(heads[heads.length - 1]._id)
         }
-        // else: composing — keep panel empty.
+      }
+      return
+    }
+    const head = allMessages.find((m) => String(m._id) === String(threadHeadId))
+    if (!head) {
+      const heads = getThreadHeads(allMessages, threadRootId)
+      if (heads.length > 0) {
+        onThreadHeadCreated(heads[heads.length - 1]._id)
       }
       return
     }

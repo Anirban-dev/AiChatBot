@@ -5,10 +5,11 @@ import { ArrowLeft, Database, LogOut, Sun, Moon } from 'lucide-react'
 import AdminGate from './AdminGate'
 import OverviewTab from './OverviewTab'
 import UsersTab from './UsersTab'
+import TiersTab from './TiersTab'
 import LogsTab from './LogsTab'
 import LLMTab from './Litellm'
 
-type Tab = 'overview' | 'users' | 'logs' | 'llm'
+type Tab = 'overview' | 'users' | 'tiers' | 'logs' | 'llm'
 
 const AdminDashboard = () => {
   const navigate = useNavigate()
@@ -50,9 +51,10 @@ const AdminDashboard = () => {
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
-    { id: 'users', label: 'Users' },
-    { id: 'logs', label: 'Activity Logs' },
-    { id: 'llm', label: 'LLM Logs' }
+    { id: 'users',    label: 'Users' },
+    { id: 'tiers',    label: 'Tiers' },
+    { id: 'logs',     label: 'Activity Logs' },
+    { id: 'llm',      label: 'LLM Logs' }
   ]
 
   return (
@@ -142,6 +144,7 @@ const AdminDashboard = () => {
         <main className="max-w-7xl mx-auto px-6 md:px-10 py-8">
           {tab === 'overview' && <OverviewTab onExpired={handleExpired} />}
           {tab === 'users'    && <UsersTab    onExpired={handleExpired} />}
+          {tab === 'tiers'    && <TiersTab    onExpired={handleExpired} />}
           {tab === 'logs'     && <LogsTab     onExpired={handleExpired} />}
           {tab === 'llm'      && <LLMTab      onExpired={handleExpired} />}
         </main>

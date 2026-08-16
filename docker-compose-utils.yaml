@@ -15,13 +15,13 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    restart: on-failure
+    restart: "no"
     networks:
       - backend
 
   redis:
     image: redis:7-alpine
-    restart: on-failure
+    restart: "no"
     ports:
       - "6379:6379"
     command: ["redis-server", "--ignore-warnings", "ARM64-COW-BUG"]
@@ -39,17 +39,17 @@ services:
       - "6333:6333"
     volumes:
       - ./dump/qdrant_data:/qdrant/storage
-    restart: on-failure
+    restart: "no"
     networks:
       - backend
 
   mongodb:
-    image: mongo:7
+    image: mongo:7.0
     ports:
       - "27017:27017"
     volumes:
       - ./dump/mongo_data:/data/db
-    restart: on-failure
+    restart: "no"
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s

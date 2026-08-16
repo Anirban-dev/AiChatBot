@@ -1,6 +1,15 @@
 // src/models/User.ts
 import mongoose from 'mongoose'
 
+export interface IModelLimit {
+  rpm?: number
+  tpm?: number
+}
+
+export interface IUploadLimit {
+  max?: number
+}
+
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -25,16 +34,20 @@ const userSchema = new mongoose.Schema({
   },
   tier: {
     type: String,
-    enum: ['free', 'premium', 'enterprise'],
-    default: 'free', // New users start here automatically
+    default: 'free',
   },
-  tpm: {
-    type: Number,
-    default: 15000,
+  // Granular model overrides: small, large, thinking, critiq
+  modelLimits: {
+    small:    { rpm: Number, tpm: Number, period: { type: String, enum: ['hourly', 'daily', 'weekly', 'monthly'] } },
+    large:    { rpm: Number, tpm: Number, period: { type: String, enum: ['hourly', 'daily', 'weekly', 'monthly'] } },
+    thinking: { rpm: Number, tpm: Number, period: { type: String, enum: ['hourly', 'daily', 'weekly', 'monthly'] } },
+    critiq:   { rpm: Number, tpm: Number, period: { type: String, enum: ['hourly', 'daily', 'weekly', 'monthly'] } },
   },
-  rpm: {
-    type: Number,
-    default: 10,
+  // Granular upload overrides: image, video, other
+  uploadLimits: {
+    image: { max: Number, period: { type: String, enum: ['hourly', 'daily', 'weekly', 'monthly'] } },
+    video: { max: Number, period: { type: String, enum: ['hourly', 'daily', 'weekly', 'monthly'] } },
+    other: { max: Number, period: { type: String, enum: ['hourly', 'daily', 'weekly', 'monthly'] } },
   }
 }, {
   timestamps: true,

@@ -1,14 +1,37 @@
 import api from '../../Auth/AxiosHelper'
 
-export type UserTier = 'free' | 'premium' | 'enterprise';
+export type UserTier = string;
+export type WindowPeriod = 'hourly' | 'daily' | 'weekly' | 'monthly';
+
+export interface ModelLimitDetail {
+  rpm: number
+  tpm: number
+  period?: WindowPeriod
+}
+
+export interface UploadLimitDetail {
+  max: number
+  windowSec: number
+  label: string
+  period?: WindowPeriod
+}
 
 export interface UserLimits {
-  tpm: number
-  rpm: number
   tpmUsed: number
   rpmUsed: number
-  tpmRemaining: number
-  rpmRemaining: number
+  models?: {
+    small: ModelLimitDetail
+    large: ModelLimitDetail
+    thinking: ModelLimitDetail
+    critiq: ModelLimitDetail
+  }
+  uploads?: {
+    image: UploadLimitDetail
+    video: UploadLimitDetail
+    other: UploadLimitDetail
+  }
+  modelsUsage?: Record<string, { rpmUsed: number; tpmUsed: number }>
+  uploadsUsage?: Record<string, { used: number }>
   isOverridden: boolean
 }
 
@@ -32,6 +55,21 @@ export interface UsersResponse {
   users: AdminUser[]
 }
 
+export interface UpdateUserLimitsPayload {
+  clear?: boolean
+  modelLimits?: {
+    small?: { rpm?: number; tpm?: number; period?: WindowPeriod }
+    large?: { rpm?: number; tpm?: number; period?: WindowPeriod }
+    thinking?: { rpm?: number; tpm?: number; period?: WindowPeriod }
+    critiq?: { rpm?: number; tpm?: number; period?: WindowPeriod }
+  }
+  uploadLimits?: {
+    image?: { max?: number; period?: WindowPeriod }
+    video?: { max?: number; period?: WindowPeriod }
+    other?: { max?: number; period?: WindowPeriod }
+  }
+}
+
 export const getAdminUsers = async (search = '', page = 1, limit = 10): Promise<UsersResponse> => {
   const res = await api.get('/admin/users', { params: { search, page, limit } })
   return res.data
@@ -47,14 +85,14 @@ export const deleteAdminUser = async (userId: string): Promise<any> => {
   return res.data
 }
 
-export const getUserLimits = async (userId: string): Promise<UserLimits> => {
+export const getUserLimits = async (userId: string): Promise<any> => {
   const res = await api.get(`/admin/users/${userId}/limits`)
   return res.data
 }
 
 export const updateUserLimits = async (
   userId: string,
-  payload: { tpm?: number; rpm?: number; clear?: boolean }
+  payload: UpdateUserLimitsPayload
 ): Promise<any> => {
   const res = await api.put(`/admin/users/${userId}/limits`, payload)
   return res.data
@@ -62,7 +100,7 @@ export const updateUserLimits = async (
 
 export const updateUserTier = async (
   userId: string,
-  tier: 'free' | 'premium' | 'enterprise'
+  tier: string
 ): Promise<any> => {
   const res = await api.put(`/admin/users/${userId}/tier`, { tier })
   return res.data

@@ -62,11 +62,18 @@ export function getThreadPath(
   threadHeadId: string,
   activeNodeId?: string | null
 ): Message[] {
-  const head = messages.find((m) => String(m._id) === String(threadHeadId))
-  if (!head?.threadRootId) return []
+  let head = messages.find((m) => String(m._id) === String(threadHeadId))
+  if (!head) {
+    head = messages.find((m) => m.threadHeadId && String(m.threadHeadId) === String(threadHeadId))
+  }
+  if (!head?.threadRootId) {
+    const threadMsgs = messages.filter((m) => m.threadRootId && (String(m._id) === String(threadHeadId) || String(m.threadHeadId) === String(threadHeadId)))
+    if (threadMsgs.length > 0) head = threadMsgs[0]
+    else return []
+  }
 
   const threadRootId = String(head.threadRootId)
-  const effectiveHeadId = getEffectiveThreadHeadId(messages, head) || threadHeadId
+  const effectiveHeadId = getEffectiveThreadHeadId(messages, head) || String(head._id)
 
   const threadMsgs = messages.filter(
     (m) => String(m.threadRootId) === threadRootId && getEffectiveThreadHeadId(messages, m) === effectiveHeadId
@@ -76,17 +83,19 @@ export function getThreadPath(
 
   let leafId = activeNodeId
   if (!leafId || !threadMsgs.some((m) => String(m._id) === String(leafId))) {
-    leafId = getThreadLeafId(messages, threadHeadId, threadRootId)
+    leafId = getThreadLeafId(messages, String(head._id), threadRootId)
   }
 
   const path: Message[] = []
   let currentId: string | null = leafId
-  while (currentId) {
+  const visited = new Set<string>()
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId)
     const msg = threadMsgs.find((m) => String(m._id) === String(currentId))
     if (!msg) break
     path.unshift(msg)
     if (String(msg._id) === String(effectiveHeadId) || String(msg.parentId) === threadRootId) break
-    currentId = msg.parentId ?? null
+    currentId = msg.parentId ? String(msg.parentId) : null
   }
   return path
 }

@@ -17,6 +17,7 @@ from services import session_state as ss
 from state import active_streams, StreamState
 from services import tool_manager
 from lib.mongodb import chat_logs
+from routes.critiq import run_critiq
 
 router = APIRouter()
 
@@ -96,10 +97,6 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
 
         # Check if vector DB tool is available
         vector_db_available = tool_manager.is_vector_db_available(mode)
-        
-        state_block = ss.get_state_block(chat_id)
-        if state_block:
-            system += state_block
         
         # If vector DB is available, note it in system prompt
         if vector_db_available:
@@ -210,6 +207,21 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
                 target_model = LLM_HIGH_MODEL
 
             _log.info(f"[Generate] Starting: tier={target_model} mode={mode} chat={chat_id}")
+
+            # ── CRITIQ MODE: multi-agent orchestrator + up to 2 sub-workers ──
+            if mode == "critiq":
+                async for sse_chunk in run_critiq(
+                    chat_id=chat_id,
+                    user_id=user_id,
+                    messages=messages,
+                    active_path=active_path,
+                    mode=mode,
+                    enable_thinking=enable_thinking,
+                ):
+                    if not active_streams.get(chat_id, StreamState()).active:
+                        return
+                    yield sse_chunk
+                return
 
             # ── SMALL MODE: no tools, pure streaming ──────────────────────────
             if mode == "small":

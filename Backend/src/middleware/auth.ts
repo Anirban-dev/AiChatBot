@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken'
 
 export interface AuthRequest<P = {}> extends Request<P> {
   userId?: string
-  userTier?: 'free' | 'premium' | 'enterprise'
+  userTier?: string
   userRole?: string
 }
 
@@ -18,7 +18,7 @@ export const authMiddleware = (req: AuthRequest<any>, res: Response, next: NextF
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
       id: string
-      tier: 'free' | 'premium' | 'enterprise'
+      tier: string
       role: string
     }
 
@@ -42,7 +42,7 @@ export const adminAuthMiddleware = (req: AuthRequest<any>, res: Response, next: 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
       id: string
-      tier: 'free' | 'premium' | 'enterprise'
+      tier: string
       role: string
     }
 

@@ -7,7 +7,8 @@ import authMiddleware, { AuthRequest } from '../../middleware/auth'
 import { midLimiter } from '../../utils/ratelimitHelper'
 import { writeLog }   from '../../utils/logger'
 import { redis }      from '../../utils/redis'
-import { TIER_DEFAULTS } from '../admin/users'
+import { getEffectiveUserLimits } from '../admin/users'
+import { getWindowStamp, getWindowTTLSeconds, formatPeriodLabel } from '../../utils/windowHelper'
 import { LlmLog } from '../../models/llmLog'
 import mongoose from 'mongoose'
 
@@ -31,8 +32,8 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
 
   if (!content && !file) return res.status(400).json({ error: 'Content is required' })
 
-  const validTiers = ['small', 'large', 'thinking', 'critiq']
-  const targetTier = validTiers.includes(model) ? model : 'small'
+  const validTiers = ['small', 'large', 'thinking', 'critiq'] as const
+  const targetTier: 'small' | 'large' | 'thinking' | 'critiq' = validTiers.includes(model) ? model : 'small'
 
   const userTier  = (req as any).userTier ?? 'free'
   const userId    = req.userId!
@@ -43,51 +44,46 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
     const chat = await Chat.findOne({ _id: chatId, userId })
     if (!chat) return res.status(404).json({ error: 'Chat not found' })
 
-    // ─── Redis hourly limit pre-check ─────────────────────────────────────────
+    // ─── Redis period-aware limit pre-check (Model-Specific & Global) ───────────
     const now = new Date()
-    const stamp = [
-      now.getUTCFullYear(),
-      String(now.getUTCMonth() + 1).padStart(2, '0'),
-      String(now.getUTCDate()).padStart(2, '0'),
-      String(now.getUTCHours()).padStart(2, '0'),
-    ].join('-')
+    const effectiveLimits = await getEffectiveUserLimits(userId, userTier)
+    const modelLimit = effectiveLimits.models[targetTier]
+    const modelPeriod = modelLimit.period || 'hourly'
+    const stamp = getWindowStamp(now, modelPeriod)
 
-    const tphKey = `usage:tph:${userId}:${stamp}`
-    const rphKey = `usage:rph:${userId}:${stamp}`
+    // Model specific keys
+    const modelTpmKey = `usage:tpm:${userId}:${targetTier}:${stamp}`
+    const modelRpmKey = `usage:rpm:${userId}:${targetTier}:${stamp}`
 
-    const [userDoc, tphRaw, rphRaw] = await Promise.all([
-      User.findById(userId).select('tpm rpm'),
-      redis.get(tphKey),
-      redis.get(rphKey),
+    const [modelTpmRaw, modelRpmRaw] = await Promise.all([
+      redis.get(modelTpmKey),
+      redis.get(modelRpmKey),
     ])
 
-    const limits = {
-      tpm: (userDoc as any)?.tpm ?? TIER_DEFAULTS[userTier]?.tpm ?? TIER_DEFAULTS.free.tpm,
-      rpm: (userDoc as any)?.rpm ?? TIER_DEFAULTS[userTier]?.rpm ?? TIER_DEFAULTS.free.rpm,
-    }
+    const modelTokensUsed = parseInt(modelTpmRaw ?? '0', 10)
+    const modelRequestsUsed = parseInt(modelRpmRaw ?? '0', 10)
+    const periodLabel = formatPeriodLabel(modelPeriod)
 
-    const tokensUsedThisHour = parseInt(tphRaw ?? '0', 10)
-    const requestsUsedThisHour = parseInt(rphRaw ?? '0', 10)
-
-    if (requestsUsedThisHour >= limits.rpm) {
+    if (modelRequestsUsed >= modelLimit.rpm) {
       await writeLog({
         userId, action: 'AI_CHAT', status: 'failed', method: 'POST',
         path: `/api/chats/${chatId}/msgs`,
         ipAddress: req.ip ?? req.socket.remoteAddress, userAgent: req.headers['user-agent'],
         latency: Date.now() - startTime,
-        details: { chatId, reason: 'RPM limit reached', stage: 'rate_limiting_pre_check', limit: limits.rpm, used: requestsUsedThisHour },
+        details: { chatId, model: targetTier, reason: `Request limit reached for ${targetTier} model (${modelPeriod})`, limit: modelLimit.rpm, used: modelRequestsUsed },
       })
-      return res.status(429).json({ error: 'Hourly request limit reached. Please wait until the next hour.' })
+      return res.status(429).json({ error: `${modelPeriod.charAt(0).toUpperCase() + modelPeriod.slice(1)} request limit reached for the '${targetTier}' model (${modelLimit.rpm} requests/${periodLabel}). Please wait or switch models.` })
     }
-    if (tokensUsedThisHour >= limits.tpm) {
+
+    if (modelTokensUsed >= modelLimit.tpm) {
       await writeLog({
         userId, action: 'AI_CHAT', status: 'failed', method: 'POST',
         path: `/api/chats/${chatId}/msgs`,
         ipAddress: req.ip ?? req.socket.remoteAddress, userAgent: req.headers['user-agent'],
         latency: Date.now() - startTime,
-        details: { chatId, reason: 'TPM limit reached', stage: 'rate_limiting_pre_check', limit: limits.tpm, used: tokensUsedThisHour },
+        details: { chatId, model: targetTier, reason: `Token quota reached for ${targetTier} model (${modelPeriod})`, limit: modelLimit.tpm, used: modelTokensUsed },
       })
-      return res.status(429).json({ error: 'Hourly token quota consumed. Please wait until the next hour.' })
+      return res.status(429).json({ error: `${modelPeriod.charAt(0).toUpperCase() + modelPeriod.slice(1)} token quota reached for the '${targetTier}' model (${modelLimit.tpm.toLocaleString()} tokens/${periodLabel}). Please wait or switch models.` })
     }
 
     // ─── Build context window ──────────────────────────────────────────────────
@@ -105,11 +101,13 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
 
     let computedThreadHeadId: string | null = null
 
+    let resolvedParentId: string | null = null
+
     if (threadRootId) {
       // ── PHASE 1: collect this thread's own prior replies ──
       const threadReplies: any[] = []
       let currentId = parentId
-      while (currentId) {
+      while (currentId && mongoose.isValidObjectId(currentId)) {
         const msg = await Message.findById(currentId)
         if (!msg) break
         if (String(msg.threadRootId) !== String(threadRootId)) break
@@ -118,7 +116,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       }
 
       // Determine threadHeadId
-      if (parentId && String(parentId) !== String(threadRootId)) {
+      if (parentId && String(parentId) !== String(threadRootId) && mongoose.isValidObjectId(parentId)) {
         const parentMsg: any = await Message.findById(parentId)
         if (parentMsg?.threadHeadId) {
           computedThreadHeadId = String(parentMsg.threadHeadId)
@@ -129,37 +127,46 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
 
       // ── PHASE 2: build main-timeline context up to (and including) the anchor ──
       const mainCtx: any[] = []
-      const anchorMsg = await Message.findById(threadRootId)
-      if (anchorMsg) {
-        mainCtx.unshift(anchorMsg)
-        let walkId = anchorMsg.parentId
-        while (walkId && mainCtx.length + threadReplies.length < CONTEXT_LIMIT) {
-          const msg = await Message.findById(walkId)
-          if (!msg) break
-          if (!msg.threadRootId) {
-            mainCtx.unshift(msg)
+      if (mongoose.isValidObjectId(threadRootId)) {
+        const anchorMsg = await Message.findById(threadRootId)
+        if (anchorMsg) {
+          mainCtx.unshift(anchorMsg)
+          let walkId = anchorMsg.parentId
+          while (walkId && mongoose.isValidObjectId(walkId) && mainCtx.length + threadReplies.length < CONTEXT_LIMIT) {
+            const msg = await Message.findById(walkId)
+            if (!msg) break
+            if (!msg.threadRootId) {
+              mainCtx.unshift(msg)
+            }
+            walkId = msg.parentId
           }
-          walkId = msg.parentId
         }
       }
 
       previousMessages.push(...mainCtx, ...threadReplies)
+      resolvedParentId = parentId ? String(parentId) : null
 
     } else {
       // ── MAIN / BRANCH CHAT: walk parentId chain, skip any thread messages ──
-      let currentParentId = parentId
-      if (!currentParentId) {
+      let initialParentId: string | null = null
+      if (parentId && mongoose.isValidObjectId(parentId)) {
+        initialParentId = String(parentId)
+      } else {
         const lastMsg = await Message.findOne({ chatId, threadRootId: null }).sort({ createdAt: -1 })
-        if (lastMsg) currentParentId = lastMsg._id
+        if (lastMsg) initialParentId = String(lastMsg._id)
       }
-      while (currentParentId && previousMessages.length < CONTEXT_LIMIT) {
-        const parentMsg = await Message.findById(currentParentId)
+
+      let walkId = initialParentId
+      while (walkId && mongoose.isValidObjectId(walkId) && previousMessages.length < CONTEXT_LIMIT) {
+        const parentMsg = await Message.findById(walkId)
         if (!parentMsg) break
         if (!parentMsg.threadRootId) {
           previousMessages.unshift(parentMsg)
         }
-        currentParentId = parentMsg.parentId
+        walkId = parentMsg.parentId ? String(parentMsg.parentId) : null
       }
+
+      resolvedParentId = initialParentId
     }
 
     const userMessageId = new mongoose.Types.ObjectId()
@@ -174,7 +181,7 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       content,
       fileInfo,
       file,
-      parentId: parentId || null,
+      parentId: resolvedParentId,
       threadRootId: threadRootId || null,
       threadHeadId: threadRootId ? computedThreadHeadId : null,
     })
@@ -499,16 +506,16 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       threadHeadId: threadRootId ? computedThreadHeadId : null,
     })
 
-    // ─── Redis hourly tracking commit ──────────────────────────────────────────
+    // ─── Redis tracking commit ────────────────────────────────────────────────
     const totalEstimatedTokens = Math.ceil((content.length + fullContent.length) / 4)
-    const secondsUntilNextHour = 3600 - (now.getUTCMinutes() * 60 + now.getUTCSeconds())
-    const redisTTL = secondsUntilNextHour + 600
+    const redisTTL = getWindowTTLSeconds(now, modelPeriod)
 
     await redis.multi()
-      .incrby(tphKey, totalEstimatedTokens)
-      .incr(rphKey)
-      .expire(tphKey, redisTTL)
-      .expire(rphKey, redisTTL)
+      // Model-specific metrics
+      .incrby(modelTpmKey, totalEstimatedTokens)
+      .incr(modelRpmKey)
+      .expire(modelTpmKey, redisTTL)
+      .expire(modelRpmKey, redisTTL)
       .exec()
 
     isFinished = true

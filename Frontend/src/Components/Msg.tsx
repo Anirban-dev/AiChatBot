@@ -162,7 +162,6 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
 
   useEffect(() => {
     if (!chatId || chatId === 'new') return
-    if (getMessages(chatId).length > 0) return
     const fetchMsgs = async () => {
       try {
         const data = await getMsgs(chatId)

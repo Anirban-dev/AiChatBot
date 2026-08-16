@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, type SetStateAction } from 'react'
 import { Search, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
 import { getAdminUsers, deleteAdminUser, updateUserRole } from '../../API/Admin/AdminUsers'
+import { getAdminTiers } from '../../API/Admin/AdminTiers'
 import type { AdminUser } from '../../API/Admin/AdminUsers'
 import { UserTableRow } from '../../Components/Admin/UserTableRow'
 import { LimitsModal } from '../../Components/Admin/UserLimitModal'
@@ -11,6 +12,7 @@ const PAGE_SIZE = 8
 
 const UsersTab = ({ onExpired }: Props) => {
   const [users, setUsers] = useState<AdminUser[]>([])
+  const [availableTiers, setAvailableTiers] = useState<string[]>(['free'])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
@@ -48,6 +50,16 @@ const UsersTab = ({ onExpired }: Props) => {
       setLoading(false)
     }
   }, [search, page, onExpired, limitsUser?.id])
+
+  useEffect(() => {
+    getAdminTiers()
+      .then(res => {
+        if (res.tiers && res.tiers.length > 0) {
+          setAvailableTiers(res.tiers.map(t => t.name))
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => { fetchUsers() }, [page, search])
 
@@ -123,7 +135,7 @@ const UsersTab = ({ onExpired }: Props) => {
                 <th className="px-5 py-4 text-left">Identity Profile</th>
                 <th className="px-5 py-4 text-left">Access Role</th>
                 <th className="px-5 py-4 text-left">Active Tier</th>
-                <th className="px-5 py-4 text-left">Minute Limits Consumption</th>
+                <th className="px-5 py-4 text-left">AI Quota Usage</th>
                 <th className="px-5 py-4 text-left">Joined</th>
                 <th className="px-5 py-4 text-center">Chats</th>
                 <th className="px-5 py-4 text-center">Msgs</th>
@@ -146,6 +158,7 @@ const UsersTab = ({ onExpired }: Props) => {
                   <UserTableRow
                     key={u.id}
                     user={u}
+                    availableTiers={availableTiers}
                     actionId={actionId}
                     onRoleChange={handleRoleChange}
                     onOpenLimits={(selected: SetStateAction<AdminUser | null>) => setLimitsUser(selected)}
