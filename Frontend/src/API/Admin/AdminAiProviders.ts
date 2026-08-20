@@ -38,6 +38,14 @@ export interface ReloadResult {
   error?: string
 }
 
+export interface EmbedVectorInfo {
+  model?: string | null
+  dimension?: number | null
+  error?: string | null
+  indexed_collections?: number
+  indexed_dimensions?: number[]
+}
+
 export interface AiProvidersResponse {
   providers: AiProvider[]
   tiers: AiTierMeta[]
@@ -61,7 +69,7 @@ export const getAdminAiProviders = async (): Promise<AiProvidersResponse> => {
 
 export const createAdminAiProvider = async (
   data: AiProviderInput
-): Promise<{ message: string; provider: AiProvider; reload: ReloadResult }> => {
+): Promise<{ message: string; provider: AiProvider; reload: ReloadResult; embedding?: EmbedVectorInfo }> => {
   const res = await api.post('/admin/ai-providers', data)
   return res.data
 }
@@ -69,7 +77,7 @@ export const createAdminAiProvider = async (
 export const updateAdminAiProvider = async (
   id: string,
   data: AiProviderInput
-): Promise<{ message: string; provider: AiProvider; reload: ReloadResult }> => {
+): Promise<{ message: string; provider: AiProvider; reload: ReloadResult; embedding?: EmbedVectorInfo }> => {
   const res = await api.put(`/admin/ai-providers/${id}`, data)
   return res.data
 }
@@ -83,6 +91,25 @@ export const deleteAdminAiProvider = async (
 
 export const reloadAdminAiProviders = async (): Promise<ReloadResult> => {
   const res = await api.post('/admin/ai-providers/reload')
+  return res.data
+}
+
+export interface PingResult {
+  ok: boolean
+  latency_ms?: number
+  detail?: string
+  error?: string
+}
+
+export const testPingAdminAiProvider = async (data: {
+  id?: string
+  tier: AiTierKey
+  provider: string
+  model: string
+  api_base?: string
+  api_key?: string
+}): Promise<PingResult> => {
+  const res = await api.post('/admin/ai-providers/test-ping', data)
   return res.data
 }
 

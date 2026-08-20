@@ -8,7 +8,14 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
-from litellm.exceptions import RateLimitError
+from litellm.exceptions import (
+    RateLimitError,
+    AuthenticationError,
+    InternalServerError,
+    ServiceUnavailableError,
+    APIConnectionError,
+    APIError,
+)
 
 from config import LLM_SMALL_MODEL, client, LLM_HIGH_MODEL, SYSTEM_PROMPT, CONCURRENT_STREAMS
 from services import vector_store as vs
@@ -517,6 +524,12 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
             _log.warning(f"[RateLimit] Quota hit: chat={chat_id} user={user_id}")
             # Use standard SSE error event
             yield f"event: error\ndata: {json.dumps({'message': 'Rate limit hit — please wait a moment and try again.'})}\n\n"
+
+        except (AuthenticationError, InternalServerError, ServiceUnavailableError, APIConnectionError, APIError) as e:
+            # Every routed provider failed (litellm retried each deployment).
+            # Surface a single friendly error instead of a raw provider traceback.
+            _log.error(f"[ProviderDown] chat={chat_id} user={user_id} error={e}", exc_info=True)
+            yield f"event: error\ndata: {json.dumps({'message': 'All AI providers are currently unavailable. Please try again in a moment.'})}\n\n"
 
         except Exception as e:
             _log.error(f"[Generate] Pipeline error: chat={chat_id} user={user_id} error={e}", exc_info=True)

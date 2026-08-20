@@ -12,7 +12,6 @@ dependencies = [
     "langchain>=1.2.15",
     "langchain-community>=0.4.1",
     "langchain-core>=1.4.0",
-    "langchain-huggingface>=1.2.2",
     "langchain-openai>=1.2.1",
     "langchain-qdrant>=1.1.0",
     "langchain-text-splitters>=1.1.2",
@@ -29,7 +28,6 @@ dependencies = [
     "python-multipart>=0.0.27",
     "qdrant-client>=1.18.0",
     "redis>=7.4.0",
-    "sentence-transformers>=5.4.1",
     "tabulate>=0.10.0",
     "uvicorn>=0.46.0",
     "youtube-transcript-api>=1.2.4",
@@ -38,6 +36,9 @@ dependencies = [
     "torchaudio"
 ]
 
+# torch/torchvision/torchaudio stay pinned to the CPU build (they are still
+# required transitively by docling) — only the HuggingFace embedding stack
+# (langchain-huggingface / sentence-transformers) was removed.
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
 torchvision = { index = "pytorch-cpu" }

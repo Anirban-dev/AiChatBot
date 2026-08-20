@@ -1,4 +1,4 @@
-import { X, Paperclip, Send, Edit2, Copy, ChevronLeft, ChevronRight, MessageSquare, Plus, GitBranch } from 'lucide-react'
+import { X, Paperclip, Send, Edit2, Copy, ChevronLeft, ChevronRight, MessageSquare, Plus, GitBranch, AlertTriangle, RotateCw } from 'lucide-react'
 import MarkdownRenderer from './BashComponent'
 import { useState, useEffect, useRef } from 'react'
 
@@ -32,12 +32,13 @@ export interface MessageLike {
   threadReplyCount?: number
   isUser?: boolean
   isEdited?: boolean
+  failed?: boolean
 }
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff'])
 const TEXT_EXTS = new Set(['.txt', '.md', '.json', '.js', '.ts', '.py', '.cpp', '.c', '.h', '.html', '.css', '.csv'])
 
-const bubbleBase = 'px-4 py-2.5 text-sm leading-relaxed rounded-2xl shadow-sm'
+const bubbleBase = 'px-4 py-2.5 text-sm leading-relaxed rounded-2xl shadow-sm max-w-full break-words [overflow-wrap:anywhere]'
 const userBubble = `${bubbleBase} bg-blue-600 text-white rounded-br-sm`
 const assistantBubble = `${bubbleBase} rounded-bl-sm`
 
@@ -203,6 +204,7 @@ interface MessageBubbleProps {
   onOpenNewThread?: (msgId: string) => void
   onOpenExistingThread?: (msgId: string) => void
   isActiveThread?: boolean
+  onRetryFailed?: (msg: MessageLike) => void
 }
 
 export const MessageBubble = ({
@@ -229,6 +231,7 @@ export const MessageBubble = ({
   onOpenExistingThread,
   isActiveThread = false,
   isUser = false,
+  onRetryFailed,
 }: MessageBubbleProps) => {
   const fileInfo = msg.fileInfo
   const ext = fileInfo?.extension?.toLowerCase() || ''
@@ -456,6 +459,17 @@ export const MessageBubble = ({
           <span>{formatTime(msg.createdAt)}</span>
           {msg.isEdited && (
             <span>(edited)</span>
+          )}
+          {isUser && msg.failed && onRetryFailed && (
+            <button
+              onClick={() => onRetryFailed(msg)}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/10 border border-rose-500/40 text-rose-600 dark:text-rose-400 text-[10px] font-semibold hover:bg-rose-500/20 transition-colors cursor-pointer"
+              title="Message was not delivered. Return it to the input box to retry."
+            >
+              <AlertTriangle size={10} />
+              Not sent
+              <RotateCw size={10} />
+            </button>
           )}
           {isUser && onEditStart && !isEditing && (
             <button

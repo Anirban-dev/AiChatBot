@@ -6,6 +6,7 @@ import authMiddleware, { AuthRequest } from '../middleware/auth'
 import path from 'path'
 import { categoryUploadLimiter } from '../middleware/uploadRateLimiter'
 import { writeLog } from '../utils/logger'
+import { AiProvider } from '../models/aiProvider'
 
 const router = Router()
 const upload = multer({ storage: multer.memoryStorage() })
@@ -19,6 +20,26 @@ router.use(authMiddleware)
 router.post('/upload', upload.single('file'), categoryUploadLimiter, async (req: AuthRequest, res: Response) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
   if (!req.body.chatId) return res.status(400).json({ error: 'chatId is required' })
+
+  // ── Pre-flight: AI must be configured to index/process attachments ─────────
+  try {
+    const enabledCount = await AiProvider.countDocuments({ enabled: true })
+    if (enabledCount === 0) {
+      await writeLog({
+        userId: req.userId, action: 'FILE_UPLOAD', status: 'failed', method: 'POST',
+        path: '/api/files/upload',
+        ipAddress: req.ip || req.socket.remoteAddress, userAgent: req.headers['user-agent'],
+        latency: 0,
+        details: { chatId: req.body.chatId, filename: req.file.originalname, stage: 'ai_not_configured' },
+      })
+      return res.status(503).json({
+        error: 'AI APIs are not configured yet. Ask an administrator to add API keys in the Admin Dashboard → AI APIs.',
+      })
+    }
+  } catch (err) {
+    console.error('[file.upload] Failed to check AI provider config:', err)
+    return res.status(500).json({ error: 'Failed to check AI provider configuration.' })
+  }
 
   const startTime = Date.now()
   const { chatId } = req.body

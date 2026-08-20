@@ -1,12 +1,13 @@
-// src/Routes/Admin/AiProvidersTab.tsx
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, X, Edit2, Trash2, RefreshCw, Check, Cpu, Power, Globe, KeyRound, Layers } from 'lucide-react'
+import { Plus, X, Edit2, Trash2, RefreshCw, Check, Cpu, Power, Globe, KeyRound, Layers, Activity, AlertCircle, CheckCircle2 } from 'lucide-react'
 import {
   getAdminAiProviders,
   createAdminAiProvider,
   updateAdminAiProvider,
   deleteAdminAiProvider,
   reloadAdminAiProviders,
+  testPingAdminAiProvider,
+  type PingResult,
   PROVIDER_PRESETS,
   type AiProvider,
   type AiTierKey,
@@ -76,10 +77,49 @@ export const AiProvidersTab = ({ onExpired }: Props) => {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<AiProviderInput>(initialForm('small'))
+  
+  const [pingingId, setPingingId] = useState<string | null>(null)
+  const [pingStatus, setPingStatus] = useState<Record<string, PingResult>>({})
+  const [modalPinging, setModalPinging] = useState(false)
+  const [modalPingResult, setModalPingResult] = useState<PingResult | null>(null)
 
   const showToast = (text: string, ok: boolean) => {
     setToast({ text, ok })
     setTimeout(() => setToast(null), 3500)
+  }
+
+  const handleTestPing = async (providerData: { id?: string; tier: AiTierKey; provider: string; model: string; api_base?: string; api_key?: string }, isModal = false) => {
+    if (isModal) {
+      setModalPinging(true)
+      setModalPingResult(null)
+    } else if (providerData.id) {
+      setPingingId(providerData.id)
+    }
+
+    try {
+      const res = await testPingAdminAiProvider(providerData)
+      if (isModal) {
+        setModalPingResult(res)
+      } else if (providerData.id) {
+        setPingStatus(prev => ({ ...prev, [providerData.id!]: res }))
+      }
+      if (res.ok) {
+        showToast(`Ping succeeded (${res.latency_ms}ms) - ${res.detail || 'Model is responsive'}`, true)
+      } else {
+        showToast(`Ping failed (${res.latency_ms ?? 0}ms): ${res.error || 'Unknown error'}`, false)
+      }
+    } catch (err) {
+      const msg = errMsg(err)
+      if (isModal) {
+        setModalPingResult({ ok: false, error: msg })
+      } else if (providerData.id) {
+        setPingStatus(prev => ({ ...prev, [providerData.id!]: { ok: false, error: msg } }))
+      }
+      showToast(`Ping error: ${msg}`, false)
+    } finally {
+      if (isModal) setModalPinging(false)
+      else if (providerData.id) setPingingId(null)
+    }
   }
 
   const fetchProviders = useCallback(async () => {
@@ -107,6 +147,7 @@ export const AiProvidersTab = ({ onExpired }: Props) => {
   const handleOpenCreate = (tier: AiTierKey = 'small') => {
     setEditingId(null)
     setForm(initialForm(tier))
+    setModalPingResult(null)
     setShowForm(true)
   }
 
@@ -121,12 +162,14 @@ export const AiProvidersTab = ({ onExpired }: Props) => {
       enabled: p.enabled,
       priority: p.priority ?? 0,
     })
+    setModalPingResult(null)
     setShowForm(true)
   }
 
   const handleClose = () => {
     setShowForm(false)
     setEditingId(null)
+    setModalPingResult(null)
   }
 
   const handleProviderChange = (value: string) => {
@@ -146,13 +189,27 @@ export const AiProvidersTab = ({ onExpired }: Props) => {
     }
     setSaving(true)
     try {
-      if (editingId) {
-        const res = await updateAdminAiProvider(editingId, form)
-        showToast(res.reload?.applied ? `${res.message} (applied live)` : `${res.message} — AI engine did not reload`, res.reload?.applied)
-      } else {
-        const res = await createAdminAiProvider(form)
-        showToast(res.reload?.applied ? `${res.message} (applied live)` : `${res.message} — AI engine did not reload`, res.reload?.applied)
+      const res = editingId ? await updateAdminAiProvider(editingId, form) : await createAdminAiProvider(form)
+      let msg = res.reload?.applied ? `${res.message} (applied live)` : `${res.message} — AI engine did not reload`
+      let ok = res.reload?.applied
+      if (form.tier === 'free-embed' && res.embedding) {
+        const emb = res.embedding
+        if (emb.error) {
+          msg = `${msg} · Embeddings check failed: ${emb.error}`
+          ok = false
+        } else if (emb.dimension != null) {
+          const dims: number[] = (emb.indexed_dimensions || []).filter((d): d is number => typeof d === 'number')
+          if (dims.length && !dims.includes(emb.dimension)) {
+            msg = `${msg} · Model dimension ${emb.dimension} ≠ already-indexed ${dims.join('/')} — use a same-dimension model or re-upload existing files`
+            ok = false
+          } else if (dims.length > 0) {
+            msg = `${msg} · Embeddings dim ${emb.dimension} (matches ${dims.length} indexed chat${dims.length === 1 ? '' : 's'})`
+          } else {
+            msg = `${msg} · Embeddings dim ${emb.dimension} (no documents indexed yet)`
+          }
+        }
       }
+      showToast(msg, ok)
       handleClose()
       fetchProviders()
     } catch (err) {
@@ -319,6 +376,24 @@ export const AiProvidersTab = ({ onExpired }: Props) => {
                             <div className="text-[10px] text-slate-400 truncate">{p.model}{p.api_base ? ` · ${p.api_base}` : ''}</div>
                           </div>
                           <div className="flex items-center gap-0.5 shrink-0">
+                            {/* Ping status badge */}
+                            {pingStatus[p._id] && (
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md mr-0.5 ${
+                                pingStatus[p._id].ok
+                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                  : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                              }`}>
+                                {pingStatus[p._id].ok ? `${pingStatus[p._id].latency_ms}ms` : 'fail'}
+                              </span>
+                            )}
+                            <button
+                              onClick={() => handleTestPing({ id: p._id, tier: p.tier, provider: p.provider || 'openai', model: p.model, api_base: p.api_base })}
+                              disabled={pingingId === p._id}
+                              title="Test API connectivity"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-600 dark:hover:text-cyan-400 hover:bg-cyan-50 dark:hover:bg-cyan-500/10 transition cursor-pointer disabled:opacity-40"
+                            >
+                              {pingingId === p._id ? <RefreshCw size={12} className="animate-spin" /> : <Activity size={12} />}
+                            </button>
                             <button onClick={() => toggleEnabled(p)} disabled={actionId === p._id} title={p.enabled ? 'Disable' : 'Enable'}
                               className={`p-1.5 rounded-lg transition cursor-pointer disabled:opacity-40 ${p.enabled ? 'text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-500/10' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
                               <Power size={12} />
@@ -375,8 +450,28 @@ export const AiProvidersTab = ({ onExpired }: Props) => {
                       ) : (
                         list.map(p => (
                           <div key={p._id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-800/60">
-                            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 truncate">{TIER_META[p.tier].label}</span>
+                            <div className="min-w-0">
+                              <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 truncate block">{TIER_META[p.tier].label}</span>
+                              <span className="text-[9px] text-slate-400 truncate block">{p.model}</span>
+                            </div>
                             <div className="flex items-center gap-0.5 shrink-0">
+                              {pingStatus[p._id] && (
+                                <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${
+                                  pingStatus[p._id].ok
+                                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                    : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                                }`}>
+                                  {pingStatus[p._id].ok ? `${pingStatus[p._id].latency_ms}ms` : 'fail'}
+                                </span>
+                              )}
+                              <button
+                                onClick={() => handleTestPing({ id: p._id, tier: p.tier, provider: p.provider || 'openai', model: p.model, api_base: p.api_base })}
+                                disabled={pingingId === p._id}
+                                title="Test API"
+                                className="p-1 rounded text-slate-400 hover:text-cyan-600 transition cursor-pointer disabled:opacity-40"
+                              >
+                                {pingingId === p._id ? <RefreshCw size={10} className="animate-spin" /> : <Activity size={10} />}
+                              </button>
                               <button onClick={() => toggleEnabled(p)} disabled={actionId === p._id} title={p.enabled ? 'Disable' : 'Enable'}
                                 className={`p-1 rounded transition cursor-pointer disabled:opacity-40 ${p.enabled ? 'text-emerald-500' : 'text-slate-400'}`}>
                                 <Power size={11} />
@@ -441,13 +536,24 @@ export const AiProvidersTab = ({ onExpired }: Props) => {
                   onChange={e => setForm({ ...form, tier: e.target.value as AiTierKey })}
                   className="w-full px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                 >
-                  {tiers.length ? tiers.map(t => (
+{tiers.length ? tiers.map(t => (
                     <option key={t.key} value={t.key}>{TIER_META[t.key]?.label ?? t.label}{t.type === 'mode' ? ' (Chat Mode)' : ''}</option>
                   )) : (Object.keys(TIER_META) as AiTierKey[]).map(k => (
                     <option key={k} value={k}>{TIER_META[k].label}</option>
                   ))}
                 </select>
               </div>
+
+              {/* Embeddings model guidance */}
+              {form.tier === 'free-embed' && (
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
+                  <strong className="block mb-0.5 uppercase tracking-wider text-[10px]">Embeddings model rules</strong>
+                  Only <em>one</em> embeddings model can be active at a time, and it must return the{' '}
+                  <strong>same vector dimension</strong> as already-indexed files. Switching to a different-dimension
+                  model breaks document search for existing uploads — always keep the exact model you indexed files
+                  with, or delete &amp; re-upload everything after changing it.
+                </div>
+              )}
 
               {/* Display name */}
 
@@ -533,8 +639,46 @@ export const AiProvidersTab = ({ onExpired }: Props) => {
                 </div>
               </div>
 
+              {/* Test Connection */}
+              <div className="border-t border-slate-100 dark:border-slate-800 pt-3">
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => handleTestPing({
+                      id: editingId || undefined,
+                      tier: form.tier,
+                      provider: form.provider,
+                      model: form.model,
+                      api_base: form.api_base,
+                      api_key: form.api_key,
+                    }, true)}
+                    disabled={modalPinging || !form.model.trim()}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-cyan-400/40 bg-cyan-500/5 hover:bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 text-[11px] font-bold transition cursor-pointer disabled:opacity-40"
+                  >
+                    {modalPinging
+                      ? <RefreshCw size={12} className="animate-spin" />
+                      : <Activity size={12} />}
+                    {modalPinging ? 'Testing…' : 'Test Connection'}
+                  </button>
+                  {modalPingResult && (
+                    <div className={`flex items-center gap-1.5 text-[11px] font-semibold px-3 py-2 rounded-xl border ${
+                      modalPingResult.ok
+                        ? 'bg-emerald-500/8 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                        : 'bg-rose-500/8 border-rose-500/20 text-rose-600 dark:text-rose-400'
+                    }`}>
+                      {modalPingResult.ok
+                        ? <CheckCircle2 size={12} />
+                        : <AlertCircle size={12} />}
+                      {modalPingResult.ok
+                        ? `OK · ${modalPingResult.latency_ms}ms — ${modalPingResult.detail || 'responsive'}`
+                        : (modalPingResult.error?.slice(0, 80) || 'Failed')}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Actions */}
-              <div className="flex gap-2.5 pt-4 border-t border-slate-100 dark:border-slate-800 shrink-0">
+              <div className="flex gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800 shrink-0">
                 <button type="button" onClick={handleClose} disabled={saving} className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer">
                   Cancel
                 </button>

@@ -79,6 +79,13 @@ The system is split into three main components:
    Sign in as an admin, open **Admin → AI APIs**, and add at least one *enabled* provider (API key + base URL).
    > Before any provider is enabled, the chat shows **"AI APIs have not been configured yet."** and sends return a friendly `503` instead of a cryptic litellm failure.
 
+   **Bulk-import providers from a local config file** (optional): paste your keys into the
+   variables at the top of `AiCalls/tests/addapi.py`, then run the importer — it upserts
+   every model into `aiproviders` and reloads the router, mirroring the admin panel:
+   ```bash
+   uv run --project AiCalls python AiCalls\tests\import_models.py
+   ```
+
 ### Administrative Scripts
 
 Admin privileges and user management are handled from the **Admin Dashboard**. There is no root-level `make-admin` CLI script in this repo.

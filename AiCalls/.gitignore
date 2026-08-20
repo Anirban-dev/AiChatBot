@@ -2,3 +2,6 @@
 .venv
 faiss_index
 __pycache__
+
+# Local API-key model config (contains plaintext keys — never commit)
+tests

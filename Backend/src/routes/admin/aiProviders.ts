@@ -15,6 +15,8 @@ const AI_API = process.env.AI_API || 'http://localhost:8000/agent'
 
 const TIER_KEYS = AI_TIERS.map(t => t.key) as string[]
 
+const EMBED_TIER = 'free-embed'
+
 /** Mask an API key for display: sk-1234…wxyz */
 function maskKey(key?: string): string {
   if (!key) return ''
@@ -89,6 +91,33 @@ function validateBody(body: any): string | null {
   return null
 }
 
+/** Only ONE embeddings model may be active at a time — otherwise the router
+ *  round-robins between models of (possibly) different vector dimensions and
+ *  Qdrant collections break. Returns an error string when there is a conflict. */
+async function assertSingleEmbeddingProvider(excludeId?: string): Promise<string | null> {
+  const query: any = { tier: EMBED_TIER, enabled: true }
+  if (excludeId && Types.ObjectId.isValid(excludeId)) query._id = { $ne: excludeId }
+  const existing = await AiProvider.findOne(query)
+  if (existing) {
+    return `Only one embeddings model can be active at a time. Disable "${existing.model}" (${existing.provider}) before enabling another — mixed embedding dimensions break document search.`
+  }
+  return null
+}
+
+/** Ask the Python engine for the live embeddings dimension + the dimensions of
+ *  already-indexed Qdrant collections. Never throws — returns an error object. */
+async function getEmbedVectorInfo(): Promise<any> {
+  try {
+    const res = await fetch(`${AI_API}/embed-vector-info`, {
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!res.ok) return { error: `AI engine replied with status ${res.status}` }
+    return await res.json()
+  } catch (err: any) {
+    return { error: err?.message || 'AI engine unreachable' }
+  }
+}
+
 // ── GET /api/admin/ai-providers ───────────────────────────────────────────────
 router.get('/', midLimiter, async (_req: AdminRequest, res: Response) => {
   try {
@@ -111,6 +140,11 @@ router.post('/', midLimiter, async (req: AdminRequest, res: Response) => {
   const { tier, provider, model, api_base, api_key, enabled, priority } = req.body
 
   try {
+    if (tier === EMBED_TIER && enabled !== false) {
+      const conflict = await assertSingleEmbeddingProvider()
+      if (conflict) return res.status(409).json({ error: conflict })
+    }
+
     const providerDoc = await AiProvider.create({
       tier: tier as AiTier,
       provider: (provider || 'openai').trim().toLowerCase(),
@@ -137,10 +171,13 @@ router.post('/', midLimiter, async (req: AdminRequest, res: Response) => {
       },
     })
 
+    const embedding = tier === EMBED_TIER ? await getEmbedVectorInfo() : undefined
+
     res.status(201).json({
       message: `Provider added to ${tier}.`,
       provider: sanitize(providerDoc),
       reload,
+      embedding,
     })
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to create AI provider' })
@@ -159,6 +196,11 @@ router.put('/:id', midLimiter, async (req: AdminRequest, res: Response) => {
   try {
     const providerDoc = await AiProvider.findById(id)
     if (!providerDoc) return res.status(404).json({ error: 'AI provider not found.' })
+
+    if (body.tier === EMBED_TIER && body.enabled !== false) {
+      const conflict = await assertSingleEmbeddingProvider(id)
+      if (conflict) return res.status(409).json({ error: conflict })
+    }
 
     const before = auditSnapshot(providerDoc)
 
@@ -194,7 +236,9 @@ router.put('/:id', midLimiter, async (req: AdminRequest, res: Response) => {
       },
     })
 
-    res.json({ message: 'AI provider updated.', provider: sanitize(providerDoc), reload })
+    const embedding = body.tier === EMBED_TIER ? await getEmbedVectorInfo() : undefined
+
+    res.json({ message: 'AI provider updated.', provider: sanitize(providerDoc), reload, embedding })
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to update AI provider' })
   }
@@ -228,6 +272,41 @@ router.delete('/:id', midLimiter, async (req: AdminRequest, res: Response) => {
     res.json({ message: `Provider for ${providerDoc.tier} deleted.`, reload })
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to delete AI provider' })
+  }
+})
+
+// ── POST /api/admin/ai-providers/test-ping ──────────────────────────────────
+router.post('/test-ping', midLimiter, async (req: AdminRequest, res: Response) => {
+  const { id, tier, provider, model, api_base, api_key } = req.body
+
+  let effectiveApiKey = api_key?.trim() || ''
+
+  // If testing an already saved provider without re-entering key, fetch and decrypt stored key
+  if (!effectiveApiKey && id && Types.ObjectId.isValid(id)) {
+    const doc = await AiProvider.findById(id)
+    if (doc?.api_key) {
+      effectiveApiKey = decryptSecret(doc.api_key) || ''
+    }
+  }
+
+  try {
+    const pyRes = await fetch(`${AI_API}/ping-model`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        tier: tier || 'small',
+        provider: (provider || 'openai').trim().toLowerCase(),
+        model: (model || '').trim(),
+        api_base: api_base?.trim() || '',
+        api_key: effectiveApiKey || undefined,
+      }),
+      signal: AbortSignal.timeout(15000),
+    })
+
+    const data = await pyRes.json()
+    res.json(data)
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message || 'AI engine unreachable during ping test' })
   }
 })
 

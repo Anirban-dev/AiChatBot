@@ -29,6 +29,7 @@ export interface Message {
   threadRootId?: string | null
   threadHeadId?: string | null
   threadReplyCount?: number
+  failed?: boolean
 }
 
 interface ChatContextType {
@@ -144,12 +145,15 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
       saveToLocalStorage(updated)
       return updated
     })
+    if (!msg.threadRootId && msg._id) {
+      setActiveNodeIds(prev => ({ ...prev, [chatId]: String(msg._id) }))
+    }
   }
 
   const updateMessage = (chatId: string, msgId: string, update: any) => {
+    const newId = update._id && update._id !== msgId ? String(update._id) : null
     setStore(prev => {
       const msgs = prev[chatId] || []
-      const newId = update._id && update._id !== msgId ? update._id : null
       const updatedList = msgs.map((m: any) => {
         if (m._id === msgId) {
           return { ...m, ...update }
@@ -170,19 +174,32 @@ export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
       saveToLocalStorage(updated)
       return updated
     })
-    if (update._id && update._id !== msgId) {
-      setActiveNodeIds(prev => prev[chatId] === msgId ? { ...prev, [chatId]: update._id } : prev)
+    if (newId) {
+      setActiveNodeIds(prev => prev[chatId] === msgId ? { ...prev, [chatId]: newId } : prev)
     }
   }
 
   const removeMessage = (chatId: string, msgId: string) => {
     setStore(prev => {
+      const msgs = prev[chatId] || []
+      const removed = msgs.find((m: any) => m._id === msgId)
+      const updatedList = msgs.filter((m: any) => m._id !== msgId)
       const updated = {
         ...prev,
-        [chatId]: (prev[chatId] || []).filter((m: any) => m._id !== msgId)
+        [chatId]: updatedList
       }
       saveToLocalStorage(updated)
       return updated
+    })
+    setActiveNodeIds(prev => {
+      if (prev[chatId] === msgId) {
+        // Fall back to the parent or previous message if active node was removed
+        const msgs = store[chatId] || []
+        const removed = msgs.find((m: any) => m._id === msgId)
+        const fallbackId = removed?.parentId || (msgs.length > 1 ? msgs[msgs.length - 2]._id : null)
+        return { ...prev, [chatId]: fallbackId }
+      }
+      return prev
     })
   }
 

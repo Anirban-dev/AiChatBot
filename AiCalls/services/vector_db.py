@@ -11,11 +11,15 @@ from langchain_core.documents import Document
 from langchain_qdrant import QdrantVectorStore #type: ignore
 
 from config import QDRANT_API_KEY, QDRANT_COLLECTION_PREFIX, QDRANT_URL
+from lib.litellm_config import get_current_config
 from services.embeddings import get_embeddings
+
+EMBED_TIER = "free-embed"
 
 # Singleton Client Initialization
 _qdrant_client: QdrantClient | None = None
 _vector_size: int | None = None
+_vector_size_key: str | None = None
 
 def get_client() -> QdrantClient:
     global _qdrant_client
@@ -28,12 +32,68 @@ def get_collection_name(chat_id: str) -> str:
     """Computes the physical collection name in Qdrant."""
     return f"{QDRANT_COLLECTION_PREFIX}_{chat_id}" if chat_id else QDRANT_COLLECTION_PREFIX
 
+def _embed_signature() -> str:
+    """Signature of the live embeddings model (name + base URL), so the cached
+    vector dimension is invalidated whenever the admin switches providers."""
+    for entry in get_current_config().get("model_list", []):
+        if entry.get("model_name") == EMBED_TIER:
+            p = entry.get("litellm_params", {}) or {}
+            return f"{p.get('model')}|{p.get('api_base')}"
+    return ""
+
 def _get_vector_size() -> int:
-    global _vector_size
-    if _vector_size is None:
+    global _vector_size, _vector_size_key
+    sig = _embed_signature()
+    if _vector_size is None or sig != _vector_size_key:
         _vector_size = len(get_embeddings().embed_query("ping"))
+        _vector_size_key = sig
         print(f"[VectorDB] Detected embedding dimension: {_vector_size}")
     return _vector_size
+
+def embed_vector_info() -> dict:
+    """Dimension of the live embeddings model vs. dimensions of existing Qdrant
+    collections. Used so the admin is warned when a configured embedding model
+    would not be compatible with already-indexed documents."""
+    model = _embed_signature() or None
+
+    dimension = None
+    error: str | None = None
+    try:
+        dimension = _get_vector_size()
+    except Exception as e:
+        error = str(e).splitlines()[0][:300]
+
+    indexed_collections = 0
+    indexed_dimensions: list[int] = []
+    try:
+        cols = get_client().get_collections().collections
+        indexed_collections = len(cols)
+        seen = set()
+        for c in cols:
+            try:
+                info = get_client().get_collection(c.name)
+                vs = info.config.params.vectors
+                if isinstance(vs, dict):
+                    sizes = [v.get("size") for v in vs.values() if v]
+                else:
+                    sizes = [getattr(vs, "size", None)]
+                for s in sizes:
+                    if s:
+                        seen.add(int(s))
+            except Exception:
+                continue
+        indexed_dimensions = sorted(seen)
+    except Exception as e:
+        if error is None:
+            error = str(e).splitlines()[0][:300]
+
+    return {
+        "model": model,
+        "dimension": dimension,
+        "error": error,
+        "indexed_collections": indexed_collections,
+        "indexed_dimensions": indexed_dimensions,
+    }
 
 def collection_exists(name: str) -> bool:
     return any(c.name == name for c in get_client().get_collections().collections)

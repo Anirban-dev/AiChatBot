@@ -4,6 +4,7 @@ import loginRoutes from './routes/login'
 import chatRoutes from './routes/chat'
 import msgRoutes from './routes/messages/index'
 import fileRoutes from './routes/file'
+import speechRoutes from './routes/speech'
 import adminRoutes from './routes/admin/index'
 import userRoutes from './routes/user'
 import configStatusRoutes from './routes/config'
@@ -25,6 +26,7 @@ app.use('/api/login', loginRoutes)
 app.use('/api/chats', chatRoutes)
 app.use('/api/chats/:chatId/msgs', msgRoutes)
 app.use('/api/files', fileRoutes)
+app.use('/api/speech', speechRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/user', userRoutes)
 app.use('/api/config-status', configStatusRoutes)

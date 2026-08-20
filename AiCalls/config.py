@@ -8,7 +8,6 @@ from dotenv import load_dotenv  # type: ignore
 env_path = Path(__file__).resolve().parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
 
-import torch  # type: ignore
 from langchain_text_splitters import RecursiveCharacterTextSplitter  # type: ignore
 from lib.litellm_config import CompatibilityClient
 from utils.current_date import format_current_date_for_llm    
@@ -28,9 +27,9 @@ CRAWL4AI_URL      = os.getenv("CRAWL4AI_URL")
 CRAWL4AI_API_TOKEN = os.getenv("CRAWL4AI_API_TOKEN")
 
 # ── Local Document Vector Embedding Pipeline ──────────────────────────────────
-EMBED_MODEL = "all-MiniLM-L6-v2"   # ~90MB local model footprint
-EMBED_DIM   = 384
-EMBED_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+# Embeddings now come from the admin-configured cloud provider (tier: free-embed)
+# via the LiteLLM router — see services/embeddings.py. The vector dimension is
+# auto-detected at runtime from the live embedding model.
 
 # ── Ingestion Data Chunking Partition Profiles ────────────────────────────────
 CHUNK_SIZE    = 1000

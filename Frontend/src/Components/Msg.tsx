@@ -15,7 +15,7 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
   const activeChatId = chatId || 'new'
   const {
     getMessages, setMessages, getBranchInfo, getActivePath, activeNodeId, switchBranch,
-    setActiveNodeId, pendingActiveMsgId, clearPendingActiveMsgId
+    setActiveNodeId, pendingActiveMsgId, clearPendingActiveMsgId, removeMessage
   } = useChatStore()
 
   const sendHook = useSendMessage(activeChatId, true)
@@ -400,6 +400,11 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
               onThreadNavigate={(dir) => handleThreadNavigate(msg._id, dir)}
               onOpenNewThread={handleStartNewThread}
               onOpenExistingThread={handleOpenExistingThread}
+              onRetryFailed={(retryMsg) => {
+                sendHook.setInput(retryMsg.content || '')
+                sendHook.setErrorMessage(null)
+                removeMessage(activeChatId, retryMsg._id)
+              }}
             />
           )
         })}
@@ -477,6 +482,7 @@ export const Msg = ({ chatId }: { chatId?: string }) => {
           setIsCodeModalOpen={setIsCodeModalOpen}
           startCamera={startCamera}
           tokenCount={sendHook.countTokens(sendHook.input)}
+          setErrorMessage={sendHook.setErrorMessage}
         />
       </div>
 

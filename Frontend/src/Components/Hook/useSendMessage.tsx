@@ -134,8 +134,8 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
     file: File,
     targetChatId: string,
     onUploaded: (data: any) => void
-  ) => {
-    if (!file || !targetChatId || uploadingRef.current) return
+  ): Promise<string | null> => {
+    if (!file || !targetChatId || uploadingRef.current) return null
     setUploadingSync(true)
     currentFileName.current = file.name
     uploadAbortControllerRef.current = new AbortController()
@@ -148,12 +148,16 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         }
         onUploaded(res)
       }
+      return null
     } catch (err: any) {
       if (err.name !== 'AbortError' && err.name !== 'CanceledError') {
-        const serverMsg = err?.response?.data?.error   // ← the friendly 429 message lives here
+        const serverMsg = err?.response?.data?.error
         console.error(err)
-        setErrorMessage(serverMsg || err.message || 'File upload encountered an error.')
+        const message = serverMsg || err.message || 'File upload encountered an error.'
+        setErrorMessage(message)
+        return message
       }
+      return null
     } finally {
       setUploadingSync(false)
       currentFileName.current = null
@@ -200,6 +204,10 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
     messageAbortControllerRef.current = new AbortController()
     const streamingId = crypto.randomUUID()
     let currentUserMsgId = effectiveOptimisticId
+    // Whether the server confirmed & persisted the user message. If it never
+    // did (pre-stream errors: 503 not-configured, 429 quota, provider down),
+    // we keep the local bubble flagged as failed instead of deleting it.
+    let userMsgPersisted = false
 
     try {
       await sendMsg(
@@ -213,6 +221,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         },
 
         (userMsg: any) => {
+          userMsgPersisted = true
           const confirmedId = userMsg._id || effectiveOptimisticId || crypto.randomUUID()
           currentUserMsgId = confirmedId
           const confirmedMsg = {
@@ -234,10 +243,6 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
           }
           // Update the streaming assistant message's parentId to point to the confirmed user message id
           updateMessage(targetChatId, streamingId, { parentId: confirmedId })
-          const isThreadMessage = !!(userMsg.threadRootId || customThreadRootId)
-          if (!isThreadMessage) {
-            setActiveNodeId(targetChatId, confirmedId)
-          }
         },
 
         (toolPayload: any) => {
@@ -274,7 +279,12 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         (errData: { type?: string; message: string; threadRootId?: string | null }) => {
           setActiveTool(null)
           removeMessage(targetChatId, streamingId)
-          if (effectiveOptimisticId) removeMessage(targetChatId, effectiveOptimisticId)
+          // The assistant stream was never persisted → drop it. The user message
+          // only gets dropped if the server never confirmed it; otherwise keeping
+          // it avoids "all messages gone" on quota / provider failures.
+          if (!userMsgPersisted && effectiveOptimisticId) {
+            updateMessage(targetChatId, effectiveOptimisticId, { failed: true })
+          }
           setErrorMessage(errData.message || 'A streaming worker pipeline exception occurred.')
           setLoading(targetChatId, false)
           if (targetChatId === chatId) {
@@ -300,7 +310,9 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         setErrorMessage(err.message || 'An unexpected engine execution fault occurred.')
       }
       setActiveTool(null)
-      if (effectiveOptimisticId) removeMessage(targetChatId, effectiveOptimisticId)
+      if (!userMsgPersisted && effectiveOptimisticId) {
+        updateMessage(targetChatId, effectiveOptimisticId, { failed: true })
+      }
       setLoading(targetChatId, false)
       setLoading(chatId, false)
     }
@@ -347,6 +359,8 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
 
     messageAbortControllerRef.current = new AbortController()
     const streamingId = crypto.randomUUID()
+    // Whether the server confirmed & persisted this branched user message.
+    let userMsgPersisted = false
 
     try {
       await branchMsg(
@@ -361,6 +375,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         },
 
         (userMsg: any) => {
+          userMsgPersisted = true
           const confirmedId = userMsg._id || optimisticId || crypto.randomUUID()
           currentUserMsgId = confirmedId
           const confirmedMsg = {
@@ -375,9 +390,6 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
           }
           updateMessage(targetChatId, optimisticId, confirmedMsg)
           updateMessage(targetChatId, streamingId, { parentId: confirmedId })
-          if (!confirmedMsg.threadRootId) {
-            setActiveNodeId(targetChatId, confirmedId)
-          }
         },
 
         (toolPayload: any) => {
@@ -406,7 +418,9 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         (errData: { type?: string; message: string }) => {
           setActiveTool(null)
           removeMessage(targetChatId, streamingId)
-          removeMessage(targetChatId, optimisticId)
+          if (!userMsgPersisted) {
+            updateMessage(targetChatId, optimisticId, { failed: true })
+          }
           setErrorMessage(errData.message || 'Branch streaming error.')
           setLoading(targetChatId, false)
         },
@@ -427,7 +441,9 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         setErrorMessage(err.message || 'An unexpected branch error occurred.')
       }
       setActiveTool(null)
-      removeMessage(targetChatId, optimisticId)
+      if (!userMsgPersisted) {
+        updateMessage(targetChatId, optimisticId, { failed: true })
+      }
       setLoading(targetChatId, false)
     }
   }
@@ -493,14 +509,14 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         setActiveNodeId(targetChatId, optimisticId)
       }
 
-      clearStaging()
-      setInput('')
+      // NOTE: staging (file + typed text) is intentionally NOT cleared until the
+      // upload succeeds, so a failure never wipes the user's composition.
       setLoading(targetChatId, true)
 
       let uploadedFileInfo: any = null
       let uploadedFileContent: string | undefined = undefined
 
-      await handleFileUpload(capturedFile, targetChatId, (data) => {
+      const uploadError = await handleFileUpload(capturedFile, targetChatId, (data) => {
         uploadedFileInfo = data.fileInfo
         uploadedFileContent = data.file
 
@@ -509,11 +525,15 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
       })
 
       if (!uploadedFileInfo) {
-        removeMessage(targetChatId, optimisticId)
-        setErrorMessage('File upload failed. Please try again.')
+        updateMessage(targetChatId, optimisticId, { failed: true })
+        if (uploadError) setErrorMessage(uploadError)
+        else setErrorMessage('File upload failed. Please try again.')
         setLoading(targetChatId, false)
         return
       }
+
+      clearStaging()
+      setInput('')
 
       await sendMessage(cachedInput, targetChatId, uploadedFileInfo, uploadedFileContent, optimisticId, customParentId || parentNodeId || undefined, customThreadRootId)
 
@@ -535,12 +555,90 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const [historyIndex, setHistoryIndex] = useState<number>(-1)
+  const draftInputRef = useRef<string>('')
+
+  // Reset history navigation index when chatId changes
+  useEffect(() => {
+    setHistoryIndex(-1)
+    draftInputRef.current = ''
+  }, [chatId])
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       if (loading || uploading || errorMessage) return
       if (!input.trim() && !pendingFile && !pendingCode) return
+      setHistoryIndex(-1)
+      draftInputRef.current = ''
       handleSendAction()
+      return
+    }
+
+    // Terminal-style history cycling with Shift + Up / Shift + Down
+    const isUp = e.key === 'ArrowUp' || e.key === 'Up'
+    const isDown = e.key === 'ArrowDown' || e.key === 'Down'
+
+    if (e.shiftKey && (isUp || isDown)) {
+      const allMsgs = getMessages(chatId)
+      // Extract unique sequential non-empty user text messages
+      const userMsgs: string[] = []
+      allMsgs.forEach((m: any) => {
+        if (m.role === 'user' && m.content && typeof m.content === 'string' && m.content.trim()) {
+          const txt = m.content.trim()
+          if (userMsgs[userMsgs.length - 1] !== txt) {
+            userMsgs.push(txt)
+          }
+        }
+      })
+      
+      if (userMsgs.length === 0) return
+
+      if (isUp) {
+        e.preventDefault()
+        let nextIndex = historyIndex
+        if (historyIndex === -1) {
+          draftInputRef.current = input
+          nextIndex = userMsgs.length - 1
+        } else if (historyIndex > 0) {
+          nextIndex = historyIndex - 1
+        }
+        setHistoryIndex(nextIndex)
+        const chosen = userMsgs[nextIndex]
+        setInput(chosen)
+        setTimeout(() => {
+          const el = e.currentTarget
+          if (el) {
+            el.selectionStart = el.selectionEnd = chosen.length
+          }
+        }, 0)
+      } else if (isDown) {
+        e.preventDefault()
+        if (historyIndex !== -1) {
+          if (historyIndex < userMsgs.length - 1) {
+            const nextIndex = historyIndex + 1
+            setHistoryIndex(nextIndex)
+            const chosen = userMsgs[nextIndex]
+            setInput(chosen)
+            setTimeout(() => {
+              const el = e.currentTarget
+              if (el) {
+                el.selectionStart = el.selectionEnd = chosen.length
+              }
+            }, 0)
+          } else {
+            setHistoryIndex(-1)
+            const draft = draftInputRef.current
+            setInput(draft)
+            setTimeout(() => {
+              const el = e.currentTarget
+              if (el) {
+                el.selectionStart = el.selectionEnd = draft.length
+              }
+            }, 0)
+          }
+        }
+      }
     }
   }
 
@@ -560,12 +658,25 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
     }
   }
 
-  // Handle paste for text content
+  // Handle paste for text content: only trim to token limit if oversized, insert at cursor
   const handleTextPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    e.preventDefault()
-    const text = e.clipboardData.getData('text/plain')
-    const trimmedText = trimToTokenLimit(text)
-    setInput(trimmedText)
+    const pastedText = e.clipboardData.getData('text/plain')
+    if (!pastedText) return
+
+    const target = e.currentTarget
+    const start = target.selectionStart ?? input.length
+    const end = target.selectionEnd ?? input.length
+
+    const before = input.slice(0, start)
+    const after = input.slice(end)
+    const combined = before + pastedText + after
+    const trimmed = trimToTokenLimit(combined)
+
+    if (trimmed !== combined) {
+      e.preventDefault()
+      setInput(trimmed)
+    }
+    // If not exceeding token limit, let native browser paste work seamlessly
   }
 
   // Handle drag over event

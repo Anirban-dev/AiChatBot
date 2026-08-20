@@ -1,8 +1,9 @@
 # llmlite.py
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Body
 from lib.mongodb import llm_logs
 from lib.litellm_config import get_current_config, reload_router
+from services.vector_db import embed_vector_info
 
 router = APIRouter()
 
@@ -31,6 +32,106 @@ async def get_model_list():
     return {"models": models, "total": len(models)}
 
 
+# ── POST /agent/ping-model — test single model availability & validity ────────
+@router.post("/agent/ping-model")
+async def ping_model(req: dict = Body(...)):
+    """Test single model ping with minimum token consumption and tier-appropriate payload.
+    Supports chat, vision, embeddings, and speech.
+    """
+    import litellm
+    import time
+    import io
+    import wave
+    import struct
+
+    provider = (req.get("provider") or "").strip().lower()
+    model = (req.get("model") or "").strip()
+    tier = (req.get("tier") or "small").strip().lower()
+    api_key = req.get("api_key") or None
+    api_base = (req.get("api_base") or "").strip() or None
+
+    if not model:
+        return {"ok": False, "error": "Model name is required for testing"}
+
+    # Build target model string:
+    # If the model already starts with "provider/" don't prefix again.
+    # If provider is set and not already in the model string prefix, prepend it.
+    target_model = model
+    if provider and provider != "custom":
+        prefix = f"{provider}/"
+        if not model.startswith(prefix):
+            target_model = f"{provider}/{model}"
+
+    start_time = time.monotonic()
+
+    try:
+        if tier == "free-embed":
+            # Test Embeddings with a single 1-word string
+            kwargs = {"model": target_model, "input": ["test"]}
+            if api_key: kwargs["api_key"] = api_key
+            if api_base: kwargs["api_base"] = api_base
+            res = await litellm.aembedding(**kwargs)
+            dim = len(res.data[0]["embedding"]) if hasattr(res, "data") and res.data else 0
+            latency = int((time.monotonic() - start_time) * 1000)
+            return {"ok": True, "latency_ms": latency, "detail": f"Embedding OK ({dim} dimensions)"}
+
+        elif tier == "speechllm":
+            # Test Speech (ASR) with a 0.2s synthetic silent WAV buffer
+            buf = io.BytesIO()
+            with wave.open(buf, 'wb') as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(16000)
+                # 0.2s silence (3200 samples)
+                data = struct.pack('<' + ('h'*3200), *([0]*3200))
+                wav.writeframes(data)
+            buf.seek(0)
+            buf.name = "ping.wav"
+            kwargs = {"model": target_model, "file": buf}
+            if api_key: kwargs["api_key"] = api_key
+            if api_base: kwargs["api_base"] = api_base
+            await litellm.atranscription(**kwargs)
+            latency = int((time.monotonic() - start_time) * 1000)
+            return {"ok": True, "latency_ms": latency, "detail": "Transcription API responsive"}
+
+        elif tier == "visionllm":
+            # Test Vision with a 1x1 transparent GIF data URI and 1 max token
+            kwargs = {
+                "model": target_model,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "ping"},
+                        {"type": "image_url", "image_url": {"url": "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"}}
+                    ]
+                }],
+                "max_tokens": 1
+            }
+            if api_key: kwargs["api_key"] = api_key
+            if api_base: kwargs["api_base"] = api_base
+            await litellm.acompletion(**kwargs)
+            latency = int((time.monotonic() - start_time) * 1000)
+            return {"ok": True, "latency_ms": latency, "detail": "Vision API responsive"}
+
+        else:
+            # Standard chat/tools/reasoning/summary: 1 token ping
+            kwargs = {
+                "model": target_model,
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1
+            }
+            if api_key: kwargs["api_key"] = api_key
+            if api_base: kwargs["api_base"] = api_base
+            await litellm.acompletion(**kwargs)
+            latency = int((time.monotonic() - start_time) * 1000)
+            return {"ok": True, "latency_ms": latency, "detail": "Chat completion responsive"}
+
+    except Exception as exc:
+        latency = int((time.monotonic() - start_time) * 1000)
+        short_err = str(exc).splitlines()[0][:250]
+        return {"ok": False, "latency_ms": latency, "error": short_err}
+
+
 # ── POST /agent/reload-models — rebuild router from MongoDB config ─────────────
 @router.post("/agent/reload-models")
 async def reload_models():
@@ -39,6 +140,15 @@ async def reload_models():
     await reload_router()
     models = _live_model_list()
     return {"applied": True, "models": models, "total": len(models)}
+
+
+# ── GET /agent/embed-vector-info — embeddings dimension compatibility ──────────
+@router.get("/agent/embed-vector-info")
+async def get_embed_vector_info():
+    """Report the live embeddings model's vector dimension vs. the dimensions of
+    already-indexed Qdrant collections, so the admin UI can warn about an
+    incompatible (different-dimension) embeddings switch."""
+    return embed_vector_info()
 
 
 # ── GET /agent/status — aggregate metrics ─────────────────────────────────────

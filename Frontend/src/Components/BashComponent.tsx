@@ -252,7 +252,7 @@ const MarkdownRenderer = ({ content, isUser, runCode }: MarkdownRendererProps) =
   const explicitCode = isExplicitlyRequestedCode(content)
 
   return (
-    <div className={`text-sm leading-relaxed ${baseText}`}>
+    <div className={`text-sm leading-relaxed break-words [overflow-wrap:anywhere] ${baseText}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -285,7 +285,7 @@ const MarkdownRenderer = ({ content, isUser, runCode }: MarkdownRendererProps) =
           },
           code: ({ className, children, ...props }) => (
             <code
-              className={`px-1.5 py-0.5 rounded text-[12px] font-mono ${isUser
+              className={`px-1.5 py-0.5 rounded text-[12px] font-mono break-all ${isUser
                 ? 'bg-white/25 text-white'
                 : 'bg-gray-100 text-pink-600 border border-gray-200 dark:bg-gray-800/80 dark:text-pink-400 dark:border-gray-700/40'
                 } ${className ?? ''}`}
@@ -294,7 +294,7 @@ const MarkdownRenderer = ({ content, isUser, runCode }: MarkdownRendererProps) =
               {children}
             </code>
           ),
-          p: ({ children }) => <p className="mb-1.5 last:mb-0 leading-relaxed">{children}</p>,
+          p: ({ children }) => <p className="mb-1.5 last:mb-0 leading-relaxed break-words [overflow-wrap:anywhere]">{children}</p>,
           a: ({ href, children, ...props }) => (
             <a
               href={href}

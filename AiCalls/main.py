@@ -4,8 +4,8 @@ from fastapi import FastAPI # type: ignore
 from routes.upload import router as upload_router
 from routes.chat  import router as chat_router
 from routes.llmlite import router as llm_router
+from routes.speech import speech_router
 from services.embeddings import get_embeddings
-from config import EMBED_DIM
 
 from langgraph.pregel import Pregel
 if not hasattr(Pregel, "get_schemas"):
@@ -19,10 +19,15 @@ from lib.ratelimit import register_rate_limiter
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # runs on startup
-    print("[Startup] Warming up embeddings model...")
-    emb  = get_embeddings()
-    test = emb.embed_query("hello world")
-    print(f"[Startup] Embeddings OK — vector dim: {len(test)}, expected: {EMBED_DIM}")
+    print("[Startup] Warming up cloud embeddings...")
+    emb = get_embeddings()
+    try:
+        test = await emb.aembed_query("hello world")
+        print(f"[Startup] Embeddings OK — vector dim: {len(test)}")
+    except Exception as e:
+        # Don't crash startup if the embeddings provider isn't configured yet —
+        # the error is surfaced clearly when a file is actually uploaded.
+        print(f"[Startup] Embeddings not ready: {str(e).splitlines()[0][:200]}")
 
     # Build the LLM router from admin-managed provider configs (MongoDB)
     from lib.litellm_config import reload_router
@@ -38,6 +43,7 @@ register_rate_limiter(app)
 app.include_router(upload_router)
 app.include_router(chat_router)
 app.include_router(llm_router)
+app.include_router(speech_router)
 
 if __name__ == "__main__":
     import uvicorn # type: ignore

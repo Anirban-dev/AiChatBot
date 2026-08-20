@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react'
-import { Send, Square, Paperclip, X, AlertTriangle, Cpu, Image, FileText, Camera, Code } from 'lucide-react'
+import { Send, Square, Paperclip, X, AlertTriangle, Cpu, Image, FileText, Camera, Code, Mic, Loader2 } from 'lucide-react'
 import { ModelSelector } from './ModelSelector'
+import { transcribeAudio, getSpeechStatus } from '../API/Speech'
 
 interface MsgChatInputProps {
   input: string
@@ -30,6 +31,7 @@ interface MsgChatInputProps {
   setIsCodeModalOpen: (open: boolean) => void
   startCamera: () => void
   tokenCount: number
+  setErrorMessage?: (message: string) => void
 }
 
 export const MsgChatInput = ({
@@ -58,16 +60,22 @@ export const MsgChatInput = ({
   getFileIcon,
   setIsCodeModalOpen,
   startCamera,
-  tokenCount
+  tokenCount,
+  setErrorMessage
 }: MsgChatInputProps) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [fileAcceptType, setFileAcceptType] = useState<string>('.*')
+  const [isRecording, setIsRecording] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
   
   const menuRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const inputContainerRef = useRef<HTMLDivElement>(null)
   const [editingFileInputs, setEditingFileInputs] = useState<File[]>([])
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const audioStreamRef = useRef<MediaStream | null>(null)
 
   const removeEditFile = (index: number) => {
     setEditingFileInputs(prev => prev.filter((_, i) => i !== index))
@@ -106,6 +114,105 @@ export const MsgChatInput = ({
     setTimeout(() => {
       fileInputRef.current?.click()
     }, 50)
+  }
+
+  // Clean up any active recording session when the component unmounts
+  useEffect(() => {
+    return () => {
+      mediaRecorderRef.current?.stop()
+      audioStreamRef.current?.getTracks().forEach((track: MediaStreamTrack) => track.stop())
+    }
+  }, [])
+
+  const handleMicClick = async () => {
+    if (isRecording) {
+      const recorder = mediaRecorderRef.current
+      if (recorder && recorder.state !== 'inactive') {
+        recorder.stop()
+      } else {
+        setIsRecording(false)
+      }
+      return
+    }
+
+    if (transcribing) return
+
+    // Proactive check: surface the "not configured" error before touching the mic
+    try {
+      const configured = await getSpeechStatus()
+      if (!configured) {
+        if (setErrorMessage) {
+          setErrorMessage('Speech-to-text is not configured yet. Ask an administrator to add a Speech (ASR) provider under Admin → AI APIs.')
+        } else {
+          alert('Speech-to-text is not configured yet. Ask an administrator to add a Speech (ASR) provider.')
+        }
+        return
+      }
+    } catch (err) {
+      console.error('Speech config check failed', err)
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      audioStreamRef.current = stream
+      audioChunksRef.current = []
+
+      const recorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : undefined })
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track: MediaStreamTrack) => track.stop())
+        audioStreamRef.current = null
+        setIsRecording(false)
+
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+        audioChunksRef.current = []
+        if (blob.size === 0) return
+        await sendToStt(blob)
+      }
+      mediaRecorderRef.current = recorder
+      recorder.start()
+      setIsRecording(true)
+    } catch (err: any) {
+      console.error('Microphone access denied or unavailable', err)
+      let reason = 'Could not access the microphone. Please check your browser permissions.'
+      const name = err?.name || err?.message || ''
+      if (!navigator.mediaDevices?.getUserMedia) {
+        reason = 'Microphone is only available on HTTPS (or localhost). Open this app over a secure connection to use voice input.'
+      } else if (name === 'NotAllowedError' || name.includes('Permission')) {
+        reason = 'Microphone permission was blocked. Click the lock icon in the address bar and re-enable microphone access.'
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError' || name.includes('no microphone')) {
+        reason = 'No microphone was detected on this device.'
+      } else if (name === 'NotReadableError' || name === 'TrackStartError' || name.includes('in use')) {
+        reason = 'The microphone is already in use by another application. Close it and try again.'
+      }
+      if (setErrorMessage) {
+        setErrorMessage(reason)
+      } else {
+        alert(reason)
+      }
+    }
+  }
+
+  const sendToStt = async (blob: Blob) => {
+    setTranscribing(true)
+    try {
+      const text = await transcribeAudio(blob)
+      if (text) {
+        setInput(input.trim() ? `${input.trim()} ${text}` : text)
+        textareaRef.current?.focus()
+      }
+    } catch (err: any) {
+      console.error('Speech-to-text failed', err)
+      if (setErrorMessage) {
+        setErrorMessage(err?.message || 'Speech transcription failed. Please try again.')
+      } else {
+        alert('Speech transcription failed. Please try again.')
+      }
+    } finally {
+      setTranscribing(false)
+    }
   }
 
   return (
@@ -287,6 +394,23 @@ export const MsgChatInput = ({
               disabled={loading || uploading}
               size="compact"
             />
+
+            {/* Voice → text (ASR) mic button */}
+            <button
+              onClick={handleMicClick}
+              disabled={transcribing || !!errorMessage}
+              className={`relative p-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0 ${
+                isRecording
+                  ? 'bg-red-500 hover:bg-red-600 text-white'
+                  : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+              title={isRecording ? 'Stop recording & transcribe' : 'Record voice message'}
+            >
+              {transcribing ? <Loader2 size={15} className="animate-spin" /> : <Mic size={15} />}
+              {isRecording && (
+                <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-red-600 animate-ping" />
+              )}
+            </button>
 
             {/* FIXED: The onClick below now routes to stopGeneration when active */}
             {loading || uploading ? (
