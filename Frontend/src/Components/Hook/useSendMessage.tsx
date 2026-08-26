@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FileText, FileSpreadsheet, Image as ImageIcon, File as FileIcon } from 'lucide-react'
-import { sendMsg, stopMsg, branchMsg } from '../../API/Msg'
+import { sendMsg, stopMsg, branchMsg, getMsgs } from '../../API/Msg'
 import { uploadFile, deleteFileFromRAG } from '../../API/File'
 import { createChat } from '../../API/Chat'
 import { useChatStore } from '../../Context/ChatContext'
@@ -30,6 +30,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
   const [input, setInput] = useState('')
   const {
     getMessages,
+    setMessages,
     appendMessage,
     appendToken,
     appendReasoningToken,
@@ -557,6 +558,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
 
   const [historyIndex, setHistoryIndex] = useState<number>(-1)
   const draftInputRef = useRef<string>('')
+  const historyHydratedFor = useRef<Set<string>>(new Set())
 
   // Reset history navigation index when chatId changes
   useEffect(() => {
@@ -564,7 +566,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
     draftInputRef.current = ''
   }, [chatId])
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = async (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       if (loading || uploading || errorMessage) return
@@ -580,10 +582,28 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
     const isDown = e.key === 'ArrowDown' || e.key === 'Down'
 
     if (e.shiftKey && (isUp || isDown)) {
-      const allMsgs = getMessages(chatId)
+      // Prefer the in-memory store; if this chat's messages aren't loaded yet
+      // (e.g. right after a page refresh), hydrate them from the backend so the
+      // history shortcut keeps working across sessions.
+      let allMsgs = getMessages(chatId)
+      if (!allMsgs?.length && chatId && chatId !== 'new' && !historyHydratedFor.current.has(chatId)) {
+        // Only ever call the backend once per chat per session; empty chats
+        // return [] so this flag prevents one request per keypress.
+        historyHydratedFor.current.add(chatId)
+        try {
+          const fetched = await getMsgs(chatId)
+          if (Array.isArray(fetched) && fetched.length) {
+            allMsgs = fetched
+            setMessages(chatId, fetched)
+          }
+        } catch (err) {
+          console.error('Failed to load message history for Shift+Up/Down:', err)
+        }
+      }
+
       // Extract unique sequential non-empty user text messages
       const userMsgs: string[] = []
-      allMsgs.forEach((m: any) => {
+      allMsgs?.forEach((m: any) => {
         if (m.role === 'user' && m.content && typeof m.content === 'string' && m.content.trim()) {
           const txt = m.content.trim()
           if (userMsgs[userMsgs.length - 1] !== txt) {
@@ -591,7 +611,7 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
           }
         }
       })
-      
+
       if (userMsgs.length === 0) return
 
       if (isUp) {

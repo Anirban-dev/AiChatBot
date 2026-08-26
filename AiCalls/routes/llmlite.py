@@ -3,7 +3,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Query, Body
 from lib.mongodb import llm_logs
 from lib.litellm_config import get_current_config, reload_router
-from services.vector_db import embed_vector_info
+from services.vector_store import embed_vector_info
 
 router = APIRouter()
 

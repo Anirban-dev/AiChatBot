@@ -19,7 +19,6 @@ from litellm.exceptions import (
 
 from config import LLM_SMALL_MODEL, client, LLM_HIGH_MODEL, SYSTEM_PROMPT, CONCURRENT_STREAMS
 from services import vector_store as vs
-from services import vector_db as vdb
 from services import session_state as ss
 from state import active_streams, StreamState
 from services import tool_manager
