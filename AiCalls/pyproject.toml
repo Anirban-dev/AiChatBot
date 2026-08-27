@@ -13,7 +13,6 @@ dependencies = [
     "langchain-core>=1.4.0",
     "langchain-qdrant>=1.1.0",
     "langchain-text-splitters>=1.1.2",
-    "langgraph>=1.1.10",
     "litellm>=1.86.0",
     "motor>=3.7.1",
     "openpyxl>=3.1.5",

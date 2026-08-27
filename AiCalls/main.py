@@ -7,13 +7,6 @@ from routes.llmlite import router as llm_router
 from routes.speech import speech_router
 from services.embeddings import get_embeddings
 
-from langgraph.pregel import Pregel
-if not hasattr(Pregel, "get_schemas"):
-    Pregel.get_schemas = lambda self: {}
-if not hasattr(Pregel, "aget_schemas"):
-    async def _aget_schemas(self): return {}
-    Pregel.aget_schemas = _aget_schemas
-
 from lib.ratelimit import register_rate_limiter
 
 @asynccontextmanager

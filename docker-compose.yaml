@@ -21,7 +21,7 @@ services:
       context: ./Backend
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       - MONGO_URI=${MONGO_URI:-mongodb://mongodb:27017/AiAssistant}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
