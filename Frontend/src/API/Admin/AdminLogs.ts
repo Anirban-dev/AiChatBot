@@ -24,6 +24,7 @@ export interface LogsResponse {
 export interface MetricsResponse {
   dailyRequests: Array<{ _id: string; count: number; success: number; failed: number }>
   actionTypes: Array<{ _id: string; count: number }>
+  topUsers: Array<{ userId: string; name: string; email: string; total: number; ai_requests: number; failures: number }>
 }
 
 export const getAdminLogs = async (

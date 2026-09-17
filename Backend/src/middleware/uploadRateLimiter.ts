@@ -2,7 +2,7 @@
 import { Response, NextFunction } from 'express'
 import { redis } from '../utils/redis'
 import { AuthRequest } from './auth'
-import { getEffectiveUserLimits } from '../routes/admin/users'
+import { getEffectiveUserLimits } from '../services/limits'
 import { getWindowStamp, getWindowTTLSeconds, formatPeriodLabel, WindowPeriod } from '../utils/windowHelper'
 
 type LimitedCategory = 'image' | 'video' | 'other'

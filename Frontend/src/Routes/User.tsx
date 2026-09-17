@@ -39,6 +39,8 @@ interface UserData {
     totalTpmUsed: number
     totalRpmUsed: number
   }
+  modelUsageInfo?: Record<string, { used: number; limit: number; percentage: number }>
+  uploadUsageInfo?: Record<string, { used: number; limit: number; percentage: number }>
   currentWindow: {
     hourly: { stamp: string; tpmUsed: number; rpmUsed: number; resetAt: string }
     daily: { stamp: string; tpmUsed: number; rpmUsed: number; resetAt: string }
@@ -47,6 +49,16 @@ interface UserData {
     models: Record<string, string>
     uploads: Record<string, string>
   }
+}
+
+interface ActivityLog {
+  _id: string
+  action: string
+  status: 'success' | 'failed'
+  method: string
+  path: string
+  createdAt: string
+  details?: any
 }
 
 const MODEL_META: Record<string, { icon: any; color: string; ring: string }> = {
@@ -88,6 +100,9 @@ const UserPage = () => {
   const [data, setData] = useState<UserData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [logs, setLogs] = useState<ActivityLog[]>([])
+  const [failedCount, setFailedCount] = useState(0)
+  const [logFilter, setLogFilter] = useState<'all' | 'failed'>('all')
 
   useEffect(() => {
     if (dark) {
@@ -104,6 +119,11 @@ const UserPage = () => {
       try {
         const res = await api.get('/user')
         setData(res.data)
+        try {
+          const act = await api.get('/user/activity', { params: { limit: 20, status: '' } })
+          setLogs(act.data.logs || [])
+          setFailedCount(act.data.failedCount || 0)
+        } catch {}
       } catch (err: any) {
         console.error('Failed to fetch user usage:', err)
         setError(err.response?.data?.error || 'Failed to load usage data')
@@ -218,6 +238,11 @@ const UserPage = () => {
                     >
                       {data.user.role}
                     </span>
+                    {data.user.googleAuth && (
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-medium text-blue-700 dark:text-blue-300" style={{ backgroundColor: 'rgba(59,130,246,0.15)' }}>
+                        Google-linked
+                      </span>
+                    )}
                     {data.effectiveLimits.isOverridden && (
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-medium text-amber-700 dark:text-amber-400" style={{ backgroundColor: 'rgba(245,158,11,0.15)' }}>
                         Custom limits applied
@@ -369,6 +394,40 @@ const UserPage = () => {
                   </div>
                 </div>
               </div>
+            </section>
+
+            {/* ── Recent activity / Failed attempts ──────── */}
+            <section className="rounded-2xl p-6 mb-6" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-medium)' }}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <BarChart3 size={16} style={{ color: 'var(--accent)' }} />
+                  <h3 className="font-bold text-lg">Recent Activity</h3>
+                  {failedCount > 0 && <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-500 text-white">{failedCount} failed</span>}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setLogFilter('all')} className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer ${logFilter==='all' ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : ''}`} style={logFilter!=='all' ? { border:'1px solid var(--border-medium)' } : {}}>All</button>
+                  <button onClick={() => setLogFilter('failed')} className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer ${logFilter==='failed' ? 'bg-red-600 text-white' : ''}`} style={logFilter!=='failed' ? { border:'1px solid var(--border-medium)' } : {}}>Failed</button>
+                </div>
+              </div>
+              {logs.length === 0 ? (
+                <p className="text-sm text-center py-6" style={{ color:'var(--text-secondary)' }}>No activity yet.</p>
+              ) : (
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {(logFilter==='failed' ? logs.filter(l=>l.status==='failed') : logs).map(l => (
+                    <div key={l._id} className="flex items-start justify-between gap-3 p-3 rounded-xl" style={{ backgroundColor:'var(--bg-chat)', border:'1px solid var(--border-light)' }}>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold flex items-center gap-2">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] ${l.status==='failed' ? 'bg-red-500 text-white' : 'bg-emerald-500 text-white'}`}>{l.status}</span>
+                          {l.action} <span className="font-normal" style={{ color:'var(--text-secondary)' }}>{l.method} {l.path}</span>
+                        </p>
+                        {l.details && <p className="text-xs truncate mt-1" style={{ color:'var(--text-secondary)' }}>{typeof l.details==='string' ? l.details : JSON.stringify(l.details).slice(0,120)}</p>}
+                      </div>
+                      <span className="text-xs shrink-0" style={{ color:'var(--text-secondary)' }}>{new Date(l.createdAt).toLocaleString()}</span>
+                    </div>
+                  ))}
+                  {logFilter==='failed' && logs.filter(l=>l.status==='failed').length===0 && <p className="text-sm text-center py-4" style={{ color:'var(--text-secondary)' }}>No failed attempts — all clear.</p>}
+                </div>
+              )}
             </section>
 
             <p className="text-center text-xs" style={{ color: 'var(--text-secondary)' }}>

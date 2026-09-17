@@ -47,7 +47,10 @@ router.post('/upload', upload.single('file'), categoryUploadLimiter, async (req:
   const originalExt = path.extname(req.file.originalname).toLowerCase()
   const isTextOrCode = ['.txt', '.md', '.json', '.js', '.ts', '.py', '.cpp', '.c', '.h', '.html', '.css', '.csv'].includes(originalExt)
   const isImage = req.file.mimetype.startsWith('image/')
-  const category: 'text' | 'image' | 'other' = isTextOrCode ? 'text' : isImage ? 'image' : 'other'
+  const isVideo = req.file.mimetype.startsWith('video/')
+  const category: 'text' | 'image' | 'other' = isTextOrCode ? 'text' : isImage ? 'image' : isVideo ? 'other' : 'other'
+  // Note: video files map to 'other' persistence but 'video' upload limiter bucket;
+  // categoryUploadLimiter uses extension/mime sniffing separately via uploadRateLimiter.
 
   // ── Build what gets PERSISTED (Mongo `file` string / frontend) ─────────
   // Only ever READS req.file.buffer, never mutates it. The AI/RAG call
@@ -147,7 +150,7 @@ router.post('/upload', upload.single('file'), categoryUploadLimiter, async (req:
   })
 })
 
-router.post('/upload', upload.single('file'), categoryUploadLimiter, async (req: AuthRequest, res: Response) => {
+router.post('/delete', async (req: AuthRequest, res: Response) => {
   const { filename, chatId } = req.body
   if (!filename) return res.status(400).json({ error: 'Filename is required' })
   if (!chatId) return res.status(400).json({ error: 'chatId is required' })

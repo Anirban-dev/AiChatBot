@@ -13,6 +13,8 @@ import type {
 import { HealthOverview } from '../../Components/Admin/HealthOverview'
 import { ModelCard } from '../../Components/Admin/ModalCard'
 import { EventsLogTable } from '../../Components/Admin/EventsLogTable'
+import { AgentToolsPanel } from '../../Components/Admin/AgentToolsPanel'
+import { getAgentToolCalls, getAgentToolStats } from '../../API/Admin/AdminLlm'
 
 interface LLMStatus {
   model_stats: Record<string, ModelStat>
@@ -27,6 +29,10 @@ interface Props {
 const LLMTab = ({ onExpired }: Props) => {
   const [status, setStatus] = useState<LLMStatus | null>(null)
   const [events, setEvents] = useState<LLMEvent[]>([])
+  const [toolLogs, setToolLogs] = useState<any[]>([])
+  const [toolStats, setToolStats] = useState<any[]>([])
+  const [toolStatusFilter, setToolStatusFilter] = useState<'running'|'completed'|'failed'|''>('')
+  const [toolNameFilter, setToolNameFilter] = useState('')
   
   const [loadingStatus, setLoadingStatus] = useState(true)
   const [loadingEvents, setLoadingEvents] = useState(true)
@@ -111,19 +117,23 @@ const LLMTab = ({ onExpired }: Props) => {
     }
   }
 
-  // Fixing the execution halt by cleanly loading structural frameworks on initial mount
-  useEffect(() => {
-    fetchStatus()
-  }, [fetchStatus])
+  const fetchTools = useCallback(async () => {
+    try {
+      const [calls, stats] = await Promise.all([getAgentToolCalls({ limit: 50 }), getAgentToolStats()])
+      setToolLogs(calls.data || [])
+      setToolStats(stats.stats || [])
+    } catch {}
+  }, [])
 
-  useEffect(() => {
-    fetchEvents()
-  }, [fetchEvents])
+  useEffect(() => { fetchStatus() }, [fetchStatus])
+  useEffect(() => { fetchEvents() }, [fetchEvents])
+  useEffect(() => { fetchTools() }, [fetchTools])
 
   const handleRefresh = () => {
     setError('')
     fetchStatus()
     fetchEvents()
+    fetchTools()
   }
 
   const topStats = useMemo(() => {
@@ -218,6 +228,8 @@ const LLMTab = ({ onExpired }: Props) => {
           </div>
         )}
       </div>
+
+      <AgentToolsPanel loading={loadingEvents} logs={toolLogs.filter(l => !toolNameFilter || l.tool_name.includes(toolNameFilter)).filter(l => !toolStatusFilter || l.tool_status===toolStatusFilter)} stats={toolStats} statusFilter={toolStatusFilter} nameFilter={toolNameFilter} onStatusFilterChange={setToolStatusFilter} onNameFilterChange={setToolNameFilter} />
 
       {/* Renders the upgraded Tracing Logs Table with active row Deletions & Purge triggers */}
       <EventsLogTable

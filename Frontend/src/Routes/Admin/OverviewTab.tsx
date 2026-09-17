@@ -45,34 +45,12 @@ const OverviewTab = ({ onExpired }: Props) => {
   }, [fetchData])
 
   const statCards = [
-    {
-      label: 'Total Users',
-      value: stats?.totalUsers ?? '—',
-      icon: <Users size={20} />,
-      color: 'blue',
-    },
-    {
-      label: 'Total Chats',
-      value: stats?.totalChats ?? '—',
-      icon: <MessageSquare size={20} />,
-      color: 'indigo',
-    },
-    {
-      label: 'Avg AI Latency',
-      value: stats ? `${(stats.avgLatency / 1000).toFixed(2)}s` : '—',
-      icon: <Clock size={20} />,
-      color: 'amber',
-      bar: stats ? Math.min((stats.avgLatency / 10000) * 100, 100) : 0,
-      barColor: 'bg-amber-500',
-    },
-    {
-      label: 'Success Rate',
-      value: stats ? `${stats.successRate}%` : '—',
-      icon: <ShieldCheck size={20} />,
-      color: 'emerald',
-      bar: stats?.successRate ?? 0,
-      barColor: 'bg-emerald-500',
-    },
+    { label: 'Total Users', value: stats?.totalUsers ?? '—', icon: <Users size={20} />, color: 'blue' },
+    { label: 'Total Chats', value: stats?.totalChats ?? '—', icon: <MessageSquare size={20} />, color: 'indigo' },
+    { label: 'Total Messages', value: stats?.totalMessages ?? '—', icon: <MessageSquare size={20} />, color: 'violet' },
+    { label: 'Total Logs', value: stats?.totalLogs ?? '—', icon: <ShieldCheck size={20} />, color: 'slate' },
+    { label: 'Avg AI Latency', value: stats ? `${(stats.avgLatency / 1000).toFixed(2)}s` : '—', icon: <Clock size={20} />, color: 'amber', bar: stats ? Math.min((stats.avgLatency / 10000) * 100, 100) : 0, barColor: 'bg-amber-500' },
+    { label: 'Success Rate', value: stats ? `${stats.successRate}%` : '—', icon: <ShieldCheck size={20} />, color: 'emerald', bar: stats?.successRate ?? 0, barColor: 'bg-emerald-500' },
   ]
 
   const colorMap: Record<string, string> = {
@@ -80,6 +58,8 @@ const OverviewTab = ({ onExpired }: Props) => {
     indigo: 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-100 dark:border-indigo-500/20',
     amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-500/20',
     emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-500/20',
+    violet: 'bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-100 dark:border-violet-500/20',
+    slate: 'bg-slate-50 dark:bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-100 dark:border-slate-500/20',
   }
 
   return (
@@ -104,7 +84,7 @@ const OverviewTab = ({ onExpired }: Props) => {
       )}
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
         {statCards.map((c) => (
           <div
             key={c.label}
@@ -217,6 +197,21 @@ const OverviewTab = ({ onExpired }: Props) => {
             </div>
           )}
         </div>
+
+        {/* Top Users */}
+        {metrics?.topUsers && metrics.topUsers.length > 0 && (
+          <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-300 mb-4">Top Active Users (7d)</h3>
+            <div className="space-y-2">
+              {metrics.topUsers.map(u => (
+                <div key={u.userId} className="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+                  <div><p className="text-xs font-bold text-slate-800 dark:text-slate-200">{u.name}</p><p className="text-xs text-slate-400">{u.email}</p></div>
+                  <div className="text-right text-xs"><p className="font-bold">{u.total} req</p><p className="text-slate-400">{u.ai_requests} AI · <span className="text-rose-500">{u.failures} failed</span></p></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

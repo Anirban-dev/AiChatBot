@@ -2,14 +2,12 @@
 import { Router, Request, Response } from 'express'
 import { authMiddleware } from '../middleware/auth'
 import { User } from '../models/user'
-import { getEffectiveUserLimits, getDetailedUserUsage } from '../routes/admin/users'
+import { getEffectiveUserLimits, getDetailedUserUsage } from '../services/limits'
 import { getWindowStamp } from '../utils/windowHelper'
 import { redis } from '../utils/redis'
 import { genLimiter } from '../utils/ratelimitHelper'
+import { Log } from '../models/log'
 
-/**
- * Returns the exact Date when the current usage window for `period` ends (UTC).
- */
 export function getWindowResetAt(date: Date = new Date(), period: string = 'hourly'): Date {
   switch (period) {
     case 'hourly':
@@ -155,6 +153,27 @@ router.get('/', authMiddleware, genLimiter, async (req: Request, res: Response) 
   } catch (err) {
     console.error('Get user usage error:', err)
     return res.status(500).json({ error: 'Failed to fetch user usage data' })
+  }
+})
+
+// GET /api/user/activity — own logs including failed attempts
+router.get('/activity', authMiddleware, genLimiter, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId
+    const status = (req.query.status as string) || ''
+    const page = parseInt(req.query.page as string) || 1
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 50)
+    const skip = (page - 1) * limit
+    const query: any = { userId }
+    if (status) query.status = status
+    const [total, logs] = await Promise.all([
+      Log.countDocuments(query),
+      Log.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    ])
+    const failedCount = await Log.countDocuments({ userId, status: 'failed' })
+    res.json({ total, page, limit, logs, failedCount })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch activity' })
   }
 })
 
