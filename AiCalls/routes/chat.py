@@ -17,7 +17,7 @@ from litellm.exceptions import (
     APIError,
 )
 
-from config import LLM_SMALL_MODEL, client, LLM_HIGH_MODEL, SYSTEM_PROMPT, CONCURRENT_STREAMS
+from config import LLM_SMALL_MODEL, client, LLM_HIGH_MODEL, build_system_prompt, CONCURRENT_STREAMS
 from services import vector_store as vs
 from services import session_state as ss
 from state import active_streams, StreamState
@@ -99,7 +99,7 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
         )
 
         # ── 2. BUILD SYSTEM PROMPT ────────────────────────────────────────────
-        system = SYSTEM_PROMPT
+        system = build_system_prompt()
 
         # Check if vector DB tool is available
         vector_db_available = tool_manager.is_vector_db_available(mode)

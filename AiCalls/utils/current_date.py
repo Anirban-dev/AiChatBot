@@ -3,79 +3,79 @@ Current Date Utility
 Provides the current date in various formats for the LLM to use.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
-# Use UTC for consistency
-_UTC = timezone.utc
+# Use Asia/Kolkata (IST) to match the product's primary timezone
+_IST = ZoneInfo("Asia/Kolkata")
 
 def get_current_date() -> str:
     """
     Get current date in ISO format (YYYY-MM-DD)
     """
-    return datetime.now(_UTC).strftime("%Y-%m-%d")
+    return datetime.now(_IST).strftime("%Y-%m-%d")
 
 def get_current_datetime() -> str:
     """
     Get current date and time in ISO format (YYYY-MM-DD HH:MM:SS)
     """
-    return datetime.now(_UTC).strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(_IST).strftime("%Y-%m-%d %H:%M:%S")
 
 def get_current_time() -> str:
     """
     Get current time in 24-hour format (HH:MM:SS)
     """
-    return datetime.now(_UTC).strftime("%H:%M:%S")
+    return datetime.now(_IST).strftime("%H:%M:%S")
 
 def get_current_date_formatted() -> str:
     """
     Get current date in a human-readable format (Monday, January 1, 2026)
     """
-    return datetime.now(_UTC).strftime("%A, %B %d, %Y")
+    return datetime.now(_IST).strftime("%A, %B %d, %Y")
 
 def get_current_year() -> str:
     """
     Get current year
     """
-    return datetime.now(_UTC).strftime("%Y")
+    return datetime.now(_IST).strftime("%Y")
 
 def get_current_month() -> str:
     """
     Get current month and year
     """
-    return datetime.now(_UTC).strftime("%B %Y")
+    return datetime.now(_IST).strftime("%B %Y")
 
 def get_current_day_of_week() -> str:
     """
     Get current day of the week
     """
-    return datetime.now(_UTC).strftime("%A")
+    return datetime.now(_IST).strftime("%A")
 
 def get_current_day_of_month() -> str:
     """
     Get current day of the month
     """
-    return datetime.now(_UTC).strftime("%d")
+    return datetime.now(_IST).strftime("%d")
 
 def get_current_week_number() -> str:
     """
     Get current week number
     """
-    return datetime.now(_UTC).strftime("%W")
+    return datetime.now(_IST).strftime("%W")
 
 def get_current_quarter() -> str:
     """
     Get current quarter (Q1, Q2, Q3, Q4)
     """
-    month = datetime.now(_UTC).month
+    month = datetime.now(_IST).month
     return f"Q{((month - 1) // 3) + 1}"
 
 def get_current_fiscal_year() -> str:
     """
     Get current fiscal year (e.g., FY2026)
     """
-    year = datetime.now(_UTC).year
-    if datetime.now(_UTC).month >= 4:  # April is start of fiscal year
+    year = datetime.now(_IST).year
+    if datetime.now(_IST).month >= 4:  # April is start of fiscal year
         return f"FY{year + 1}"
     return f"FY{year}"
 
@@ -83,7 +83,7 @@ def get_current_season() -> str:
     """
     Get current season
     """
-    month = datetime.now(_UTC).month
+    month = datetime.now(_IST).month
     if month in [12, 1, 2]:
         return "Winter"
     elif month in [3, 4, 5]:

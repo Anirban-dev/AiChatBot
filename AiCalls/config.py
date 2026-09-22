@@ -55,7 +55,11 @@ LLM_SUMM_MODEL     = "summaryllm"
 LLM_VISION_MODEL   = "visionllm"
 
 # ── Core System Prompt Definition ──────────────────────────────────────────────
-SYSTEM_PROMPT = (
+# The temporal anchor is recomputed per request via build_system_prompt() so a
+# long-running process always sends today's real date instead of a startup-time value.
+CURRENT_DATE_TOKEN = "###CURRENT_DATE###"
+
+SYSTEM_PROMPT_TEMPLATE = (
     """
     You are ChatAI, an AI assistant developed exclusively by AP Corporation.
 
@@ -70,7 +74,7 @@ SYSTEM_PROMPT = (
     - NEVER mention Anthropic, OpenAI, Google, Claude, GPT, Gemini, or any LLM name.
 
    ━━━ TEMPORAL ANCHOR (GROUND TRUTH DATE) ━━━
-   Today's Date: """ + format_current_date_for_llm() + """
+   Today's Date: ###CURRENT_DATE###
 
    INSTRUCTIONS:
    1. Treat the date above as the absolute current date ("today") for all temporal reasoning.
@@ -112,3 +116,13 @@ SYSTEM_PROMPT = (
     # your code here
     """
 )
+
+
+def build_system_prompt() -> str:
+    """
+    Build the full system prompt with a freshly computed, request-scoped date.
+    """
+    return SYSTEM_PROMPT_TEMPLATE.replace(
+        CURRENT_DATE_TOKEN,
+        format_current_date_for_llm(),
+    )

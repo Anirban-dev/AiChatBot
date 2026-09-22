@@ -44,7 +44,7 @@ import logging
 import time
 from typing import AsyncGenerator
 
-from config import LLM_CRITIQ_MODEL, LLM_SMALL_MODEL, client, SYSTEM_PROMPT
+from config import LLM_CRITIQ_MODEL, LLM_SMALL_MODEL, client
 from services import tool_manager
 from state import active_streams, StreamState
 
