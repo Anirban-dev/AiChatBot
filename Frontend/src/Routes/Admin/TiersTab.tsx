@@ -22,6 +22,7 @@ import {
   type TierConfig,
   type WindowPeriod,
 } from '../../API/Admin/AdminTiers'
+import { ConfirmDialog } from '../../Components/ConfirmDialog'
 
 interface Props {
   onExpired: () => void
@@ -55,6 +56,7 @@ export const TiersTab = ({ onExpired }: Props) => {
   const [saving, setSaving] = useState(false)
   const [actionId, setActionId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ text: string; ok: boolean } | null>(null)
+  const [deleteTierConfirm, setDeleteTierConfirm] = useState<string | null>(null)
 
   // Modal / Editor State
   const [isCreating, setIsCreating] = useState(false)
@@ -144,14 +146,13 @@ export const TiersTab = ({ onExpired }: Props) => {
       showToast('The free tier is protected and cannot be deleted.', false)
       return
     }
-    if (
-      !window.confirm(
-        `Are you sure you want to delete the "${name.toUpperCase()}" tier? All users currently assigned to this tier will automatically be reverted to the FREE tier.`
-      )
-    ) {
-      return
-    }
+    setDeleteTierConfirm(name)
+  }
 
+  const confirmDeleteTier = async () => {
+    if (!deleteTierConfirm) return
+    const name = deleteTierConfirm
+    setDeleteTierConfirm(null)
     setActionId(name)
     try {
       const res = await deleteAdminTier(name)
@@ -602,6 +603,17 @@ export const TiersTab = ({ onExpired }: Props) => {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={!!deleteTierConfirm}
+        title="Delete Tier"
+        message={`Are you sure you want to delete the "${(deleteTierConfirm || '').toUpperCase()}" tier? All users currently assigned to this tier will automatically be reverted to the FREE tier.`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={confirmDeleteTier}
+        onCancel={() => setDeleteTierConfirm(null)}
+      />
     </div>
   )
 }

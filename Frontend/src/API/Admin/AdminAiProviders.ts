@@ -94,6 +94,16 @@ export const reloadAdminAiProviders = async (): Promise<ReloadResult> => {
   return res.data
 }
 
+export const getAdminRawAiProviders = async (): Promise<{ providers: any[] }> => {
+  const res = await api.get('/admin/ai-providers/raw')
+  return res.data
+}
+
+export const bulkSaveAdminAiProviders = async (providers: any[]): Promise<{ message: string; count: number; reload: ReloadResult }> => {
+  const res = await api.post('/admin/ai-providers/bulk', { providers })
+  return res.data
+}
+
 export interface PingResult {
   ok: boolean
   latency_ms?: number

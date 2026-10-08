@@ -6,6 +6,7 @@ import { getAdminTiers } from '../../API/Admin/AdminTiers'
 import type { AdminUser } from '../../API/Admin/AdminUsers'
 import { UserTableRow } from '../../Components/Admin/UserTableRow'
 import { LimitsModal } from '../../Components/Admin/UserLimitModal'
+import { ConfirmDialog } from '../../Components/ConfirmDialog'
 
 interface Props { onExpired: () => void }
 const PAGE_SIZE = 8
@@ -22,6 +23,7 @@ const UsersTab = ({ onExpired }: Props) => {
   // Track targeted context parameters for modal overlay views
   const [limitsUser, setLimitsUser] = useState<AdminUser | null>(null)
   const [toast, setToast] = useState<{ text: string; ok: boolean } | null>(null)
+  const [confirmAction, setConfirmAction] = useState<{ type: 'role' | 'delete'; userId: string; email: string; newRole?: string } | null>(null)
 
   const showToast = (text: string, ok: boolean) => {
     setToast({ text, ok })
@@ -65,25 +67,26 @@ const UsersTab = ({ onExpired }: Props) => {
 
   const handleRoleChange = async (userId: string, currentRole: 'admin' | 'user') => {
     const newRole = currentRole === 'admin' ? 'user' : 'admin'
-    if (!window.confirm(`Change this user's role assignment to ${newRole.toUpperCase()}?`)) return
-    setActionId(userId)
-    try {
-      await updateUserRole(userId, newRole)
-      showToast(`Role assignment transformed to ${newRole}`, true)
-      fetchUsers()
-    } catch (err: any) {
-      showToast(err.message || 'Failed to update user role access privileges', false)
-    } finally {
-      setActionId(null)
-    }
+    setConfirmAction({ type: 'role', userId, email: '', newRole })
   }
 
   const handleDeleteUser = async (userId: string, email: string) => {
-    if (!window.confirm(`Delete ${email} and purge ALL datasets securely? This cannot be reversed.`)) return
+    setConfirmAction({ type: 'delete', userId, email })
+  }
+
+  const confirmActionHandler = async () => {
+    if (!confirmAction) return
+    const { type, userId, email, newRole } = confirmAction
+    setConfirmAction(null)
     setActionId(userId)
     try {
-      await deleteAdminUser(userId)
-      showToast('User space index and records dropped cleanly', true)
+      if (type === 'role' && newRole) {
+        await updateUserRole(userId, newRole)
+        showToast(`Role assignment transformed to ${newRole}`, true)
+      } else if (type === 'delete') {
+        await deleteAdminUser(userId)
+        showToast('User space index and records dropped cleanly', true)
+      }
       fetchUsers()
     } catch (err: any) {
       showToast(err.message || 'Failed execution script during node deletion', false)
@@ -211,6 +214,21 @@ const UsersTab = ({ onExpired }: Props) => {
         onClose={() => setLimitsUser(null)}
         onSaved={fetchUsers}
         showToast={showToast}
+      />
+
+      <ConfirmDialog
+        isOpen={!!confirmAction}
+        title={confirmAction?.type === 'delete' ? 'Delete User' : 'Change Role'}
+        message={
+          confirmAction?.type === 'delete'
+            ? `Delete ${confirmAction.email} and purge ALL datasets securely? This cannot be reversed.`
+            : `Change this user's role assignment to ${confirmAction?.newRole?.toUpperCase()}?`
+        }
+        confirmLabel={confirmAction?.type === 'delete' ? 'Delete' : 'Change'}
+        cancelLabel="Cancel"
+        variant={confirmAction?.type === 'delete' ? 'danger' : 'warning'}
+        onConfirm={confirmActionHandler}
+        onCancel={() => setConfirmAction(null)}
       />
     </div>
   )

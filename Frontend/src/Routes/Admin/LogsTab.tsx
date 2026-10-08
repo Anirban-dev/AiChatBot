@@ -1,6 +1,6 @@
 // src/Routes/Admin/LogsTab.tsx
 import { useState, useEffect, useCallback } from 'react'
-import { Search, Filter, ChevronLeft, ChevronRight, CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp, Trash2, AlertTriangle } from 'lucide-react'
+import { Search, Filter, ChevronLeft, ChevronRight, CheckCircle2, XCircle, RefreshCw, ChevronDown, ChevronUp, Trash2, AlertTriangle, User } from 'lucide-react'
 import { getAdminLogs, deleteActivityLog, clearAllActivityLogs } from '../../API/Admin/AdminLogs'
 import type { ActivityLog } from '../../API/Admin/AdminLogs'
 import React from 'react'
@@ -16,6 +16,7 @@ const LogsTab = ({ onExpired }: Props) => {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [actionFilter, setActionFilter] = useState('')
+  const [userIdFilter, setUserIdFilter] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   
@@ -37,7 +38,7 @@ const LogsTab = ({ onExpired }: Props) => {
     setLoading(true)
     setError('')
     try {
-      const data = await getAdminLogs(search, statusFilter, actionFilter, page, PAGE_SIZE)
+      const data = await getAdminLogs(search, statusFilter, actionFilter, page, PAGE_SIZE, userIdFilter)
       setLogs(data.logs)
       setTotal(data.total)
     } catch (err: any) {
@@ -54,7 +55,7 @@ const LogsTab = ({ onExpired }: Props) => {
     } finally {
       setLoading(false)
     }
-  }, [search, statusFilter, actionFilter, page, onExpired])
+  }, [search, statusFilter, actionFilter, userIdFilter, page, onExpired])
 
   useEffect(() => {
     fetchLogs()
@@ -120,7 +121,7 @@ const LogsTab = ({ onExpired }: Props) => {
       </div>
 
       {/* Filter Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {/* Search */}
         <div className="relative lg:col-span-2">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={15} />
@@ -146,6 +147,18 @@ const LogsTab = ({ onExpired }: Props) => {
               <option key={act} value={act}>{act}</option>
             ))}
           </select>
+        </div>
+
+        {/* User ID filter */}
+        <div className="relative">
+          <User className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" size={13} />
+          <input
+            type="text"
+            placeholder="Filter by userId…"
+            value={userIdFilter}
+            onChange={(e) => { setUserIdFilter(e.target.value); setPage(1) }}
+            className="w-full pl-9 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-500/40 focus:border-indigo-500 transition"
+          />
         </div>
 
         {/* Status Filter */}

@@ -306,9 +306,15 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         customThreadRootId
       )
     } catch (err: any) {
-      if (err.name !== 'AbortError') {
+      // Network drops (internet disconnect) throw TypeError/NetworkError — treat
+      // these like an abort: clean up silently so the user can retry immediately
+      // without being blocked by the error banner.
+      const isNetworkError = err.name === 'TypeError' || err.name === 'NetworkError' || err.message === 'Failed to fetch'
+      if (err.name !== 'AbortError' && !isNetworkError) {
         console.error(err)
         setErrorMessage(err.message || 'An unexpected engine execution fault occurred.')
+      } else {
+        console.warn('[useSendMessage] Stream interrupted (network/abort):', err.message)
       }
       setActiveTool(null)
       if (!userMsgPersisted && effectiveOptimisticId) {
@@ -437,9 +443,12 @@ export const useSendMessage = (chatId: string, vectorDBAvailable: boolean = fals
         uploadedFileContent,
       )
     } catch (err: any) {
-      if (err.name !== 'AbortError') {
+      const isNetworkError = err.name === 'TypeError' || err.name === 'NetworkError' || err.message === 'Failed to fetch'
+      if (err.name !== 'AbortError' && !isNetworkError) {
         console.error(err)
         setErrorMessage(err.message || 'An unexpected branch error occurred.')
+      } else {
+        console.warn('[useSendMessage] Branch stream interrupted (network/abort):', err.message)
       }
       setActiveTool(null)
       if (!userMsgPersisted) {

@@ -1,4 +1,5 @@
-import { Terminal, Activity, Search } from 'lucide-react'
+import { useState } from 'react'
+import { Terminal, Activity, Search, Trash2, ShieldAlert, User } from 'lucide-react'
 import type { ToolCallLog, ToolMetric } from '../../API/Admin/AdminLlm'
 
 interface AgentToolsPanelProps {
@@ -7,8 +8,18 @@ interface AgentToolsPanelProps {
   stats: ToolMetric[]
   statusFilter: 'running' | 'completed' | 'failed' | ''
   nameFilter: string
+  userFilter: string
   onStatusFilterChange: (v: 'running' | 'completed' | 'failed' | '') => void
   onNameFilterChange: (v: string) => void
+  onUserFilterChange: (v: string) => void
+  onDeleteLog: (id: string) => Promise<void>
+  onClearAll: () => Promise<void>
+}
+
+function resolveUser(userId: ToolCallLog['userId']): { name: string; email: string } | null {
+  if (!userId) return null
+  if (typeof userId === 'object') return { name: userId.name, email: userId.email }
+  return null
 }
 
 export const AgentToolsPanel = ({
@@ -17,20 +28,42 @@ export const AgentToolsPanel = ({
   stats,
   statusFilter,
   nameFilter,
+  userFilter,
   onStatusFilterChange,
   onNameFilterChange,
+  onUserFilterChange,
+  onDeleteLog,
+  onClearAll,
 }: AgentToolsPanelProps) => {
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [confirmClear, setConfirmClear] = useState(false)
+
+  const handleDelete = async (id: string) => {
+    setDeletingId(id)
+    try { await onDeleteLog(id) } finally { setDeletingId(null) }
+  }
+
+  const handleClearAll = async () => {
+    if (!confirmClear) {
+      setConfirmClear(true)
+      setTimeout(() => setConfirmClear(false), 4000)
+      return
+    }
+    setConfirmClear(false)
+    await onClearAll()
+  }
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-      
-      {/* Aggregated Real-time Tool Reliability Stats Column */}
+
+      {/* ── Tool Stats Column ──────────────────────────────────────────────── */}
       <div className="space-y-3 xl:col-span-1">
         <div className="flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-200">
           <Activity size={14} className="text-emerald-500" />
-          <span>Tool Distribution & Reliability Metrics</span>
+          <span>Tool Distribution &amp; Reliability Metrics</span>
         </div>
-        
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3 divide-y divide-slate-100 dark:divide-slate-800/60 max-h-115 overflow-y-auto">
+
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3 divide-y divide-slate-100 dark:divide-slate-800/60 max-h-[460px] overflow-y-auto">
           {loading && stats.length === 0 ? (
             Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="pt-3 first:pt-0 space-y-2 animate-pulse">
@@ -40,14 +73,22 @@ export const AgentToolsPanel = ({
             ))
           ) : stats.length > 0 ? (
             stats.map((metric) => {
-              const successRate = metric.total_invocations > 0 
-                ? Math.round((metric.completed / metric.total_invocations) * 100) 
+              const successRate = metric.total_invocations > 0
+                ? Math.round((metric.completed / metric.total_invocations) * 100)
                 : 100
               return (
                 <div key={metric._id} className="pt-3 first:pt-0 space-y-1.5">
                   <div className="flex justify-between items-center">
-                    <span className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 px-1.5 py-0.5 rounded">{metric._id}</span>
-                    <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ${successRate >= 90 ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600' : 'bg-amber-50 dark:bg-amber-500/10 text-amber-600'}`}>{successRate}% SR</span>
+                    <span className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 px-1.5 py-0.5 rounded">
+                      {metric._id}
+                    </span>
+                    <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ${
+                      successRate >= 90
+                        ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600'
+                        : 'bg-amber-50 dark:bg-amber-500/10 text-amber-600'
+                    }`}>
+                      {successRate}% SR
+                    </span>
                   </div>
                   <div className="grid grid-cols-4 gap-1 text-[11px] font-semibold text-slate-400">
                     <div>Total: <span className="text-slate-700 dark:text-slate-300 font-bold">{metric.total_invocations}</span></div>
@@ -59,30 +100,47 @@ export const AgentToolsPanel = ({
               )
             })
           ) : (
-            <div className="text-center py-6 text-xs text-slate-400 font-medium uppercase tracking-wider">No tool usage recorded.</div>
+            <div className="text-center py-6 text-xs text-slate-400 font-medium uppercase tracking-wider">
+              No tool usage recorded.
+            </div>
           )}
         </div>
       </div>
 
-      {/* Granular Filterable MongoDB Tool Live Execution Event Feeds */}
+      {/* ── Tool Logs Feed ────────────────────────────────────────────────── */}
       <div className="space-y-3 xl:col-span-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-200">
             <Terminal size={14} className="text-indigo-500" />
-            <span>Agent Tool Live Execution Logs</span>
+            <span>Agent Tool Execution Logs</span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Tool name filter */}
             <div className="relative">
               <Search size={11} className="absolute left-2.5 top-2.5 text-slate-400" />
               <input
                 type="text"
-                placeholder="Filter Tool..."
+                placeholder="Filter tool…"
                 value={nameFilter}
                 onChange={e => onNameFilterChange(e.target.value)}
                 className="pl-7 pr-3 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/10 transition placeholder-slate-400 max-w-36"
               />
             </div>
+
+            {/* User filter */}
+            <div className="relative">
+              <User size={11} className="absolute left-2.5 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Filter by userId…"
+                value={userFilter}
+                onChange={e => onUserFilterChange(e.target.value)}
+                className="pl-7 pr-3 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/10 transition placeholder-slate-400 max-w-40"
+              />
+            </div>
+
+            {/* Status filter */}
             <select
               value={statusFilter}
               onChange={e => onStatusFilterChange(e.target.value as any)}
@@ -93,37 +151,99 @@ export const AgentToolsPanel = ({
               <option value="completed">Completed</option>
               <option value="failed">Failed</option>
             </select>
+
+            {/* Clear All button */}
+            {logs.length > 0 && (
+              <button
+                onClick={handleClearAll}
+                className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-xl border transition cursor-pointer ${
+                  confirmClear
+                    ? 'bg-rose-600 text-white border-rose-600 hover:bg-rose-700'
+                    : 'bg-white dark:bg-slate-900 text-rose-500 border-slate-200 dark:border-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/20'
+                }`}
+              >
+                <ShieldAlert size={12} />
+                <span>{confirmClear ? 'Confirm Purge?' : 'Clear All'}</span>
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-950 p-4 font-mono text-xs text-slate-300 space-y-2.5 max-h-103.75 overflow-y-auto shadow-inner">
+        {/* Log entries */}
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 font-mono text-xs text-slate-700 dark:text-slate-300 divide-y divide-slate-200 dark:divide-slate-900/60 max-h-[415px] overflow-y-auto shadow-inner">
           {loading && logs.length === 0 ? (
-            Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-4 bg-slate-900 rounded w-full animate-pulse" />
-            ))
+            <div className="p-4 space-y-2.5">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-full animate-pulse" />
+              ))}
+            </div>
           ) : logs.length > 0 ? (
-            logs.map((log) => (
-              <div key={log._id} className="text-[11px] leading-relaxed border-b border-slate-900/60 pb-2 last:border-none last:pb-0">
-                <span className="text-slate-500">[{new Date(log.timestamp).toLocaleTimeString()}]</span>{' '}
-                <span className="text-indigo-400 font-bold">{log.tool_name}</span>{' '}
-                <span className={`inline-flex items-center gap-0.5 px-1 rounded text-[9px] uppercase tracking-wide font-extrabold ${
-                  log.tool_status === 'completed' ? 'bg-emerald-500/10 text-emerald-400' :
-                  log.tool_status === 'failed' ? 'bg-rose-500/10 text-rose-400' : 'bg-indigo-500/10 text-indigo-400 animate-pulse'
-                }`}>
-                  {log.tool_status}
-                </span>
-                <div className="text-slate-400 pl-4 truncate text-[10px] mt-0.5">
-                  <span className="text-slate-600 font-bold">ARGS:</span> {log.tool_args}
-                </div>
-                {log.tool_result && (
-                  <div className="text-slate-500 pl-4 truncate text-[10px]">
-                    <span className="text-slate-600 font-bold">RESULT:</span> {log.tool_result}
+            logs.map((log) => {
+              const user = resolveUser(log.userId)
+              return (
+                <div key={log._id} className="group flex items-start gap-3 px-4 py-3 hover:bg-slate-100 dark:hover:bg-slate-900/60 transition">
+                  {/* Content */}
+                  <div className="flex-1 min-w-0 space-y-0.5">
+                    {/* Header row */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-slate-400 dark:text-slate-500 text-[10px]">
+                        [{new Date(log.timestamp).toLocaleTimeString()}]
+                      </span>
+                      <span className="text-indigo-600 dark:text-indigo-400 font-bold">{log.tool_name}</span>
+                      <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wide font-extrabold ${
+                        log.tool_status === 'completed'
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          : log.tool_status === 'failed'
+                          ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                          : 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 animate-pulse'
+                      }`}>
+                        {log.tool_status}
+                      </span>
+                      {/* User badge */}
+                      {user ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                          <User size={8} />
+                          {user.name || user.email}
+                        </span>
+                      ) : log.userId && typeof log.userId === 'string' ? (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                          <User size={8} />
+                          {log.userId.slice(-8)}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {/* Args */}
+                    <div className="text-slate-500 dark:text-slate-400 pl-1 text-[10px] truncate">
+                      <span className="text-slate-600 dark:text-slate-500 font-bold">ARGS:</span>{' '}
+                      {log.tool_args || '—'}
+                    </div>
+
+                    {/* Result */}
+                    {log.tool_result && (
+                      <div className="text-slate-500 dark:text-slate-500 pl-1 truncate text-[10px]">
+                        <span className="text-slate-600 dark:text-slate-500 font-bold">RESULT:</span>{' '}
+                        {log.tool_result}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))
+
+                  {/* Delete button */}
+                  <button
+                    onClick={() => handleDelete(log._id)}
+                    disabled={deletingId === log._id}
+                    className="shrink-0 opacity-0 group-hover:opacity-100 p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer disabled:opacity-40"
+                    title="Delete this log entry"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              )
+            })
           ) : (
-            <div className="text-center py-12 text-slate-600 font-semibold text-xs uppercase tracking-wider">No system tool call records detected.</div>
+            <div className="text-center py-12 text-slate-400 dark:text-slate-600 font-semibold text-xs uppercase tracking-wider">
+              No system tool call records detected.
+            </div>
           )}
         </div>
       </div>

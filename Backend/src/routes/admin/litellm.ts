@@ -303,6 +303,35 @@ router.get('/tool-calls', midLimiter, async (req: AdminRequest, res: Response) =
 })
 
 
+// ── DELETE /api/admin/llm/tool-calls/:id ─────────────────────────────────────
+router.delete('/tool-calls/:id', midLimiter, async (req: AdminRequest<{ id: string }>, res: Response) => {
+  try {
+    const { id } = req.params
+    const result = await LlmLog.findByIdAndDelete(id)
+    if (!result) return res.status(404).json({ error: 'Tool call log not found' })
+    res.json({ success: true, message: 'Tool call log deleted successfully' })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to delete tool call log' })
+  }
+})
+
+
+// ── DELETE /api/admin/llm/tool-calls ─────────────────────────────────────────
+router.delete('/tool-calls', midLimiter, async (req: AdminRequest, res: Response) => {
+  try {
+    const { tool_name, tool_status, userId } = req.query
+    const query: any = { type: 'tool_call' }
+    if (tool_name)   query.tool_name   = String(tool_name)
+    if (tool_status) query.tool_status = String(tool_status)
+    if (userId)      query.userId      = userId
+    const result = await LlmLog.deleteMany(query)
+    res.json({ success: true, message: `${result.deletedCount} tool call logs cleared successfully` })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to clear tool call logs' })
+  }
+})
+
+
 // ── GET /api/admin/llm/tool-calls/stats ──────────────────────────────────────
 router.get('/tool-calls/stats', midLimiter, async (req: AdminRequest, res: Response) => {
   try {

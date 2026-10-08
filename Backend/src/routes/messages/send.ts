@@ -338,7 +338,11 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       }).catch((e: any) => console.error('[LlmLog] Failed to write lifecycle failure log:', e))
 
       isFinished = true
-      res.write(`event: error\ndata: ${JSON.stringify({ message: 'AI service currently unavailable' })}\n\n`)
+      // Forward the actual Python/provider error (truncated) instead of a
+      // generic message — otherwise ping can succeed while chat shows a
+      // mystery error with no actionable detail.
+      const safeDetail = String(pythonError).slice(0, 400)
+      res.write(`event: error\ndata: ${JSON.stringify({ message: `AI request failed: ${safeDetail}` })}\n\n`)
       return res.end()
     }
 
@@ -432,9 +436,10 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
             timestamp: new Date(),
           }).catch((e: any) => console.error('[LlmLog] Failed to write stream-error log:', e))
 
+          const safeStreamMsg = String(pythonErrMsg).slice(0, 400)
           res.write(`event: error\ndata: ${JSON.stringify({
             type:    isMidpointQuotaLeak ? 'QUOTA_EXHAUSTED' : 'STREAM_INTERRUPTED',
-            message: isMidpointQuotaLeak ? pythonErrMsg : 'Stream was unexpectedly interrupted.',
+            message: isMidpointQuotaLeak ? pythonErrMsg : `Stream interrupted: ${safeStreamMsg}`,
           })}\n\n`)
           continue
         }
@@ -545,9 +550,16 @@ router.post('/', midLimiter, async (req: AuthRequest<{ chatId: string }>, res: R
       return res.end()
     }
 
+    // If there's no real content AND no tool calls, the stream was interrupted
+    // (e.g. network drop). Don't persist garbage — just return silently.
+    if ((!fullContent || !fullContent.trim()) && activeToolCalls.length === 0) {
+      isFinished = true
+      return res.end()
+    }
+
     const cleanContent = fullContent && fullContent.trim() !== ''
       ? fullContent.trim()
-      : (activeToolCalls.length > 0 ? '[Executed Tool Action]' : '[Stream Disconnected]')
+      : '[Executed Tool Action]'
 
     const assistantMessage = await Message.create({
       chatId: req.params.chatId,

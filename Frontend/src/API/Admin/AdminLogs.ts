@@ -28,9 +28,9 @@ export interface MetricsResponse {
 }
 
 export const getAdminLogs = async (
-  search = '', status = '', action = '', page = 1, limit = 20
+  search = '', status = '', action = '', page = 1, limit = 20, userId = ''
 ): Promise<LogsResponse> => {
-  const res = await api.get('/admin/logs', { params: { search, status, action, page, limit } })
+  const res = await api.get('/admin/logs', { params: { search, status, action, page, limit, ...(userId && { userId }) } })
   return res.data
 }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, X, Edit2, Trash2, RefreshCw, Check, Cpu, Power, Globe, KeyRound, Layers, Activity, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Plus, X, Edit2, Trash2, RefreshCw, Check, Cpu, Power, Globe, KeyRound, Layers, Activity, AlertCircle, CheckCircle2, Code2, FileCode, Copy } from 'lucide-react'
 import {
   getAdminAiProviders,
   createAdminAiProvider,
@@ -7,6 +7,8 @@ import {
   deleteAdminAiProvider,
   reloadAdminAiProviders,
   testPingAdminAiProvider,
+  getAdminRawAiProviders,
+  bulkSaveAdminAiProviders,
   type PingResult,
   PROVIDER_PRESETS,
   type AiProvider,
@@ -14,6 +16,7 @@ import {
   type AiTierMeta,
   type AiProviderInput,
 } from '../../API/Admin/AdminAiProviders'
+import { ConfirmDialog } from '../../Components/ConfirmDialog'
 
 interface Props {
   onExpired: () => void
@@ -83,9 +86,141 @@ export const AiProvidersTab = ({ onExpired }: Props) => {
   const [modalPinging, setModalPinging] = useState(false)
   const [modalPingResult, setModalPingResult] = useState<PingResult | null>(null)
 
+  const [showRawModal, setShowRawModal] = useState(false)
+  const [rawText, setRawText] = useState('')
+  const [loadingRaw, setLoadingRaw] = useState(false)
+  const [savingRaw, setSavingRaw] = useState(false)
+  const [rawParseError, setRawParseError] = useState<string | null>(null)
+  const [deleteProviderConfirm, setDeleteProviderConfirm] = useState<AiProvider | null>(null)
+
   const showToast = (text: string, ok: boolean) => {
     setToast({ text, ok })
     setTimeout(() => setToast(null), 3500)
+  }
+
+  const handleOpenRawModal = async () => {
+    setLoadingRaw(true)
+    setRawParseError(null)
+    setShowRawModal(true)
+    try {
+      const res = await getAdminRawAiProviders()
+      const existingList = res.providers || []
+      if (existingList.length === 0) {
+        // Provide clean starter template with proper spacing and newline separation
+        const starter = [
+          {
+            tier: "small",
+            provider: "groq",
+            model: "llama-3.3-70b-versatile",
+            api_base: "https://api.groq.com/openai/v1",
+            api_key: "",
+            enabled: true,
+            priority: 0
+          },
+          {
+            tier: "large",
+            provider: "openai",
+            model: "gpt-4o",
+            api_base: "https://api.openai.com/v1",
+            api_key: "",
+            enabled: true,
+            priority: 0
+          },
+          {
+            tier: "thinking",
+            provider: "anthropic",
+            model: "claude-3-7-sonnet-20250219",
+            api_base: "https://api.anthropic.com/v1",
+            api_key: "",
+            enabled: true,
+            priority: 0
+          },
+          {
+            tier: "critiq",
+            provider: "openai",
+            model: "gpt-4o",
+            api_base: "https://api.openai.com/v1",
+            api_key: "",
+            enabled: true,
+            priority: 0
+          },
+          {
+            tier: "summaryllm",
+            provider: "groq",
+            model: "llama-3.1-8b-instant",
+            api_base: "https://api.groq.com/openai/v1",
+            api_key: "",
+            enabled: true,
+            priority: 0
+          },
+          {
+            tier: "visionllm",
+            provider: "openai",
+            model: "gpt-4o",
+            api_base: "https://api.openai.com/v1",
+            api_key: "",
+            enabled: true,
+            priority: 0
+          },
+          {
+            tier: "speechllm",
+            provider: "groq",
+            model: "whisper-large-v3",
+            api_base: "https://api.groq.com/openai/v1",
+            api_key: "",
+            enabled: true,
+            priority: 0
+          },
+          {
+            tier: "free-embed",
+            provider: "openai",
+            model: "text-embedding-3-small",
+            api_base: "https://api.openai.com/v1",
+            api_key: "",
+            enabled: true,
+            priority: 0
+          }
+        ]
+        setRawText(JSON.stringify(starter, null, 2))
+      } else {
+        // Pretty print existing providers with 2 spaces for comfortable editing
+        setRawText(JSON.stringify(existingList, null, 2))
+      }
+    } catch (err: any) {
+      showToast(errMsg(err), false)
+      setShowRawModal(false)
+    } finally {
+      setLoadingRaw(false)
+    }
+  }
+
+  const handleSaveRaw = async () => {
+    setRawParseError(null)
+    let parsed: any
+    try {
+      parsed = JSON.parse(rawText)
+    } catch (e: any) {
+      setRawParseError(`Invalid JSON syntax: ${e.message}`)
+      return
+    }
+
+    if (!Array.isArray(parsed)) {
+      setRawParseError('Top-level JSON must be an array of provider objects: [ { ... }, { ... } ]')
+      return
+    }
+
+    setSavingRaw(true)
+    try {
+      const res = await bulkSaveAdminAiProviders(parsed)
+      showToast(`${res.message || 'Providers saved'} · live reload applied`, true)
+      setShowRawModal(false)
+      fetchProviders()
+    } catch (err: any) {
+      setRawParseError(errMsg(err))
+      showToast(errMsg(err), false)
+    } finally {
+      setSavingRaw(false)
+    }
   }
 
   const handleTestPing = async (providerData: { id?: string; tier: AiTierKey; provider: string; model: string; api_base?: string; api_key?: string }, isModal = false) => {
@@ -220,7 +355,13 @@ export const AiProvidersTab = ({ onExpired }: Props) => {
   }
 
   const handleDelete = async (p: AiProvider) => {
-    if (!window.confirm(`Delete the provider for tier ${p.tier} (${p.model})? The change will be applied to the running AI engine.`)) return
+    setDeleteProviderConfirm(p)
+  }
+
+  const confirmDeleteProvider = async () => {
+    if (!deleteProviderConfirm) return
+    const p = deleteProviderConfirm
+    setDeleteProviderConfirm(null)
     setActionId(p._id)
     try {
       const res = await deleteAdminAiProvider(p._id)
@@ -300,6 +441,14 @@ export const AiProvidersTab = ({ onExpired }: Props) => {
           </p>
         </div>
         <div className="flex items-center gap-2.5">
+          <button
+            onClick={handleOpenRawModal}
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer shadow-xs"
+            title="Edit all providers and API keys at once in a raw canvas editor"
+          >
+            <Code2 size={14} className="text-indigo-500" />
+            Raw Canvas / Bulk Edit
+          </button>
           <button
             onClick={handleReload}
             disabled={reloading}
@@ -691,6 +840,122 @@ export const AiProvidersTab = ({ onExpired }: Props) => {
           </div>
         </div>
       )}
+      {/* ── Raw Canvas / Bulk Editor Modal ── */}
+      {showRawModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
+          <div className="w-full max-w-4xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                  <Code2 size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                    Raw Canvas & Bulk Editor
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Write, paste, or edit all your AI providers and API keys directly in one place.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(rawText)
+                    showToast('Copied raw configuration to clipboard!', true)
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 transition cursor-pointer"
+                  title="Copy JSON to clipboard"
+                >
+                  <Copy size={13} />
+                  Copy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowRawModal(false)}
+                  className="w-8 h-8 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center justify-center transition cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body / Canvas */}
+            <div className="flex-1 p-6 overflow-hidden flex flex-col space-y-3">
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                <span>
+                  Paste or edit array of providers. Keys left as existing will preserve current credentials. Empty or new <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono text-[10px]">id</code> will insert new providers.
+                </span>
+                <span className="font-mono text-[10px] text-indigo-500">JSON Format (with newlines & spacing)</span>
+              </div>
+
+              {rawParseError && (
+                <div className="flex items-center gap-2 p-3 text-xs rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 font-medium">
+                  <AlertCircle size={15} className="shrink-0" />
+                  <span>{rawParseError}</span>
+                </div>
+              )}
+
+              {loadingRaw ? (
+                <div className="flex-1 flex items-center justify-center py-20">
+                  <RefreshCw size={24} className="animate-spin text-indigo-500" />
+                </div>
+              ) : (
+                <textarea
+                  value={rawText}
+                  onChange={e => {
+                    setRawText(e.target.value)
+                    if (rawParseError) setRawParseError(null)
+                  }}
+                  placeholder="Paste or write your providers JSON array here..."
+                  spellCheck={false}
+                  className="flex-1 w-full p-4 font-mono text-xs leading-relaxed rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-emerald-400 selection:bg-indigo-600 selection:text-white resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  style={{ minHeight: '380px' }}
+                />
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+              <div className="text-[11px] text-slate-400">
+                Changes will automatically encrypt keys and trigger live AI engine reload.
+              </div>
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowRawModal(false)}
+                  disabled={savingRaw}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveRaw}
+                  disabled={savingRaw || loadingRaw}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md shadow-indigo-900/20 transition disabled:opacity-50 cursor-pointer"
+                >
+                  {savingRaw ? <RefreshCw size={14} className="animate-spin" /> : <Check size={14} />}
+                  {savingRaw ? 'Saving & Reloading…' : 'Save & Apply All'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        isOpen={!!deleteProviderConfirm}
+        title="Delete Provider"
+        message={`Delete the provider for tier ${deleteProviderConfirm?.tier} (${deleteProviderConfirm?.model})? The change will be applied to the running AI engine.`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={confirmDeleteProvider}
+        onCancel={() => setDeleteProviderConfirm(null)}
+      />
     </div>
   )
 }

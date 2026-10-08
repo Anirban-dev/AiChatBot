@@ -67,7 +67,11 @@ export const MsgChatInput = ({
   const [fileAcceptType, setFileAcceptType] = useState<string>('.*')
   const [isRecording, setIsRecording] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
-  
+  // Live interim transcript shown while speaking
+  const [interimText, setInterimText] = useState<string>('')
+  // Animated audio level bars (0–1 per bar)
+  const [audioLevels, setAudioLevels] = useState<number[]>([0.2, 0.4, 0.3, 0.5, 0.2])
+
   const menuRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -76,6 +80,10 @@ export const MsgChatInput = ({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const audioStreamRef = useRef<MediaStream | null>(null)
+  const speechRecognitionRef = useRef<any>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const animFrameRef = useRef<number | null>(null)
+  const audioCtxRef = useRef<AudioContext | null>(null)
 
   const removeEditFile = (index: number) => {
     setEditingFileInputs(prev => prev.filter((_, i) => i !== index))
@@ -121,16 +129,53 @@ export const MsgChatInput = ({
     return () => {
       mediaRecorderRef.current?.stop()
       audioStreamRef.current?.getTracks().forEach((track: MediaStreamTrack) => track.stop())
+      speechRecognitionRef.current?.stop()
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
+      audioCtxRef.current?.close()
     }
   }, [])
 
+  // Animate audio level bars from the AnalyserNode
+  const startLevelAnimation = (analyser: AnalyserNode) => {
+    const data = new Uint8Array(analyser.frequencyBinCount)
+    const BAR_COUNT = 5
+    const tick = () => {
+      analyser.getByteFrequencyData(data)
+      const step = Math.floor(data.length / BAR_COUNT)
+      const levels = Array.from({ length: BAR_COUNT }, (_, i) => {
+        const slice = data.slice(i * step, (i + 1) * step)
+        const avg = slice.reduce((s, v) => s + v, 0) / slice.length
+        return Math.min(1, avg / 180)
+      })
+      setAudioLevels(levels)
+      animFrameRef.current = requestAnimationFrame(tick)
+    }
+    tick()
+  }
+
+  const stopLevelAnimation = () => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current)
+      animFrameRef.current = null
+    }
+    setAudioLevels([0.2, 0.4, 0.3, 0.5, 0.2])
+  }
+
   const handleMicClick = async () => {
     if (isRecording) {
+      // Stop everything
+      speechRecognitionRef.current?.stop()
+      speechRecognitionRef.current = null
+      stopLevelAnimation()
+      audioCtxRef.current?.close().catch(() => {})
+      audioCtxRef.current = null
+      analyserRef.current = null
       const recorder = mediaRecorderRef.current
       if (recorder && recorder.state !== 'inactive') {
         recorder.stop()
       } else {
         setIsRecording(false)
+        setInterimText('')
       }
       return
     }
@@ -157,6 +202,40 @@ export const MsgChatInput = ({
       audioStreamRef.current = stream
       audioChunksRef.current = []
 
+      // ── Audio level analyser for waveform bars ───────────────────────────────
+      try {
+        const ctx = new AudioContext()
+        audioCtxRef.current = ctx
+        const source = ctx.createMediaStreamSource(stream)
+        const analyser = ctx.createAnalyser()
+        analyser.fftSize = 256
+        source.connect(analyser)
+        analyserRef.current = analyser
+        startLevelAnimation(analyser)
+      } catch {
+        // non-fatal — waveform is cosmetic
+      }
+
+      // ── Web Speech API for live interim transcript display ───────────────────
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+      if (SpeechRecognition) {
+        const sr = new SpeechRecognition()
+        sr.continuous = true
+        sr.interimResults = true
+        sr.lang = 'en-US'
+        sr.onresult = (event: any) => {
+          let interim = ''
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            if (!event.results[i].isFinal) interim += event.results[i][0].transcript
+          }
+          setInterimText(interim)
+        }
+        sr.onerror = () => { /* silent — backend STT is the source of truth */ }
+        sr.start()
+        speechRecognitionRef.current = sr
+      }
+
+      // ── MediaRecorder for actual audio blob → backend STT ───────────────────
       const recorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : undefined })
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data)
@@ -164,7 +243,11 @@ export const MsgChatInput = ({
       recorder.onstop = async () => {
         stream.getTracks().forEach((track: MediaStreamTrack) => track.stop())
         audioStreamRef.current = null
+        stopLevelAnimation()
+        audioCtxRef.current?.close().catch(() => {})
+        audioCtxRef.current = null
         setIsRecording(false)
+        setInterimText('')
 
         const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
         audioChunksRef.current = []
@@ -224,6 +307,85 @@ export const MsgChatInput = ({
       }}
     >
       <div className="relative max-w-4xl mx-auto">
+
+        {/* ── Voice Recording Overlay ───────────────────────────────────────── */}
+        {(isRecording || transcribing) && (
+          <div className="absolute bottom-full left-0 right-0 mb-2 z-40 animate-in fade-in slide-in-from-bottom-3 duration-200">
+            <div
+              className="flex items-center gap-3 px-4 py-3 rounded-2xl shadow-lg border"
+              style={{
+                background: isRecording
+                  ? 'linear-gradient(135deg, rgba(239,68,68,0.08) 0%, rgba(220,38,38,0.04) 100%)'
+                  : 'linear-gradient(135deg, rgba(59,130,246,0.08) 0%, rgba(37,99,235,0.04) 100%)',
+                borderColor: isRecording ? 'rgba(239,68,68,0.25)' : 'rgba(59,130,246,0.25)',
+                backdropFilter: 'blur(12px)',
+                backgroundColor: 'var(--bg-card)',
+              }}
+            >
+              {/* Pulsing dot */}
+              <div className="relative shrink-0">
+                <div className={`h-2.5 w-2.5 rounded-full ${
+                  transcribing ? 'bg-blue-500' : 'bg-red-500'
+                }`} />
+                {isRecording && (
+                  <div className="absolute inset-0 rounded-full bg-red-500 animate-ping opacity-60" />
+                )}
+              </div>
+
+              {/* Waveform bars (only while recording) */}
+              {isRecording && (
+                <div className="flex items-end gap-[3px] h-5 shrink-0">
+                  {audioLevels.map((level, i) => (
+                    <div
+                      key={i}
+                      className="w-1 rounded-full bg-red-500 transition-all duration-75"
+                      style={{ height: `${Math.max(20, level * 100)}%` }}
+                    />
+                  ))}
+                </div>
+              )}
+              {transcribing && (
+                <div className="flex items-end gap-[3px] h-5 shrink-0">
+                  {[0.6, 0.9, 0.7, 1, 0.5].map((h, i) => (
+                    <div
+                      key={i}
+                      className="w-1 rounded-full bg-blue-500"
+                      style={{
+                        height: `${h * 100}%`,
+                        animation: `pulse 0.8s ease-in-out ${i * 0.12}s infinite alternate`,
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Status text + interim transcript */}
+              <div className="flex-1 min-w-0">
+                <p className={`text-xs font-semibold ${
+                  transcribing ? 'text-blue-600 dark:text-blue-400' : 'text-red-600 dark:text-red-400'
+                }`}>
+                  {transcribing ? 'Processing…' : 'Listening — tap mic to stop'}
+                </p>
+                {interimText && (
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-0.5 italic">
+                    &ldquo;{interimText}&rdquo;
+                  </p>
+                )}
+              </div>
+
+              {/* Stop button */}
+              {isRecording && (
+                <button
+                  onClick={handleMicClick}
+                  className="shrink-0 p-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white transition-colors cursor-pointer"
+                  title="Stop recording"
+                >
+                  <Square size={13} fill="white" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         
         {/* File Attachment Upload Preview Box */}
         {previewUrl && (
@@ -399,16 +561,21 @@ export const MsgChatInput = ({
             <button
               onClick={handleMicClick}
               disabled={transcribing || !!errorMessage}
-              className={`relative p-1.5 rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0 ${
+              className={`relative p-1.5 rounded-lg transition-all duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0 ${
                 isRecording
-                  ? 'bg-red-500 hover:bg-red-600 text-white'
+                  ? 'bg-red-500 hover:bg-red-600 text-white shadow-md shadow-red-500/30 scale-110'
+                  : transcribing
+                  ? 'bg-blue-500 text-white shadow-md shadow-blue-500/30'
                   : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
               }`}
-              title={isRecording ? 'Stop recording & transcribe' : 'Record voice message'}
+              title={isRecording ? 'Stop recording & transcribe' : transcribing ? 'Processing audio…' : 'Record voice message'}
             >
-              {transcribing ? <Loader2 size={15} className="animate-spin" /> : <Mic size={15} />}
+              {transcribing
+                ? <Loader2 size={15} className="animate-spin" />
+                : <Mic size={15} />
+              }
               {isRecording && (
-                <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-red-600 animate-ping" />
+                <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-red-300 animate-ping" />
               )}
             </button>
 

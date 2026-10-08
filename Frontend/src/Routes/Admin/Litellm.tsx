@@ -5,6 +5,8 @@ import {
   getLLMStatus, 
   deleteLLMEvent, 
   clearAllLLMEvents,
+  deleteToolCallLog,
+  clearAllToolCallLogs,
 } from '../../API/Admin/AdminLlm'
 import type { 
   ModelStat, 
@@ -33,6 +35,8 @@ const LLMTab = ({ onExpired }: Props) => {
   const [toolStats, setToolStats] = useState<any[]>([])
   const [toolStatusFilter, setToolStatusFilter] = useState<'running'|'completed'|'failed'|''>('')
   const [toolNameFilter, setToolNameFilter] = useState('')
+  const [toolUserFilter, setToolUserFilter] = useState('')
+  const [llmUserFilter, setLlmUserFilter] = useState('')
   
   const [loadingStatus, setLoadingStatus] = useState(true)
   const [loadingEvents, setLoadingEvents] = useState(true)
@@ -75,15 +79,16 @@ const LLMTab = ({ onExpired }: Props) => {
     setLoadingEvents(true)
     try {
       const data = await getLLMEvents(
-        parseInt(hoursFilter), 
-        typeFilter, 
+        parseInt(hoursFilter),
+        typeFilter,
         tierFilter,
         modelFilter || undefined,
-        statusFilter ? parseInt(statusFilter) : undefined
+        statusFilter ? parseInt(statusFilter) : undefined,
+        llmUserFilter || undefined
       )
       const normalizedEvents = data.events.map(event => ({
         ...event,
-        status_code: event.error_details?.status_code ?? null // Standardizes the deep root resolution catch cleanly
+        status_code: event.error_details?.status_code ?? null
       }))
       setEvents(normalizedEvents)
     } catch (err: any) {
@@ -91,7 +96,7 @@ const LLMTab = ({ onExpired }: Props) => {
     } finally {
       setLoadingEvents(false)
     }
-  }, [hoursFilter, typeFilter, tierFilter, modelFilter, statusFilter, handleError])
+  }, [hoursFilter, typeFilter, tierFilter, modelFilter, statusFilter, llmUserFilter, handleError])
 
   // Single Entry Mutation Execution Hook
   const handleDeleteEvent = async (id: string) => {
@@ -112,6 +117,29 @@ const LLMTab = ({ onExpired }: Props) => {
         model: modelFilter || undefined
       })
       setEvents([])
+    } catch (err: any) {
+      handleError(err)
+    }
+  }
+
+  // Tool call delete/clear
+  const handleDeleteToolLog = async (id: string) => {
+    try {
+      await deleteToolCallLog(id)
+      setToolLogs(prev => prev.filter((l: any) => l._id !== id))
+    } catch (err: any) {
+      handleError(err)
+    }
+  }
+
+  const handleClearAllToolLogs = async () => {
+    try {
+      await clearAllToolCallLogs({
+        tool_name: toolNameFilter || undefined,
+        tool_status: toolStatusFilter || undefined,
+        userId: toolUserFilter || undefined,
+      })
+      setToolLogs([])
     } catch (err: any) {
       handleError(err)
     }
@@ -229,7 +257,29 @@ const LLMTab = ({ onExpired }: Props) => {
         )}
       </div>
 
-      <AgentToolsPanel loading={loadingEvents} logs={toolLogs.filter(l => !toolNameFilter || l.tool_name.includes(toolNameFilter)).filter(l => !toolStatusFilter || l.tool_status===toolStatusFilter)} stats={toolStats} statusFilter={toolStatusFilter} nameFilter={toolNameFilter} onStatusFilterChange={setToolStatusFilter} onNameFilterChange={setToolNameFilter} />
+      <AgentToolsPanel
+        loading={loadingEvents}
+        logs={
+          toolLogs
+            .filter((l: any) => !toolNameFilter || l.tool_name.includes(toolNameFilter))
+            .filter((l: any) => !toolStatusFilter || l.tool_status === toolStatusFilter)
+            .filter((l: any) => !toolUserFilter || (
+              (typeof l.userId === 'object' && l.userId
+                ? (l.userId.name?.toLowerCase().includes(toolUserFilter.toLowerCase()) ||
+                   l.userId.email?.toLowerCase().includes(toolUserFilter.toLowerCase()))
+                : String(l.userId || '').includes(toolUserFilter))
+            ))
+        }
+        stats={toolStats}
+        statusFilter={toolStatusFilter}
+        nameFilter={toolNameFilter}
+        userFilter={toolUserFilter}
+        onStatusFilterChange={setToolStatusFilter}
+        onNameFilterChange={setToolNameFilter}
+        onUserFilterChange={setToolUserFilter}
+        onDeleteLog={handleDeleteToolLog}
+        onClearAll={handleClearAllToolLogs}
+      />
 
       {/* Renders the upgraded Tracing Logs Table with active row Deletions & Purge triggers */}
       <EventsLogTable
@@ -241,11 +291,13 @@ const LLMTab = ({ onExpired }: Props) => {
         hoursFilter={hoursFilter}
         modelFilter={modelFilter}
         statusFilter={statusFilter}
+        userFilter={llmUserFilter}
         onTypeChange={setTypeFilter}
         onTierChange={setTierFilter}
         onHoursChange={setHoursFilter}
         onModelChange={setModelFilter}
         onStatusChange={setStatusFilter}
+        onUserChange={setLlmUserFilter}
         onDeleteEvent={handleDeleteEvent}
         onClearAllEvents={handleClearAllEvents}
       />

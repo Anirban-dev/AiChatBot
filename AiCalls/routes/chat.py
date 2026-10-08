@@ -526,9 +526,12 @@ async def stream_chat(request: Request, background_tasks: BackgroundTasks):
 
         except (AuthenticationError, InternalServerError, ServiceUnavailableError, APIConnectionError, APIError) as e:
             # Every routed provider failed (litellm retried each deployment).
-            # Surface a single friendly error instead of a raw provider traceback.
+            # Forward the actual provider message (truncated) so the UI can
+            # show WHY it failed instead of a generic "unavailable" message.
+            # Ping bypasses the router, so this is where router-only failures surface.
             _log.error(f"[ProviderDown] chat={chat_id} user={user_id} error={e}", exc_info=True)
-            yield f"event: error\ndata: {json.dumps({'message': 'All AI providers are currently unavailable. Please try again in a moment.'})}\n\n"
+            detail = str(e).splitlines()[0][:400] if str(e).strip() else type(e).__name__
+            yield f"event: error\ndata: {json.dumps({'message': f'LLM request failed: {detail}'})}\n\n"
 
         except Exception as e:
             _log.error(f"[Generate] Pipeline error: chat={chat_id} user={user_id} error={e}", exc_info=True)

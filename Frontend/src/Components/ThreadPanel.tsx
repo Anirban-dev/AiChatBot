@@ -7,6 +7,7 @@ import type { Message } from '../Context/ChatContext'
 import { getThreadHeads, getThreadPath, getThreadLeafId, getEffectiveThreadHeadId } from '../utils/threadUtils'
 import { ModelSelector } from './ModelSelector'
 import { deleteThread } from '../API/Msg'
+import { ConfirmDialog } from './ConfirmDialog'
 
 interface ThreadPanelProps {
   chatId: string
@@ -56,6 +57,7 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
   const [editingFiles, setEditingFiles] = useState<File[]>([])
   const [editingFileInputs, setEditingFileInputs] = useState<File[]>([])
   const [isDeleting, setIsDeleting] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const pendingNewThreadRef = useRef(false)
 
   // ESC key listener to close thread panel
@@ -284,8 +286,12 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
 
   const handleDeleteThread = async () => {
     if (!threadHeadId || isDeleting) return
-    if (!window.confirm('Are you sure you want to delete this thread and its attachments?')) return
+    setShowDeleteConfirm(true)
+  }
 
+  const confirmDeleteThread = async () => {
+    if (!threadHeadId || isDeleting) return
+    setShowDeleteConfirm(false)
     setIsDeleting(true)
     try {
       const res = await deleteThread(chatId, threadHeadId)
@@ -547,6 +553,17 @@ export const ThreadPanel: React.FC<ThreadPanelProps> = ({
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={showDeleteConfirm}
+        title="Delete Thread"
+        message="Are you sure you want to delete this thread and its attachments? This action cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={confirmDeleteThread}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { X, Gauge, Check, RefreshCw, RotateCcw, Cpu, UploadCloud } from 'lucide-
 import { UsageBar } from './UsageBar'
 import type { AdminUser, UpdateUserLimitsPayload, WindowPeriod } from '../../API/Admin/AdminUsers'
 import { updateUserLimits, getUserLimits } from '../../API/Admin/AdminUsers'
+import { ConfirmDialog } from '../ConfirmDialog'
 
 interface LimitsModalProps {
   user: AdminUser | null
@@ -32,6 +33,7 @@ export const LimitsModal = ({ user, onClose, onSaved, showToast }: LimitsModalPr
   const [saving, setSaving] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [tierDefaults, setTierDefaults] = useState<any>(DEFAULT_FALLBACK)
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
 
   // Model limits state: small, large, thinking, critiq
   const [modelInputs, setModelInputs] = useState({
@@ -135,7 +137,11 @@ export const LimitsModal = ({ user, onClose, onSaved, showToast }: LimitsModalPr
   }
 
   const handleClearOverrides = async () => {
-    if (!window.confirm(`Clear all custom overrides and revert ${user.email} to default ${tier.toUpperCase()} limits?`)) return
+    setShowClearConfirm(true)
+  }
+
+  const confirmClearOverrides = async () => {
+    setShowClearConfirm(false)
     setClearing(true)
     try {
       await updateUserLimits(user.id, { clear: true })
@@ -442,6 +448,17 @@ export const LimitsModal = ({ user, onClose, onSaved, showToast }: LimitsModalPr
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={showClearConfirm}
+        title="Reset Overrides"
+        message={`Clear all custom overrides and revert ${user.email} to default ${tier.toUpperCase()} limits?`}
+        confirmLabel="Reset"
+        cancelLabel="Cancel"
+        variant="warning"
+        onConfirm={confirmClearOverrides}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </div>
   )
 }

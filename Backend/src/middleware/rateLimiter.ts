@@ -39,6 +39,7 @@ export const createRateLimiter = ({
 
     standardHeaders: 'draft-7',
     legacyHeaders: false,
+    skipFailedRequests: true,
 
     message: { error: message ?? 'Rate limit exceeded. Please wait and try again.' },
 

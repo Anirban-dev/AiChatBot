@@ -310,6 +310,106 @@ router.post('/test-ping', midLimiter, async (req: AdminRequest, res: Response) =
   }
 })
 
+// ── GET /api/admin/ai-providers/raw ──────────────────────────────────────────
+// Returns the active providers in an editable JSON format with raw API keys decrypted
+router.get('/raw', midLimiter, async (_req: AdminRequest, res: Response) => {
+  try {
+    const docs = await AiProvider.find({}).sort({ tier: 1, priority: 1, createdAt: 1 })
+    const list = docs.map(d => {
+      const plainKey = decryptSecret(d.api_key) || ''
+      return {
+        id: String(d._id),
+        tier: d.tier,
+        provider: d.provider,
+        model: d.model,
+        api_base: d.api_base || '',
+        api_key: plainKey,
+        enabled: d.enabled,
+        priority: d.priority || 0,
+      }
+    })
+    res.json({ providers: list })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch raw providers' })
+  }
+})
+
+// ── POST /api/admin/ai-providers/bulk ────────────────────────────────────────
+// Bulk upsert/save providers from raw text/json input
+router.post('/bulk', midLimiter, async (req: AdminRequest, res: Response) => {
+  const { providers: rawList } = req.body
+  if (!Array.isArray(rawList)) {
+    return res.status(400).json({ error: 'Expected an array of providers.' })
+  }
+
+  try {
+    const results = []
+    for (const item of rawList) {
+      if (!item || typeof item !== 'object') continue
+      const { id, tier, provider, model, api_base, api_key, enabled, priority } = item
+
+      if (!tier || !TIER_KEYS.includes(tier)) {
+        return res.status(400).json({ error: `Invalid tier "${tier}". Must be one of: ${TIER_KEYS.join(', ')}` })
+      }
+      if (!model || typeof model !== 'string' || !model.trim()) {
+        return res.status(400).json({ error: `Provider under tier "${tier}" requires a valid model name.` })
+      }
+
+      let doc = null
+      if (id && Types.ObjectId.isValid(id)) {
+        doc = await AiProvider.findById(id)
+      }
+
+      const updateData: any = {
+        tier,
+        provider: (provider || 'openai').trim().toLowerCase(),
+        model: model.trim(),
+        api_base: api_base?.trim() || '',
+        enabled: enabled !== false,
+        priority: typeof priority === 'number' ? Math.max(0, priority) : 0,
+      }
+
+      if (typeof api_key === 'string' && api_key.trim().length > 0) {
+        updateData.api_key = encryptSecret(api_key.trim())
+      }
+
+      if (doc) {
+        Object.assign(doc, updateData)
+        await doc.save()
+        results.push(doc)
+      } else {
+        if (!updateData.api_key) updateData.api_key = ''
+        const created = await AiProvider.create(updateData)
+        results.push(created)
+      }
+    }
+
+    const reload = await triggerReload()
+
+    await writeLog({
+      action: 'BULK_UPDATE_AI_PROVIDERS',
+      status: 'success',
+      method: 'POST',
+      path: '/api/admin/ai-providers/bulk',
+      ipAddress: req.ip || req.socket.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      details: {
+        performedBy: req.userId,
+        count: results.length,
+        reload: { applied: reload.applied, total: reload.total, error: reload.error },
+      },
+    })
+
+    res.json({
+      message: `Successfully saved ${results.length} provider(s).`,
+      count: results.length,
+      reload,
+    })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to bulk save providers' })
+  }
+})
+
 // ── POST /api/admin/ai-providers/reload ───────────────────────────────────────
 router.post('/reload', midLimiter, async (req: AdminRequest, res: Response) => {
   const reload = await triggerReload()
